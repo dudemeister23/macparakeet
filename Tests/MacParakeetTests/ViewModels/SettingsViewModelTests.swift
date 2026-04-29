@@ -204,11 +204,19 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testMeetingAutoSaveMigratesLegacyTranscriptionSettings() {
-        testDefaults.set(true, forKey: AutoSaveService.enabledKey)
-        testDefaults.set(AutoSaveFormat.json.rawValue, forKey: AutoSaveService.formatKey)
-        AutoSaveService.storeFolder(youtubeDownloadsTestDir, defaults: testDefaults)
+        // setUp's vm already populated `testDefaults` for both scopes.
+        // To exercise the legacy upgrade path (transcription configured,
+        // meeting empty) we need a separate suite that hasn't been
+        // touched by ensureFolderConfigured yet.
+        let suite = "com.macparakeet.tests.legacy.\(UUID().uuidString)"
+        let fresh = UserDefaults(suiteName: suite)!
+        defer { fresh.removePersistentDomain(forName: suite) }
 
-        let vm = SettingsViewModel(defaults: testDefaults)
+        fresh.set(true, forKey: AutoSaveService.enabledKey)
+        fresh.set(AutoSaveFormat.json.rawValue, forKey: AutoSaveService.formatKey)
+        AutoSaveService.storeFolder(youtubeDownloadsTestDir, defaults: fresh)
+
+        let vm = SettingsViewModel(defaults: fresh)
 
         XCTAssertTrue(vm.meetingAutoSave)
         XCTAssertEqual(vm.meetingAutoSaveFormat, .json)
@@ -216,9 +224,85 @@ final class SettingsViewModelTests: XCTestCase {
             vm.meetingAutoSaveFolderPath.map { URL(fileURLWithPath: $0).standardizedFileURL.path },
             youtubeDownloadsTestDir.standardizedFileURL.path
         )
-        XCTAssertEqual(testDefaults.object(forKey: AutoSaveScope.meeting.enabledKey) as? Bool, true)
-        XCTAssertEqual(testDefaults.string(forKey: AutoSaveScope.meeting.formatKey), AutoSaveFormat.json.rawValue)
-        XCTAssertNotNil(testDefaults.data(forKey: AutoSaveScope.meeting.folderBookmarkKey))
+        XCTAssertEqual(fresh.object(forKey: AutoSaveScope.meeting.enabledKey) as? Bool, true)
+        XCTAssertEqual(fresh.string(forKey: AutoSaveScope.meeting.formatKey), AutoSaveFormat.json.rawValue)
+        XCTAssertNotNil(fresh.data(forKey: AutoSaveScope.meeting.folderBookmarkKey))
+    }
+
+    // MARK: - Auto-save folder configuration
+    //
+    // The folder is always set after init — to the user's chosen folder if
+    // they have one, or to the default `~/Documents/MacParakeet/...`
+    // otherwise. This collapses the entire bug class around "toggle ON ·
+    // no folder" because the no-folder state is unreachable in practice.
+
+    func testInitConfiguresDefaultFoldersWhenNoneStored() {
+        // setUp's `viewModel` already populated `testDefaults` via
+        // ensureFolderConfigured, so use a separate suite to observe
+        // the fresh-defaults case.
+        let suite = "com.macparakeet.tests.fresh.\(UUID().uuidString)"
+        let fresh = UserDefaults(suiteName: suite)!
+        defer { fresh.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(fresh.data(forKey: AutoSaveService.folderBookmarkKey))
+        XCTAssertNil(fresh.data(forKey: AutoSaveScope.meeting.folderBookmarkKey))
+
+        let vm = SettingsViewModel(defaults: fresh)
+
+        XCTAssertNotNil(vm.autoSaveFolderPath)
+        XCTAssertNotNil(vm.meetingAutoSaveFolderPath)
+        XCTAssertTrue(vm.autoSaveFolderPath?.contains("MacParakeet/Transcriptions") ?? false)
+        XCTAssertTrue(vm.meetingAutoSaveFolderPath?.contains("MacParakeet/Meetings") ?? false)
+    }
+
+    func testInitPreservesUserChosenFolder() {
+        // The user previously picked a custom folder. ensureFolderConfigured
+        // must not stomp it with the default.
+        AutoSaveService.storeFolder(youtubeDownloadsTestDir, defaults: testDefaults)
+
+        let vm = SettingsViewModel(defaults: testDefaults)
+
+        XCTAssertEqual(
+            vm.autoSaveFolderPath.map { URL(fileURLWithPath: $0).standardizedFileURL.path },
+            youtubeDownloadsTestDir.standardizedFileURL.path,
+            "User-chosen folders must survive init untouched."
+        )
+    }
+
+    func testResetAutoSaveFolderRestoresDefault() {
+        AutoSaveService.storeFolder(youtubeDownloadsTestDir, defaults: testDefaults)
+        viewModel.autoSaveTranscripts = true
+        viewModel.autoSaveFolderPath = youtubeDownloadsTestDir.path
+
+        viewModel.resetAutoSaveFolder()
+
+        XCTAssertNotNil(viewModel.autoSaveFolderPath)
+        XCTAssertTrue(viewModel.autoSaveFolderPath?.contains("MacParakeet/Transcriptions") ?? false)
+        XCTAssertTrue(viewModel.autoSaveTranscripts, "Reset must not silently disable the toggle.")
+    }
+
+    func testResetMeetingAutoSaveFolderRestoresDefault() {
+        AutoSaveService.storeFolder(youtubeDownloadsTestDir, scope: .meeting, defaults: testDefaults)
+        viewModel.meetingAutoSave = true
+        viewModel.meetingAutoSaveFolderPath = youtubeDownloadsTestDir.path
+
+        viewModel.resetMeetingAutoSaveFolder()
+
+        XCTAssertNotNil(viewModel.meetingAutoSaveFolderPath)
+        XCTAssertTrue(viewModel.meetingAutoSaveFolderPath?.contains("MacParakeet/Meetings") ?? false)
+        XCTAssertTrue(viewModel.meetingAutoSave)
+    }
+
+    func testEnsureFolderConfiguredIsIdempotent() {
+        // Running ensureFolderConfigured twice on a fresh defaults must
+        // produce the same path — the second call should see the first
+        // call's bookmark and not re-create or move the folder.
+        let first = AutoSaveService.ensureFolderConfigured(scope: .transcription, defaults: testDefaults)
+        let second = AutoSaveService.ensureFolderConfigured(scope: .transcription, defaults: testDefaults)
+
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(second)
+        XCTAssertEqual(first?.standardizedFileURL.path, second?.standardizedFileURL.path)
     }
 
     func testSilenceDelayDefaultsTo2WhenZero() {

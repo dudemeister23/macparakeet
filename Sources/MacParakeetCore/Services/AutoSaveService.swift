@@ -190,6 +190,67 @@ public final class AutoSaveService {
         defaults.removeObject(forKey: scope.folderBookmarkKey)
     }
 
+    /// The default destination for auto-saved files when the user hasn't
+    /// chosen one. Lives under `~/Documents/MacParakeet/{Transcriptions|Meetings}`
+    /// so the user can find their output via Finder / Spotlight without
+    /// digging into `~/Library`.
+    public static func defaultFolder(for scope: AutoSaveScope) -> URL {
+        let docs = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        let parent = docs.appendingPathComponent("MacParakeet", isDirectory: true)
+        switch scope {
+        case .transcription: return parent.appendingPathComponent("Transcriptions", isDirectory: true)
+        case .meeting: return parent.appendingPathComponent("Meetings", isDirectory: true)
+        }
+    }
+
+    /// Ensure the auto-save folder is configured for `scope`. Idempotent:
+    ///
+    /// - If a bookmark is already stored (even one that fails to resolve right
+    ///   now, e.g. a disconnected external drive) it is left untouched —
+    ///   never overwrite a user-chosen destination.
+    /// - If no bookmark exists, create the default folder on disk and store
+    ///   its bookmark.
+    ///
+    /// Returns the resolved folder URL on success, or `nil` if no bookmark
+    /// was stored and the default folder couldn't be created (extremely
+    /// rare — disk full, `~/Documents` read-only, etc.).
+    @discardableResult
+    public static func ensureFolderConfigured(scope: AutoSaveScope, defaults: UserDefaults = .standard) -> URL? {
+        if defaults.data(forKey: scope.folderBookmarkKey) != nil {
+            // Bookmark exists — preserve it even if stale / currently
+            // unresolvable. The user's previously-chosen destination is
+            // sacred; don't stomp it with a default.
+            return AutoSaveService(defaults: defaults).resolveFolder(scope: scope)
+        }
+        let defaultURL = defaultFolder(for: scope)
+        do {
+            try FileManager.default.createDirectory(at: defaultURL, withIntermediateDirectories: true)
+            _ = storeFolder(defaultURL, scope: scope, defaults: defaults)
+            return defaultURL
+        } catch {
+            return nil
+        }
+    }
+
+    /// Explicit reset to the default folder. Unlike `ensureFolderConfigured`,
+    /// this overwrites any existing bookmark — used by the "Reset" button so
+    /// the user can deliberately revert to default after picking a custom
+    /// destination.
+    @discardableResult
+    public static func resetFolderToDefault(scope: AutoSaveScope = .transcription, defaults: UserDefaults = .standard) -> URL? {
+        let defaultURL = defaultFolder(for: scope)
+        do {
+            try FileManager.default.createDirectory(at: defaultURL, withIntermediateDirectories: true)
+            _ = storeFolder(defaultURL, scope: scope, defaults: defaults)
+            return defaultURL
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Filename
 
     /// Build a deduplicated file URL for the given transcription.

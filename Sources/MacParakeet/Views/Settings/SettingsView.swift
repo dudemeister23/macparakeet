@@ -684,7 +684,7 @@ struct SettingsView: View {
             formatDetail: "File format for saved meetings.",
             panelMessage: "Select a folder for auto-saved meeting recordings",
             onChooseFolder: { viewModel.chooseMeetingAutoSaveFolder(url: $0) },
-            onClearFolder: { viewModel.clearMeetingAutoSaveFolder() }
+            onResetFolder: { viewModel.resetMeetingAutoSaveFolder() }
         )
     }
 
@@ -824,7 +824,7 @@ struct SettingsView: View {
             formatDetail: "File format for saved transcripts.",
             panelMessage: "Select a folder for auto-saved transcripts",
             onChooseFolder: { viewModel.chooseAutoSaveFolder(url: $0) },
-            onClearFolder: { viewModel.clearAutoSaveFolder() }
+            onResetFolder: { viewModel.resetAutoSaveFolder() }
         )
     }
 
@@ -834,7 +834,7 @@ struct SettingsView: View {
         formatDetail: String,
         panelMessage: String,
         onChooseFolder: @escaping (URL) -> Void,
-        onClearFolder: @escaping () -> Void
+        onResetFolder: @escaping () -> Void
     ) -> some View {
         VStack(spacing: DesignSystem.Spacing.sm) {
             HStack {
@@ -866,19 +866,11 @@ struct SettingsView: View {
                     }
                 }
                 Spacer(minLength: DesignSystem.Spacing.md)
-                if folderPath != nil {
-                    Button("Clear") { onClearFolder() }
-                        .buttonStyle(.bordered)
-                }
+                Button("Reset") { onResetFolder() }
+                    .buttonStyle(.bordered)
+                    .help("Reset to the default folder (~/Documents/MacParakeet)")
                 Button("Choose…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.canCreateDirectories = true
-                    panel.allowsMultipleSelection = false
-                    panel.prompt = "Choose"
-                    panel.message = panelMessage
-                    if panel.runModal() == .OK, let url = panel.url {
+                    if let url = Self.presentAutoSaveFolderPicker(message: panelMessage) {
                         onChooseFolder(url)
                     }
                 }
@@ -890,6 +882,21 @@ struct SettingsView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                 .fill(DesignSystem.Colors.surfaceElevated)
         )
+    }
+
+    /// Open the system folder picker. Returns the chosen URL or `nil` if the
+    /// user cancelled. Used both by the "Choose…" button in the auto-save
+    /// options row and by the toggle-binding interceptor that gathers a
+    /// folder before letting the toggle flip ON for the first time.
+    static func presentAutoSaveFolderPicker(message: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = message
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     // MARK: - AI Provider
