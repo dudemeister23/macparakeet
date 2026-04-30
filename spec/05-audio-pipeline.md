@@ -221,6 +221,8 @@ Audio files are kept by default. Users can delete manually from the transcriptio
 
 ### Concurrent Operation with Dictation (ADR-015)
 
+> **In transition (2026-04-30):** the "two independent `AVAudioEngine` instances" architecture below is **superseded** by `plans/active/shared-mic-engine.md` and the head-amendment on ADR-015. Steps 1–5 of the plan are implemented and verified on real hardware; the new architecture is gated behind `AppFeatures.useSharedMicEngine` (default off). The text below describes the legacy code path that still ships; it will be rewritten when the flag flips default-on (step 6) and the legacy paths are deleted (step 7). The new shape: a single process-wide `SharedMicrophoneStream` owns one `AVAudioEngine`, fans buffers out to dictation and meeting subscribers, and dictation extracts ch[0] from the VPIO duplex layout to get post-AEC mono.
+
 Meeting recording and dictation run concurrently as fully independent pipelines. Each owns its own `AVAudioEngine` instance:
 
 | Flow | Engine | Notes |

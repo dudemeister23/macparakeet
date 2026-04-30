@@ -1,32 +1,41 @@
 # Plan: Shared microphone engine for concurrent dictation + meeting
 
-> Status: **IN PROGRESS** — steps 1 + 2 complete (foundation + meeting-mic migration behind flag), steps 3-7 pending
+> Status: **IMPLEMENTATION COMPLETE, AWAITING FLAG FLIP** — steps 1-5 done, step 6 (flag flip + ship) is the remaining decision, step 7 (legacy cleanup) waits one DMG release after step 6.
 > Author: agent (Claude) + Daniel
-> Date: 2026-04-29 (revised 2026-04-30: scope pulled into v0.6.0; step 2 complete)
-> Related: PR #186 (VPIO + ScreenCaptureKit), ADR-015 (concurrent dictation), ADR-014 (meeting recording), `docs/research/vpio-process-tap-conflict.md` (option (d))
+> Date: 2026-04-29 (revised 2026-04-30: steps 2-5 complete, dev-soak in progress)
+> Related: PR #186 (VPIO + ScreenCaptureKit), ADR-015 (concurrent dictation — now amended), ADR-014 (meeting recording), `docs/research/vpio-process-tap-conflict.md` (option (d))
 
 ## Step status
 
 | Step | Status | Notes |
 |---|---|---|
 | 1. Build `SharedMicrophoneStream` + tests behind flag | ✅ Done | Commits `7f93935b` + `c7f690ea`. 2030 XCTest pass. Flag `AppFeatures.useSharedMicEngine = false`. |
-| 2. Migrate `MicrophoneCapture` to subscribe behind flag | ✅ Done | Platform device-fallback + onEngineDeath callback + flag-on subscriber path. 2039 XCTest pass (+9 new). Adapter still unverified against real hardware until step 3 soak. |
-| 3. Soak meeting recording with flag on (1 day) | ⬜ Next | Flip `AppFeatures.useSharedMicEngine = true` locally and run real meetings. The smoke test for `AVAudioEngineMicrophonePlatform`. |
-| 4. Migrate `AudioRecorder` (with ch[0] mono extraction) | ⬜ | |
-| 5. Concurrent-flow soak (the actual bug fix verification) | ⬜ | The test that motivated the whole plan. |
-| 6. Flip `AppFeatures.useSharedMicEngine = true` | ⬜ | After step 5 passes. |
-| 7. Delete old code paths + ADR-015 amendment | ⬜ | After one DMG release confirms no field issues. |
+| 2. Migrate `MicrophoneCapture` to subscribe behind flag | ✅ Done | Commits `7e57f5fb` + `a6f8595f`. Platform device-fallback + onEngineDeath callback + flag-on subscriber path. 2040 XCTest pass after codex-review fixes (watchdog timing + start-during-stop race guard). |
+| 3. Soak meeting recording with flag on (1 day) | ✅ Done | Real-hardware smoke verified 2026-04-30: `shared_mic_engine_input_device_started source=system_default vpio=true`, `microphone_capture_started shared_mic_engine=true sample_rate=48000 channels=9`, first buffer in 113ms, clean teardown. |
+| 4. Migrate `AudioRecorder` (with ch[0] mono extraction) | ✅ Done | Commit `0d9f8cad`. New `extractChannelZero(from:)` helper + actor-reentrancy guard. 2045 XCTest pass (+5 extraction unit tests). |
+| 5. Concurrent-flow soak (the actual bug fix verification) | ✅ Done | Real-hardware verification 2026-04-30: 4 dictations run during a single live meeting produced `rawChars=161, 135, 77, 319` — pre-fix this would have been silence. Engine transitions clean across meeting→standalone→meeting cycles. |
+| 6. Flip `AppFeatures.useSharedMicEngine = true` | ⬜ Next | Local soak ongoing. Flip in a follow-up commit (or merge this PR with flag still off and flip in a separate small PR) once 24h of varied real-world use surfaces nothing weird. |
+| 7. Delete old code paths + ADR-015 amendment finalization | ⬜ | After one DMG release with flag default-on confirms no field issues. The ADR-015 head-amendment from 2026-04-30 already declares the section-1 supersession; step 7 rewrites the body and removes the legacy code paths. |
 
-## Step 2 review notes (carry forward into steps 3-4)
+## Implementation summary
 
-- **Adapter still not exercised against real hardware.** `AVAudioEngineMicrophonePlatform.configureAndStart` plus its new device-fallback loop is unit-tested via mocks but no buffers have flowed through a real `AVAudioEngine` yet. Step 3 dev-test is the smoke.
-- **`MeetingMicrophoneCapturing.start` is now `async`.** This cascaded into `MeetingAudioCaptureService.start` (added `try await`) and `SettingsViewModel.testSelectedMicrophone` (added `try await`). The `stop()` side stayed sync — shared mode does fire-and-forget `Task { await stream.unsubscribe(token) }` so deinit cleanup still works.
-- **Device-selection migrated.** `AVAudioEngineMicrophonePlatform` now accepts an optional `DeviceAttemptsBuilder` closure and runs the selected→default→builtIn fallback inline (recreates engine per failed attempt, same shape as the old `installTapAndStartEngineWithFallback`). `AppEnvironment` builds the closure from `runtimePreferences.selectedMicrophoneDeviceUID`.
-- **Diagnostic-trail fidelity gap.** AudioCaptureDiagnostics events for per-device-attempt outcomes (`meeting_input_device_*`) now appear only as OSLog entries (`shared_mic_engine_input_device_*`) when in shared mode — the meeting forensic ring buffer no longer captures attempt detail. Acceptable for soak; revisit before flag-flip if step 3 surfaces a fallback that needs forensic context.
-- **`onEngineDeath` callback shipped.** Optional `EngineDeathHandler` on `subscribe`. Fires (off-lock, off engine queue) only when a deferred-VPIO promotion's reconfigure fails — not on normal teardown. `MicrophoneCapture` wires it to its `stallObserver` so engine death surfaces as `MeetingAudioError.captureRuntimeFailure` to the meeting service.
-- **Step-1 carry-forwards still pending or unchanged:**
-  - **Buffer fanout is allocation-free** on the render thread (cached snapshot), but the lock-based read still does an atomic refcount-inc on the Array's COW buffer. Bounded, render-thread-safe, but worth profiling once dictation also subscribes (step 4).
-  - **Deferral counter semantics:** increments per VPIO-request-deferred. Two VPIO subs joining during one non-VPIO blocker count as 2. Defensible but worth a comment when wiring telemetry.
+The committed work delivers the architecture described below, gated behind `AppFeatures.useSharedMicEngine` (default `false` on the merged branch):
+
+- `Sources/MacParakeetCore/Audio/SharedMicrophoneStream.swift` — one mic engine per process, fan-out to N subscribers, sticky VPIO with deferred engagement, `onEngineDeath` callback for promotion failures, allocation-free render-thread tap.
+- `Sources/MacParakeetCore/Audio/MicrophoneEnginePlatform.swift` — `AVAudioEngineMicrophonePlatform` adapter with optional `DeviceAttemptsBuilder` (selected→default→builtIn fallback chain, recreates engine per failed attempt, same shape as the legacy code).
+- `Sources/MacParakeetCore/Audio/MicrophoneCapture.swift` — accepts optional `sharedStream:` + `permissionProvider:`. When non-nil, `start()` (now `async`) subscribes with `wantsVPIO` derived from processing mode; vpioPreferred→raw fallback retried at this layer. Sync `stop()` does fire-and-forget unsubscribe so deinit cleanup still works.
+- `Sources/MacParakeetCore/Audio/AudioRecorder.swift` — same shape: optional `sharedStream:`, `start()` becomes async, `extractChannelZero(from:)` runs on every incoming buffer so dictation always reads the post-AEC mono regardless of VPIO state. Actor-reentrancy guard cleans up orphan tokens if `stop()` runs during the subscribe await.
+- `Sources/MacParakeet/App/AppEnvironment.swift` — constructs the singleton when the flag is on, threads it through to both `AudioProcessor` (dictation) and `MeetingAudioCaptureService` (meeting mic). Default off → both consumers fall back to their legacy private-engine paths bit-identical to today.
+
+Test totals: 2045 XCTest pass, 0 failures, 16 Swift Testing pass.
+
+## Carry-forward notes for step 6
+
+- **Diagnostic-trail fidelity gap.** `AudioCaptureDiagnostics` events for per-device-attempt outcomes appear only as OSLog (`shared_mic_engine_input_device_*`) in shared mode — the meeting forensic ring buffer no longer captures attempt detail. Acceptable for current soak; revisit before flag-flip if a fallback case shows up in field telemetry.
+- **`RecordingDeviceInfo` is `nil` in shared mode.** Device info now lives on the platform behind the stream; surfacing it through to the dictation history requires a small shim. UI handles `nil` today.
+- **Buffer fanout is allocation-free** on the render thread (cached snapshot), but the lock-based read does an atomic refcount-inc on Array's COW buffer. Bounded, render-thread-safe; worth profiling once both flows are running concurrently in production.
+- **Deferral counter semantics:** increments per VPIO-request-deferred. Two VPIO subs joining during one non-VPIO blocker count as 2 increments. Defensible but worth a comment when wiring telemetry.
+- **Edge cases not yet exercised on real hardware:** Bluetooth/HFP devices, AirPods → wired mid-session switching, USB hot-plug, sleep/wake, multi-day soak. The 1-day soak window is meant to flush these out before the step-6 flag flip.
 
 ---
 
