@@ -65,8 +65,17 @@ final class AppEnvironment {
         audioProcessor = AudioProcessor(
             selectedInputDeviceUIDProvider: selectedInputDeviceUIDProvider
         )
+        // Experiment: route mic capture through Apple's Voice Processing I/O
+        // (built-in AEC + NS + AGC) instead of the homegrown NLMS conditioner.
+        // `MeetingRecordingService.configureMicConditioner` auto-swaps to a
+        // no-op `VPIOConditioner` when VPIO engages, bypassing the custom AEC.
+        // Falls back to raw + SoftwareAECConditioner if VPIO can't engage.
+        // Flip back to `.raw` here to restore the previous pipeline.
+        let meetingMicProcessingMode: MeetingMicProcessingMode = .vpioPreferred
         meetingRecordingService = MeetingRecordingService(
+            micProcessingMode: meetingMicProcessingMode,
             audioCaptureService: MeetingAudioCaptureService(
+                micProcessingMode: meetingMicProcessingMode,
                 selectedInputDeviceUIDProvider: selectedInputDeviceUIDProvider,
                 sourceModeProvider: meetingAudioSourceModeProvider
             ),

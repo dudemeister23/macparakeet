@@ -11,14 +11,12 @@ final class CaptureOrchestratorTests: XCTestCase {
     private let cycleFrames = 8_000
     private let cyclesForOneChunk = 10
 
-    /// Bug repro: when the microphone tap delivers buffers whose `isHostTimeValid`
-    /// is false (so `hostTime` is nil) but the system tap delivers a real mach
-    /// uptime, the orchestrator used to leave mic at `startMs=0` while stamping
-    /// system chunks with the absolute uptime in ms. Downstream the assembler's
-    /// `normalizedWords()` couldn't repair the gap because mic's 0 became the
-    /// minimum, leaving system at uptime — the panel rendered as e.g. `1545:21`
-    /// for a 2:35 recording.
-    func testMicNilHostTime_systemValidUptime_keepsBothChunksWithinRecordingDuration() async {
+    /// Chunk timestamps come from each chunker's `totalSamplesProcessed`,
+    /// which the pair joiner keeps in lockstep with wallclock via silence
+    /// padding. Per-source `AVAudioTime.hostTime` plays no role in chunk
+    /// timestamping — so even pathological mixes (mic nil, system valid mach
+    /// uptime) can't leak absolute uptime into chunk startMs.
+    func testMicNilHostTime_systemValidUptime_keepsBothChunksAtZero() async {
         let orchestrator = CaptureOrchestrator()
         let conditioner = PassthroughMicConditioner()
 
@@ -36,23 +34,17 @@ final class CaptureOrchestratorTests: XCTestCase {
             return
         }
 
-        // Both chunks describe the same 5 s window, so their startMs values
-        // should sit within a single chunk-duration of each other.
-        let delta = abs(systemStart - micStart)
-        XCTAssertLessThan(
-            delta,
-            5_000,
-            "Cross-stream delta exploded: mic=\(micStart)ms system=\(systemStart)ms — system stamp leaked absolute uptime"
-        )
+        XCTAssertEqual(micStart, 0, "mic first chunk should start at 0; got \(micStart)ms")
+        XCTAssertEqual(systemStart, 0, "system first chunk should start at 0; got \(systemStart)ms")
     }
 
-    /// When both sources deliver valid hostTimes, the orchestrator should
-    /// preserve only the cross-stream delta — not the absolute uptime.
-    /// Pre-fix, both sources cached their own absolute uptime and added it
-    /// to every chunk; the assembler's later `normalizedWords()` masked the
-    /// breakage by subtracting the min, but only when both sources had
-    /// roughly equal first hostTimes. This test pins the relative semantics.
-    func testBothValidHostTimes_preserveCrossStreamDeltaNotAbsoluteUptime() async {
+    /// When both sources deliver valid hostTimes with a small startup delta
+    /// (e.g. system tap arrived 200ms after mic), the chunk timestamps still
+    /// come from the lockstep chunker counters — not from the hostTime delta.
+    /// Both first chunks should land at startMs=0 because both chunkers
+    /// processed their first chunkSize worth of samples in parallel
+    /// (the gap is absorbed by silence padding).
+    func testBothValidHostTimes_chunksAreLockstepNotHostTimeOffset() async {
         let orchestrator = CaptureOrchestrator()
         let conditioner = PassthroughMicConditioner()
 
@@ -71,27 +63,12 @@ final class CaptureOrchestratorTests: XCTestCase {
             return
         }
 
-        // The first source to publish a valid hostTime defines t=0, so its
-        // first chunk should land near startMs=0.
-        XCTAssertLessThan(
-            micStart,
-            5_000,
-            "mic startMs leaked absolute uptime: \(micStart)ms"
-        )
-        // The second source's first chunk should sit at the cross-stream delta —
-        // ~200 ms — not at uptime + 200.
-        XCTAssertLessThan(
-            systemStart,
-            5_000,
-            "system startMs leaked absolute uptime: \(systemStart)ms"
-        )
-        // And the delta itself should match the input (with mach-time rounding).
-        let delta = systemStart - micStart
+        XCTAssertEqual(micStart, 0, "mic first chunk leaked hostTime: \(micStart)ms")
+        XCTAssertEqual(systemStart, 0, "system first chunk leaked hostTime: \(systemStart)ms")
         XCTAssertEqual(
-            delta,
-            200,
-            accuracy: 2,
-            "cross-stream delta should be ~200ms, got \(delta)ms"
+            systemStart - micStart,
+            0,
+            "cross-stream delta must be zero — chunkers are kept lockstep with wallclock via silence padding, not offset by hostTime gap"
         )
     }
 
@@ -156,10 +133,8 @@ final class CaptureOrchestratorTests: XCTestCase {
 
     /// Defensive case: if neither source ever publishes a valid hostTime
     /// (both taps stay `isHostTimeValid == false` for the whole recording),
-    /// `sharedOriginMs` is never set and both sources fall back to offset 0.
-    /// Behavior is correct by construction but worth pinning so a future
-    /// refactor that, say, decides to default the origin from the wall clock
-    /// can't silently introduce drift between the two streams.
+    /// chunk timestamps still anchor at 0 because they're derived from the
+    /// chunkers' sample counters, not from hostTime.
     func testBothSourcesNilHostTimeForever_keepsBothAtZeroOffset() async {
         let orchestrator = CaptureOrchestrator()
         let conditioner = PassthroughMicConditioner()
@@ -181,8 +156,8 @@ final class CaptureOrchestratorTests: XCTestCase {
         XCTAssertEqual(systemStart, 0, "system startMs should fall back to 0 when no hostTime ever arrives")
     }
 
-    /// `reset()` must clear the shared origin so a fresh recording starts at
-    /// t=0 instead of latching onto the previous session's uptime baseline.
+    /// `reset()` must clear chunker state so a fresh recording starts at
+    /// t=0 instead of carrying the previous session's sample counters.
     func testResetClearsTimelineOriginAcrossRecordings() async {
         let orchestrator = CaptureOrchestrator()
         let conditioner = PassthroughMicConditioner()
