@@ -44,12 +44,13 @@ import os
 ///
 /// 7. **Engine death is observable.** When a deferred-VPIO promotion's
 ///    `tearDown → setVoiceProcessingEnabled → start` sequence fails, the
-///    engine is left stopped. `diagnostics.engineRunning` reflects this so
-///    subscribers can detect the dead-engine state and recover (typically
-///    by unsubscribing and re-subscribing). Step 2 will add an explicit
-///    subscriber-side death callback.
+///    engine is left stopped. `diagnostics.engineRunning` reflects this and
+///    each remaining subscriber's `onEngineDeath` callback fires (off-lock,
+///    off the engine queue) so consumers can surface a stall to the user
+///    instead of silently going quiet.
 public final class SharedMicrophoneStream: @unchecked Sendable {
     public typealias BufferHandler = @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    public typealias EngineDeathHandler = @Sendable () -> Void
 
     public struct SubscriberToken: Hashable, Sendable {
         public let id: UUID
@@ -73,6 +74,7 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
         let token: SubscriberToken
         let wantsVPIO: Bool
         let handler: BufferHandler
+        let onEngineDeath: EngineDeathHandler?
     }
 
     private struct State {
@@ -142,8 +144,15 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
     /// mutation, engine action, and rollback all run in a single task,
     /// so concurrent `subscribe`/`unsubscribe` callers never observe
     /// each other's optimistic state mid-failure.
+    ///
+    /// `onEngineDeath` fires (off-lock, off the engine queue) if a
+    /// deferred-VPIO promotion fails after this subscriber is registered,
+    /// leaving the engine stopped. Subscribers should treat the callback as
+    /// "you are no longer receiving buffers; surface a stall and either
+    /// retry or escalate." It does **not** fire for normal teardown.
     public func subscribe(
         wantsVPIO: Bool,
+        onEngineDeath: EngineDeathHandler? = nil,
         handler: @escaping BufferHandler
     ) async throws -> SubscriberToken {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<SubscriberToken, Error>) in
@@ -158,7 +167,8 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                         state: &state,
                         token: token,
                         wantsVPIO: wantsVPIO,
-                        handler: handler
+                        handler: handler,
+                        onEngineDeath: onEngineDeath
                     )
                     Self.refreshHandlersSnapshot(&state)
                     return act
@@ -221,17 +231,23 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                 } catch {
                     switch action {
                     case .reconfigureToVPIO:
-                        self.lock.withLock { state in
+                        let deathCallbacks: [EngineDeathHandler] = self.lock.withLock { state in
                             state.vpioEngaged = false
                             // Engine was torn down inside configureAndStart
                             // before the VPIO start failed — it's stopped,
                             // not running raw.
                             state.engineRunning = false
                             state.vpioDeferred = !state.subscribers.isEmpty
+                            return state.subscribers.values.compactMap(\.onEngineDeath)
                         }
                         self.logger.error(
                             "shared_mic_engine_reconfigure_failed engine_dead=true reason=\(error.localizedDescription, privacy: .public)"
                         )
+                        // Fire callbacks off-lock so a slow handler doesn't
+                        // block subsequent subscribe/unsubscribe traffic.
+                        for callback in deathCallbacks {
+                            callback()
+                        }
                     case .stopEngine:
                         self.logger.error(
                             "shared_mic_engine_stop_failed reason=\(error.localizedDescription, privacy: .public)"
@@ -259,11 +275,17 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
         state: inout State,
         token: SubscriberToken,
         wantsVPIO: Bool,
-        handler: @escaping BufferHandler
+        handler: @escaping BufferHandler,
+        onEngineDeath: EngineDeathHandler?
     ) -> EngineAction {
         let isFirst = state.subscribers.isEmpty
         let hasNonVPIOInFlight = state.subscribers.values.contains { !$0.wantsVPIO }
-        state.subscribers[token] = Subscriber(token: token, wantsVPIO: wantsVPIO, handler: handler)
+        state.subscribers[token] = Subscriber(
+            token: token,
+            wantsVPIO: wantsVPIO,
+            handler: handler,
+            onEngineDeath: onEngineDeath
+        )
 
         if isFirst {
             state.engineRunning = true

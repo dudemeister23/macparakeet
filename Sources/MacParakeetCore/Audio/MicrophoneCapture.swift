@@ -2,19 +2,24 @@ import Foundation
 import OSLog
 @preconcurrency import AVFoundation
 
-struct MeetingInputDeviceAttempt: Equatable, Sendable {
-    enum Source: Equatable, Sendable {
+public struct MeetingInputDeviceAttempt: Equatable, Sendable {
+    public enum Source: Equatable, Sendable {
         case selected(uid: String)
         case systemDefault
         case builtIn
     }
 
-    let source: Source
-    let deviceID: AudioDeviceID
+    public let source: Source
+    public let deviceID: AudioDeviceID
+
+    public init(source: Source, deviceID: AudioDeviceID) {
+        self.source = source
+        self.deviceID = deviceID
+    }
 }
 
 extension MeetingInputDeviceAttempt.Source {
-    var logValue: String {
+    public var logValue: String {
         switch self {
         case .selected:
             return "selected"
@@ -26,7 +31,7 @@ extension MeetingInputDeviceAttempt.Source {
     }
 }
 
-func meetingInputDeviceAttempts(
+public func meetingInputDeviceAttempts(
     selectedUID: String?,
     selectedInputDeviceID: (String) -> AudioDeviceID?,
     defaultInputDevice: () -> AudioDeviceID?,
@@ -65,15 +70,24 @@ public final class MicrophoneCapture: @unchecked Sendable {
     private let watchdogQueue = DispatchQueue(label: "com.macparakeet.microphonecapture.watchdog", qos: .utility)
     private let handlerLock = NSLock()
     private let selectedInputDeviceUIDProvider: @Sendable () -> String?
-    /// Recreated on every `start()` so each meeting session gets a fresh
-    /// AVAudioEngine. Critical when VPIO is in use: coreaudiod ties the
-    /// `CADefaultDeviceAggregate-<pid>-N` VPAU aggregate to a specific engine
-    /// instance and won't release it until that engine is deallocated. A
-    /// long-lived engine keeps the VPAU alive indefinitely, which makes the
-    /// VPAU the system default input — every later AVAudioEngine in the
-    /// process (e.g. dictation's) inherits the 3-channel duplex layout and
-    /// reads silence on channel 0. Destroying and recreating per-session
-    /// forces coreaudiod to GC the VPAU between meetings.
+    private let permissionProvider: @Sendable () -> Bool
+    /// When non-nil, `start()`/`stop()` route through this shared stream
+    /// instead of owning a private `AVAudioEngine`. Set behind
+    /// `AppFeatures.useSharedMicEngine` so dictation can run concurrently
+    /// with meeting recording. The legacy private-engine path stays intact
+    /// when this is `nil` so the flag-off rollout is bit-identical to today.
+    private let sharedStream: SharedMicrophoneStream?
+    /// Recreated on every legacy `start()` so each meeting session gets a
+    /// fresh AVAudioEngine. Critical when VPIO is in use: coreaudiod ties
+    /// the `CADefaultDeviceAggregate-<pid>-N` VPAU aggregate to a specific
+    /// engine instance and won't release it until that engine is
+    /// deallocated. A long-lived engine keeps the VPAU alive indefinitely,
+    /// which makes the VPAU the system default input — every later
+    /// AVAudioEngine in the process (e.g. dictation's) inherits the
+    /// 3-channel duplex layout and reads silence on channel 0. Destroying
+    /// and recreating per-session forces coreaudiod to GC the VPAU between
+    /// meetings. Unused in shared-stream mode (the stream owns engine
+    /// lifetime).
     private var audioEngine = AVAudioEngine()
     private let bufferSize: AVAudioFrameCount = 4096
     private let watchdogLock = NSLock()
@@ -83,15 +97,33 @@ public final class MicrophoneCapture: @unchecked Sendable {
     private var stallObserver: StallObserver?
     private var firstBufferReceived = false
     private var watchdogWorkItem: DispatchWorkItem?
+    /// Subscribed token while running in shared-stream mode. Snapshotted by
+    /// `stop()` and `deinit` so unsubscribe can fire without holding `self`.
+    private var sharedSubscriberToken: SharedMicrophoneStream.SubscriberToken?
 
     public init(
-        selectedInputDeviceUIDProvider: @escaping @Sendable () -> String? = { nil }
+        selectedInputDeviceUIDProvider: @escaping @Sendable () -> String? = { nil },
+        sharedStream: SharedMicrophoneStream? = nil,
+        permissionProvider: @escaping @Sendable () -> Bool = {
+            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        }
     ) {
         self.selectedInputDeviceUIDProvider = selectedInputDeviceUIDProvider
+        self.sharedStream = sharedStream
+        self.permissionProvider = permissionProvider
     }
 
     deinit {
-        stop()
+        // Snapshot tokens off `self` because Task captures must outlive deinit.
+        let token = lifecycleQueue.sync { sharedSubscriberToken }
+        if let token, let stream = sharedStream {
+            // Fire-and-forget: the stream's engine queue serializes the
+            // unsubscribe behind any pending operations, so cleanup happens
+            // even though we can't await from deinit.
+            Task { await stream.unsubscribe(token) }
+        } else {
+            stop()
+        }
     }
 
     public static var hasPermission: Bool {
@@ -99,6 +131,9 @@ public final class MicrophoneCapture: @unchecked Sendable {
     }
 
     public var inputFormat: AVAudioFormat? {
+        if let sharedStream {
+            return sharedStream.inputFormat
+        }
         // Snapshot the engine under the lifecycle lock and only resolve a
         // format when actively running. The engine is recreated on `stop()`
         // (ephemeral pattern for VPAU teardown), so an unsynchronized read
@@ -125,6 +160,25 @@ public final class MicrophoneCapture: @unchecked Sendable {
         processingMode: MeetingMicProcessingMode = .raw,
         handler: @escaping AudioBufferHandler,
         onStall: StallObserver? = nil
+    ) async throws -> MeetingMicrophoneCaptureStartReport {
+        if sharedStream != nil {
+            return try await startSharedMode(
+                processingMode: processingMode,
+                handler: handler,
+                onStall: onStall
+            )
+        }
+        return try startLegacyMode(
+            processingMode: processingMode,
+            handler: handler,
+            onStall: onStall
+        )
+    }
+
+    private func startLegacyMode(
+        processingMode: MeetingMicProcessingMode,
+        handler: @escaping AudioBufferHandler,
+        onStall: StallObserver?
     ) throws -> MeetingMicrophoneCaptureStartReport {
         var startError: Error?
         var didStart = false
@@ -139,7 +193,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
                 return
             }
 
-            guard Self.hasPermission else {
+            guard permissionProvider() else {
                 startError = MeetingAudioError.microphonePermissionDenied
                 return
             }
@@ -200,7 +254,179 @@ public final class MicrophoneCapture: @unchecked Sendable {
         return startReport
     }
 
+    /// Shared-stream path: subscribe to the process-wide `SharedMicrophoneStream`
+    /// instead of owning a private engine. Permission, watchdog, processing-mode
+    /// preferred→raw fallback, and diagnostics events stay at this layer so the
+    /// MeetingAudioCaptureService consumer sees identical telemetry shape.
+    private func startSharedMode(
+        processingMode: MeetingMicProcessingMode,
+        handler: @escaping AudioBufferHandler,
+        onStall: StallObserver?
+    ) async throws -> MeetingMicrophoneCaptureStartReport {
+        guard let sharedStream else {
+            // Programmer error — startSharedMode must only be called when
+            // sharedStream is non-nil.
+            throw MeetingAudioError.audioEngineStartFailed("shared mic stream missing")
+        }
+
+        let alreadyStarting: Bool = lifecycleQueue.sync {
+            guard state == .idle else { return true }
+            state = .starting
+            return false
+        }
+        if alreadyStarting {
+            throw MeetingAudioError.alreadyRunning
+        }
+
+        guard permissionProvider() else {
+            lifecycleQueue.sync { state = .idle }
+            AudioCaptureDiagnostics.append(
+                "meeting_mic_capture_start_failed mode=\(String(describing: processingMode)) reason=\"permission_denied\" shared_mic_engine=true"
+            )
+            throw MeetingAudioError.microphonePermissionDenied
+        }
+
+        AudioCaptureDiagnostics.append(
+            "meeting_mic_capture_starting requested_mode=\(String(describing: processingMode)) shared_mic_engine=true default_input_pre=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+        )
+
+        handlerLock.withLock {
+            bufferHandler = handler
+            stallObserver = onStall
+        }
+
+        let bufferDispatch: SharedMicrophoneStream.BufferHandler = { [weak self] buffer, time in
+            guard let self else { return }
+            self.markFirstBufferReceived()
+            let cb = self.handlerLock.withLock { self.bufferHandler }
+            cb?(buffer, time)
+        }
+        let deathDispatch: SharedMicrophoneStream.EngineDeathHandler = { [weak self] in
+            guard let self else { return }
+            let observer = self.handlerLock.withLock { self.stallObserver }
+            observer?(.captureRuntimeFailure(
+                "shared microphone engine stopped unexpectedly"
+            ))
+        }
+
+        scheduleSilentBufferWatchdog()
+
+        let wantsVPIO: Bool
+        switch processingMode {
+        case .raw:
+            wantsVPIO = false
+        case .vpioPreferred, .vpioRequired:
+            wantsVPIO = true
+        }
+
+        let token: SharedMicrophoneStream.SubscriberToken
+        var effectiveMode: MeetingMicProcessingEffectiveMode
+        do {
+            token = try await sharedStream.subscribe(
+                wantsVPIO: wantsVPIO,
+                onEngineDeath: deathDispatch,
+                handler: bufferDispatch
+            )
+            // Engine is up. The effective mode reflects what the engine is
+            // actually producing right now — `vpioEngaged=false` while a
+            // non-VPIO subscriber holds the engine raw means the meeting is
+            // currently capturing raw mic; engagement flips later when the
+            // blocker leaves.
+            effectiveMode = sharedStream.diagnostics.vpioEngaged ? .vpio : .raw
+        } catch {
+            switch processingMode {
+            case .vpioPreferred:
+                logger.warning(
+                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw shared=true reason=\(error.localizedDescription, privacy: .public)"
+                )
+                AudioCaptureDiagnostics.append(
+                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw shared_mic_engine=true reason=\"\(error.localizedDescription)\""
+                )
+                do {
+                    token = try await sharedStream.subscribe(
+                        wantsVPIO: false,
+                        onEngineDeath: deathDispatch,
+                        handler: bufferDispatch
+                    )
+                    effectiveMode = .raw
+                } catch let fallbackError {
+                    finalizeSharedFailure(
+                        processingMode: processingMode,
+                        reason: fallbackError.localizedDescription
+                    )
+                    throw MeetingAudioError.audioEngineStartFailed(fallbackError.localizedDescription)
+                }
+            case .vpioRequired:
+                AudioCaptureDiagnostics.append(
+                    "meeting_mic_processing_unavailable mode=vpioRequired shared_mic_engine=true reason=\"\(error.localizedDescription)\""
+                )
+                finalizeSharedFailure(
+                    processingMode: processingMode,
+                    reason: error.localizedDescription
+                )
+                throw MeetingAudioError.microphoneProcessingUnavailable(
+                    mode: .vpioRequired,
+                    reason: error.localizedDescription
+                )
+            case .raw:
+                finalizeSharedFailure(
+                    processingMode: processingMode,
+                    reason: error.localizedDescription
+                )
+                throw MeetingAudioError.audioEngineStartFailed(error.localizedDescription)
+            }
+        }
+
+        // Subscribe succeeded — record state for stop().
+        lifecycleQueue.sync {
+            sharedSubscriberToken = token
+            state = .running
+        }
+
+        AudioCaptureDiagnostics.append(
+            "meeting_mic_processing mode=\(effectiveMode.rawValue) shared_mic_engine=true"
+        )
+
+        let activeFormat = sharedStream.inputFormat
+        let activeSampleRate = activeFormat?.sampleRate ?? 0
+        let activeChannelCount = activeFormat?.channelCount ?? 0
+        let activeInterleaved = activeFormat?.isInterleaved ?? false
+        logger.info(
+            "microphone_capture_started shared_mic_engine=true requested_mode=\(String(describing: processingMode), privacy: .public) effective_mode=\(effectiveMode.rawValue, privacy: .public) sample_rate=\(activeSampleRate, privacy: .public) channels=\(activeChannelCount, privacy: .public) interleaved=\(activeInterleaved, privacy: .public)"
+        )
+        AudioCaptureDiagnostics.append(
+            "meeting_mic_capture_started requested_mode=\(String(describing: processingMode)) effective_mode=\(effectiveMode.rawValue) sr=\(activeSampleRate) ch=\(activeChannelCount) shared_mic_engine=true default_input=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+        )
+
+        return MeetingMicrophoneCaptureStartReport(
+            requestedMode: processingMode,
+            effectiveMode: effectiveMode
+        )
+    }
+
+    private func finalizeSharedFailure(
+        processingMode: MeetingMicProcessingMode,
+        reason: String
+    ) {
+        handlerLock.withLock {
+            bufferHandler = nil
+            stallObserver = nil
+        }
+        resetDiagnosticsState()
+        lifecycleQueue.sync {
+            state = .idle
+        }
+        AudioCaptureDiagnostics.append(
+            "meeting_mic_capture_start_failed mode=\(String(describing: processingMode)) reason=\"\(reason)\" shared_mic_engine=true"
+        )
+    }
+
     public func stop() {
+        if sharedStream != nil {
+            stopSharedMode()
+            return
+        }
+
         var didStop = false
 
         lifecycleQueue.sync {
@@ -233,6 +459,31 @@ public final class MicrophoneCapture: @unchecked Sendable {
                 "meeting_mic_capture_stopped engine_recreated=true default_input_post=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
             )
         }
+    }
+
+    private func stopSharedMode() {
+        let snapshot: SharedMicrophoneStream.SubscriberToken? = lifecycleQueue.sync {
+            guard state != .idle else { return nil }
+            state = .stopping
+            let token = sharedSubscriberToken
+            sharedSubscriberToken = nil
+            handlerLock.withLock {
+                bufferHandler = nil
+                stallObserver = nil
+            }
+            resetDiagnosticsState()
+            state = .idle
+            return token
+        }
+        guard let token = snapshot, let stream = sharedStream else { return }
+        // Fire-and-forget so `stop()` stays synchronous (the protocol requires
+        // it for the deinit path). The stream's engine queue serializes the
+        // unsubscribe behind any pending operations.
+        Task { await stream.unsubscribe(token) }
+        logger.info("microphone_capture_stopped shared_mic_engine=true")
+        AudioCaptureDiagnostics.append(
+            "meeting_mic_capture_stopped shared_mic_engine=true default_input_post=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+        )
     }
 
     private func installTapAndStartEngine(

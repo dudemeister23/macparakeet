@@ -1,29 +1,32 @@
 # Plan: Shared microphone engine for concurrent dictation + meeting
 
-> Status: **IN PROGRESS** — step 1 complete (foundation behind flag), steps 2-7 pending
+> Status: **IN PROGRESS** — steps 1 + 2 complete (foundation + meeting-mic migration behind flag), steps 3-7 pending
 > Author: agent (Claude) + Daniel
-> Date: 2026-04-29 (revised 2026-04-30: scope pulled into v0.6.0)
+> Date: 2026-04-29 (revised 2026-04-30: scope pulled into v0.6.0; step 2 complete)
 > Related: PR #186 (VPIO + ScreenCaptureKit), ADR-015 (concurrent dictation), ADR-014 (meeting recording), `docs/research/vpio-process-tap-conflict.md` (option (d))
 
 ## Step status
 
 | Step | Status | Notes |
 |---|---|---|
-| 1. Build `SharedMicrophoneStream` + tests behind flag | ✅ Done | Commits `7f93935b` + `c7f690ea` on `feat/shared-mic-engine-plan`. 2030 XCTest pass. Flag `AppFeatures.useSharedMicEngine = false`. |
-| 2. Migrate `MicrophoneCapture` to subscribe behind flag | ⬜ Next | Adapter unverified against real hardware until this lands. |
-| 3. Soak meeting recording with flag on (1 day) | ⬜ | Step 2's dev-test cycle. |
+| 1. Build `SharedMicrophoneStream` + tests behind flag | ✅ Done | Commits `7f93935b` + `c7f690ea`. 2030 XCTest pass. Flag `AppFeatures.useSharedMicEngine = false`. |
+| 2. Migrate `MicrophoneCapture` to subscribe behind flag | ✅ Done | Platform device-fallback + onEngineDeath callback + flag-on subscriber path. 2039 XCTest pass (+9 new). Adapter still unverified against real hardware until step 3 soak. |
+| 3. Soak meeting recording with flag on (1 day) | ⬜ Next | Flip `AppFeatures.useSharedMicEngine = true` locally and run real meetings. The smoke test for `AVAudioEngineMicrophonePlatform`. |
 | 4. Migrate `AudioRecorder` (with ch[0] mono extraction) | ⬜ | |
 | 5. Concurrent-flow soak (the actual bug fix verification) | ⬜ | The test that motivated the whole plan. |
 | 6. Flip `AppFeatures.useSharedMicEngine = true` | ⬜ | After step 5 passes. |
 | 7. Delete old code paths + ADR-015 amendment | ⬜ | After one DMG release confirms no field issues. |
 
-## Step 1 review notes (carry forward into step 2)
+## Step 2 review notes (carry forward into steps 3-4)
 
-- **Adapter not yet exercised against real hardware.** `AVAudioEngineMicrophonePlatform.configureAndStart` is unit-tested via mock but never run with a real `AVAudioEngine`. Step 2's dev-test on meeting recording is the smoke test.
-- **Device-selection / fallback machinery still in `MicrophoneCapture`** — `selectedInputDeviceUIDProvider`, default-input change listener, `setInputDevice` rebind chain, diagnostic events. All needs to migrate to the platform / shared stream as part of step 2.
-- **Deferred-VPIO promotion failure marks engine dead** but there's no subscriber-side death notification yet. Consumers must poll `diagnostics.engineRunning`. Step 2 should add an explicit `onEngineDeath` callback.
-- **Buffer fanout is allocation-free** on the render thread (cached snapshot), but the lock-based read still does an atomic refcount-inc on the Array's COW buffer. Bounded, render-thread-safe, but worth profiling once consumers are wired.
-- **Deferral counter semantics:** increments per VPIO-request-deferred. Two VPIO subs joining during one non-VPIO blocker count as 2. Defensible but worth a comment when wiring telemetry.
+- **Adapter still not exercised against real hardware.** `AVAudioEngineMicrophonePlatform.configureAndStart` plus its new device-fallback loop is unit-tested via mocks but no buffers have flowed through a real `AVAudioEngine` yet. Step 3 dev-test is the smoke.
+- **`MeetingMicrophoneCapturing.start` is now `async`.** This cascaded into `MeetingAudioCaptureService.start` (added `try await`) and `SettingsViewModel.testSelectedMicrophone` (added `try await`). The `stop()` side stayed sync — shared mode does fire-and-forget `Task { await stream.unsubscribe(token) }` so deinit cleanup still works.
+- **Device-selection migrated.** `AVAudioEngineMicrophonePlatform` now accepts an optional `DeviceAttemptsBuilder` closure and runs the selected→default→builtIn fallback inline (recreates engine per failed attempt, same shape as the old `installTapAndStartEngineWithFallback`). `AppEnvironment` builds the closure from `runtimePreferences.selectedMicrophoneDeviceUID`.
+- **Diagnostic-trail fidelity gap.** AudioCaptureDiagnostics events for per-device-attempt outcomes (`meeting_input_device_*`) now appear only as OSLog entries (`shared_mic_engine_input_device_*`) when in shared mode — the meeting forensic ring buffer no longer captures attempt detail. Acceptable for soak; revisit before flag-flip if step 3 surfaces a fallback that needs forensic context.
+- **`onEngineDeath` callback shipped.** Optional `EngineDeathHandler` on `subscribe`. Fires (off-lock, off engine queue) only when a deferred-VPIO promotion's reconfigure fails — not on normal teardown. `MicrophoneCapture` wires it to its `stallObserver` so engine death surfaces as `MeetingAudioError.captureRuntimeFailure` to the meeting service.
+- **Step-1 carry-forwards still pending or unchanged:**
+  - **Buffer fanout is allocation-free** on the render thread (cached snapshot), but the lock-based read still does an atomic refcount-inc on the Array's COW buffer. Bounded, render-thread-safe, but worth profiling once dictation also subscribes (step 4).
+  - **Deferral counter semantics:** increments per VPIO-request-deferred. Two VPIO subs joining during one non-VPIO blocker count as 2. Defensible but worth a comment when wiring telemetry.
 
 ---
 

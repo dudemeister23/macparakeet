@@ -27,7 +27,7 @@ protocol MeetingMicrophoneCapturing: Sendable {
         processingMode: MeetingMicProcessingMode,
         handler: @escaping AudioBufferHandler,
         onStall: StallObserver?
-    ) throws -> MeetingMicrophoneCaptureStartReport
+    ) async throws -> MeetingMicrophoneCaptureStartReport
     func stop()
 }
 
@@ -68,10 +68,12 @@ public actor MeetingAudioCaptureService {
     public init(
         micProcessingMode: MeetingMicProcessingMode = .raw,
         selectedInputDeviceUIDProvider: @escaping @Sendable () -> String? = { nil },
-        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem }
+        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem },
+        sharedMicStream: SharedMicrophoneStream? = nil
     ) {
         self.microphoneCapture = MicrophoneCapture(
-            selectedInputDeviceUIDProvider: selectedInputDeviceUIDProvider
+            selectedInputDeviceUIDProvider: selectedInputDeviceUIDProvider,
+            sharedStream: sharedMicStream
         )
         self.micProcessingMode = micProcessingMode
         self.sourceModeProvider = sourceModeProvider
@@ -146,7 +148,7 @@ public actor MeetingAudioCaptureService {
         do {
             if sourceMode.capturesMicrophone {
                 attemptedMicrophoneStart = true
-                microphoneStartReport = try microphoneCapture.start(
+                microphoneStartReport = try await microphoneCapture.start(
                     processingMode: micProcessingMode,
                     handler: { [weak self] buffer, time in
                         guard let copy = Self.deepCopyBuffer(buffer) else {

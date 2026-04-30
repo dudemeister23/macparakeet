@@ -71,12 +71,36 @@ final class AppEnvironment {
         // logs a warning so the case shows up in telemetry. Flip to `.raw` here
         // only as a last-resort kill switch.
         let meetingMicProcessingMode: MeetingMicProcessingMode = .vpioPreferred
+        let sharedMicStream: SharedMicrophoneStream?
+        if AppFeatures.useSharedMicEngine {
+            // Build the device-attempt chain lazily on each engine start so a
+            // user changing their mic in Settings between meetings sees the
+            // new selection.
+            let attemptsBuilder: AVAudioEngineMicrophonePlatform.DeviceAttemptsBuilder = {
+                let selectedUID = AudioDeviceManager.normalizedUID(selectedInputDeviceUIDProvider())
+                let selectedID = selectedUID.flatMap { AudioDeviceManager.inputDeviceID(forUID: $0) }
+                let defaultID = AudioDeviceManager.defaultInputDevice()
+                let builtInID = AudioDeviceManager.builtInMicrophone()
+                return meetingInputDeviceAttempts(
+                    selectedUID: selectedUID,
+                    selectedInputDeviceID: { _ in selectedID },
+                    defaultInputDevice: { defaultID },
+                    builtInMicrophone: { builtInID }
+                )
+            }
+            sharedMicStream = SharedMicrophoneStream(
+                platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
+            )
+        } else {
+            sharedMicStream = nil
+        }
         meetingRecordingService = MeetingRecordingService(
             micProcessingMode: meetingMicProcessingMode,
             audioCaptureService: MeetingAudioCaptureService(
                 micProcessingMode: meetingMicProcessingMode,
                 selectedInputDeviceUIDProvider: selectedInputDeviceUIDProvider,
-                sourceModeProvider: meetingAudioSourceModeProvider
+                sourceModeProvider: meetingAudioSourceModeProvider,
+                sharedMicStream: sharedMicStream
             ),
             sttTranscriber: sttScheduler
         )

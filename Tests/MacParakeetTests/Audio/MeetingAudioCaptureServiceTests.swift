@@ -383,7 +383,7 @@ private final class MockMeetingMicrophoneCapture: MeetingMicrophoneCapturing, @u
         processingMode: MeetingMicProcessingMode,
         handler: @escaping AudioBufferHandler,
         onStall: StallObserver?
-    ) throws -> MeetingMicrophoneCaptureStartReport {
+    ) async throws -> MeetingMicrophoneCaptureStartReport {
         self.handler = handler
         self.stallObserver = onStall
         requestedModes.append(processingMode)

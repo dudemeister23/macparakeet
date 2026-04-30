@@ -772,7 +772,7 @@ public final class SettingsViewModel {
             guard let self else { return }
             let capture = MicrophoneCapture(selectedInputDeviceUIDProvider: { selectedUID })
             do {
-                _ = try capture.start(processingMode: .raw) { buffer, _ in
+                _ = try await capture.start(processingMode: .raw) { buffer, _ in
                     levelBox.record(buffer.rmsLevel)
                 }
                 for _ in 0..<40 {

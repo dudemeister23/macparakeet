@@ -225,6 +225,47 @@ final class SharedMicrophoneStreamTests: XCTestCase {
         await stream.unsubscribe(t2)
     }
 
+    func testDeferredVPIOPromotionFailureFiresEngineDeathCallbacks() async throws {
+        // When the deferred-VPIO promotion sequence fails on unsubscribe, the
+        // engine is dead. Remaining subscribers must be told via their
+        // `onEngineDeath` callback (off-lock, off the engine queue) so they
+        // can surface a stall — diagnostics-polling alone is too quiet.
+        let leavingDeath = TestCounter()
+        let stayingDeath = TestCounter()
+
+        let t1 = try await stream.subscribe(
+            wantsVPIO: false,
+            onEngineDeath: { leavingDeath.increment() }
+        ) { _, _ in }
+        let t2 = try await stream.subscribe(
+            wantsVPIO: true,
+            onEngineDeath: { stayingDeath.increment() }
+        ) { _, _ in }
+        XCTAssertTrue(stream.diagnostics.vpioDeferred)
+
+        platform.configureAndStartError = MockError.simulatedFailure
+        await stream.unsubscribe(t1)
+
+        XCTAssertEqual(leavingDeath.value, 0, "The unsubscribed subscriber must not get the death callback")
+        XCTAssertEqual(stayingDeath.value, 1, "The remaining subscriber observes engine death once")
+
+        await stream.unsubscribe(t2)
+    }
+
+    func testEngineDeathCallbackOptionalForBackwardsCompat() async throws {
+        // Subscribers that don't pass onEngineDeath must keep working — the
+        // promotion failure handles `nil` callbacks without trying to fire
+        // them.
+        let t1 = try await stream.subscribe(wantsVPIO: false) { _, _ in }
+        let t2 = try await stream.subscribe(wantsVPIO: true) { _, _ in }
+
+        platform.configureAndStartError = MockError.simulatedFailure
+        await stream.unsubscribe(t1)
+
+        XCTAssertFalse(stream.diagnostics.engineRunning)
+        await stream.unsubscribe(t2)
+    }
+
     func testDeferredVPIOPromotionFailureMarksEngineDead() async throws {
         // The reconfigure-to-VPIO action is reachable only via the
         // unsubscribe path: a deferred VPIO subscriber gets promoted when
