@@ -14,6 +14,7 @@ final class AppEnvironment {
     let promptResultRepo: PromptResultRepository
     let sttRuntime: STTRuntime
     let sttScheduler: STTScheduler
+    let sharedMicStream: SharedMicrophoneStream
     let audioProcessor: AudioProcessor
     let meetingRecordingService: MeetingRecordingService
     let meetingRecordingRecoveryService: MeetingRecordingRecoveryService
@@ -83,7 +84,7 @@ final class AppEnvironment {
                 builtInMicrophone: { builtInID }
             )
         }
-        let sharedMicStream = SharedMicrophoneStream(
+        sharedMicStream = SharedMicrophoneStream(
             platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
         )
         audioProcessor = AudioProcessor(sharedMicStream: sharedMicStream)

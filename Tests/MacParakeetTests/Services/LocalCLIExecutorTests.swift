@@ -13,6 +13,17 @@ final class LocalCLIExecutorTests: XCTestCase {
         return errno == EPERM
     }
 
+    private func waitForFiles(_ paths: [String], timeout: TimeInterval) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if paths.allSatisfy({ FileManager.default.fileExists(atPath: $0) }) {
+                return true
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return paths.allSatisfy { FileManager.default.fileExists(atPath: $0) }
+    }
+
     // MARK: - Config Store
 
     func testConfigStoreRoundTrip() throws {
@@ -294,13 +305,16 @@ final class LocalCLIExecutorTests: XCTestCase {
             try await executor.execute(systemPrompt: "", userPrompt: "cancel me", config: config)
         }
 
-        let deadline = Date().addingTimeInterval(2)
-        while !FileManager.default.fileExists(atPath: startedPath) && Date() < deadline {
-            try await Task.sleep(nanoseconds: 50_000_000)
+        let didStart = try await waitForFiles(
+            [startedPath, shellPIDPath, childPIDPath],
+            timeout: 8
+        )
+        guard didStart else {
+            task.cancel()
+            _ = try? await task.value
+            XCTFail("Expected cancellation fixture to start")
+            return
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: startedPath))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: shellPIDPath))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: childPIDPath))
 
         let shellPIDContents = try String(contentsOfFile: shellPIDPath, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)

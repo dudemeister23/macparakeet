@@ -401,6 +401,7 @@ public final class SettingsViewModel {
     private var sttClient: STTClientProtocol?
     private var speechEngineSwitcher: SpeechEngineSwitching?
     private var meetingRecoveryService: MeetingRecordingRecoveryServicing?
+    private var sharedMicStream: SharedMicrophoneStream?
     private let defaults: UserDefaults
     private let youtubeDownloadsDirPath: @Sendable () -> String
     private let isSpeechModelCached: @Sendable () -> Bool
@@ -659,7 +660,8 @@ public final class SettingsViewModel {
         snippetRepo: TextSnippetRepositoryProtocol? = nil,
         sttClient: STTClientProtocol? = nil,
         speechEngineSwitcher: SpeechEngineSwitching? = nil,
-        meetingRecoveryService: MeetingRecordingRecoveryServicing? = nil
+        meetingRecoveryService: MeetingRecordingRecoveryServicing? = nil,
+        sharedMicStream: SharedMicrophoneStream? = nil
     ) {
         self.permissionService = permissionService
         self.dictationRepo = dictationRepo
@@ -672,6 +674,7 @@ public final class SettingsViewModel {
         self.sttClient = sttClient
         self.speechEngineSwitcher = speechEngineSwitcher
         self.meetingRecoveryService = meetingRecoveryService
+        self.sharedMicStream = sharedMicStream
         refreshLaunchAtLoginStatus()
         refreshPermissions()
         refreshStats()
@@ -760,36 +763,21 @@ public final class SettingsViewModel {
 
     public func testSelectedMicrophone() {
         microphoneTestTask?.cancel()
+        microphoneTestTask = nil
         microphoneTestLevel = 0
         microphoneTestState = .testing
 
-        let selectedUID = selectedMicrophoneDeviceUID == Self.systemDefaultMicrophoneSelection
-            ? nil
-            : selectedMicrophoneDeviceUID
+        guard let sharedMicStream else {
+            microphoneTestState = .failed("Microphone test is unavailable until audio services are ready.")
+            return
+        }
+
         let levelBox = MicrophoneLevelBox()
 
         microphoneTestTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let attemptsBuilder: AVAudioEngineMicrophonePlatform.DeviceAttemptsBuilder = {
-                let selectedID = selectedUID.flatMap { AudioDeviceManager.inputDeviceID(forUID: $0) }
-                return meetingInputDeviceAttempts(
-                    selectedUID: selectedUID,
-                    selectedInputDeviceID: { _ in selectedID },
-                    defaultInputDevice: { AudioDeviceManager.defaultInputDevice() },
-                    builtInMicrophone: { AudioDeviceManager.builtInMicrophone() }
-                )
-            }
-            let stream = SharedMicrophoneStream(
-                platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
-            )
-            let capture = MicrophoneCapture(sharedStream: stream)
+            let capture = MicrophoneCapture(sharedStream: sharedMicStream)
             do {
-                // `.raw` is load-bearing here. This test owns its own
-                // SharedMicrophoneStream + AVAudioEngine alongside the app's
-                // main one. Requesting VPIO would let coreaudiod attach a
-                // second VPAU aggregate to the process and could disturb an
-                // in-flight VPIO session on the main engine. Raw avoids that
-                // path entirely.
                 _ = try await capture.start(processingMode: .raw) { buffer, _ in
                     levelBox.record(buffer.rmsLevel)
                 }
