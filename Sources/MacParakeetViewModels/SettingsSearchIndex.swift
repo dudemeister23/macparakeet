@@ -94,7 +94,7 @@ public enum SettingsSearchIndex {
         "meeting.calendar"
     ]
 
-    public static var entries: [SettingsSearchEntry] {
+    public static let entries: [SettingsSearchEntry] = {
         var result = allEntries
         if !AppFeatures.meetingRecordingEnabled {
             result = result.filter { !meetingGatedIds.contains($0.id) }
@@ -103,7 +103,7 @@ public enum SettingsSearchIndex {
             result = result.filter { !calendarGatedIds.contains($0.id) }
         }
         return result
-    }
+    }()
 
     /// Full unfiltered catalog. Order matters: result lists are produced
     /// by `entries.filter(...)`, and tests assert that the filter is
