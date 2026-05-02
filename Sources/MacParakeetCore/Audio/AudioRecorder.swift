@@ -340,8 +340,14 @@ public actor AudioRecorder {
         // bumps the generation, so a generation mismatch means we're an
         // orphan. Unsubscribe and clean up rather than claim a recording
         // session that nobody asked for.
+        //
+        // We deliberately do NOT consult `self.starting` here. The flag is
+        // shared across calls and an aborted sibling's `defer { starting =
+        // false }` would clobber a legitimate replacement start that entered
+        // after stop() reset `starting`. The generation bump is the canonical
+        // "lost the race" signal — sibling defers do not bump generation.
         let postSubscribeGeneration = self.sessionGeneration.withLock { $0 }
-        let lostRace = preSubscribeGeneration != postSubscribeGeneration || !self.starting || self.recording
+        let lostRace = preSubscribeGeneration != postSubscribeGeneration || self.recording
         if lostRace {
             let stream = sharedStream
             Task { await stream.unsubscribe(token) }
