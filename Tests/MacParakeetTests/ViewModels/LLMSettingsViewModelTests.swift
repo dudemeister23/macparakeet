@@ -62,6 +62,19 @@ final class LLMSettingsViewModelTests: XCTestCase {
         )
     }
 
+    func testSetupStatusCannotConnectUsesDraftProviderDisplayName() {
+        mockConfigStore.config = .lmstudio(model: "local-model")
+        viewModel.configure(configStore: mockConfigStore, llmClient: mockClient)
+
+        viewModel.selectedProviderID = .ollama
+        viewModel.connectionTestState = .error("Connection failed")
+
+        XCTAssertEqual(
+            viewModel.setupStatus,
+            .cannotConnect(displayName: "Ollama", message: "Connection failed")
+        )
+    }
+
     // MARK: - Provider Change
 
     func testProviderChangeUpdatesModelName() {

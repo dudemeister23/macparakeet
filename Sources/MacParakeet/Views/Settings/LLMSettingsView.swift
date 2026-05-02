@@ -222,14 +222,14 @@ struct LLMSettingsView: View {
             localAIAppRow(
                 provider: .lmstudio,
                 subtitle: "Recommended. Start LM Studio's local server, then refresh models.",
-                buttonTitle: "Use LM Studio",
+                buttonTitle: "Choose LM Studio",
                 badge: "Recommended"
             )
 
             localAIAppRow(
                 provider: .ollama,
                 subtitle: "Also works. Start Ollama or run `ollama serve`, then refresh models.",
-                buttonTitle: "Use Ollama",
+                buttonTitle: "Choose Ollama",
                 badge: nil
             )
         }

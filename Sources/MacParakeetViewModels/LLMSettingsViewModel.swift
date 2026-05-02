@@ -98,11 +98,12 @@ public final class LLMSettingsViewModel {
     }
 
     public var setupStatus: AISetupStatus {
-        let displayName = savedAIOptionDisplayName ?? draft.providerID?.displayName ?? "AI"
         if case .error(let message) = connectionTestState {
+            let displayName = draftAIOptionDisplayName ?? savedAIOptionDisplayName ?? "AI"
             return .cannotConnect(displayName: displayName, message: message)
         }
         if isConfigured {
+            let displayName = savedAIOptionDisplayName ?? draftAIOptionDisplayName ?? "AI"
             return .ready(displayName: displayName)
         }
         return .setUpNeeded
@@ -266,6 +267,14 @@ public final class LLMSettingsViewModel {
                 ?? config.id.displayName
         }
         return config.id.displayName
+    }
+
+    private var draftAIOptionDisplayName: String? {
+        guard let providerID = draft.providerID else { return nil }
+        if providerID == .localCLI {
+            return LocalCLITemplate.displayName(for: draft.trimmedCommandTemplate)
+        }
+        return providerID.displayName
     }
 
     public var canResetAIFormatterPrompt: Bool {
