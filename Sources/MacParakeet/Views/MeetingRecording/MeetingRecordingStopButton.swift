@@ -10,6 +10,11 @@ struct StopRecordingButton: View {
     @State private var countdownProgress: CGFloat = 1.0
     @State private var revertTask: Task<Void, Never>?
 
+    // Match the idle circle's outer diameter (13pt square + 9pt padding × 2)
+    // so the "End now" pill occupies the same vertical box and the row above
+    // the tab bar doesn't reflow when toggling state.
+    private static let trackHeight: CGFloat = 31
+
     var body: some View {
         Group {
             if confirming {
@@ -77,6 +82,7 @@ struct StopRecordingButton: View {
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
+        .frame(height: Self.trackHeight)
         .help(confirming ? "End recording now" : "End recording")
         .onDisappear { revertTask?.cancel() }
     }
