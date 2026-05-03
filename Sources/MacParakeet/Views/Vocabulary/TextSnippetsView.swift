@@ -19,7 +19,7 @@ struct TextSnippetsView: View {
             }
             .padding(DesignSystem.Spacing.lg)
         }
-        .background(DesignSystem.Colors.background)
+        .background(.thickMaterial)
         .alert(
             "Delete Snippet?",
             isPresented: Binding(
@@ -60,8 +60,7 @@ struct TextSnippetsView: View {
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primaryProminent)
                     .keyboardShortcut(.cancelAction)
             }
         }
@@ -144,8 +143,7 @@ struct TextSnippetsView: View {
                     Button("Add") {
                         viewModel.addSnippet()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primaryProminent)
                     .disabled(
                         viewModel.newTrigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || viewModel.newExpansion.trimmingCharacters(in: .whitespaces).isEmpty
@@ -243,8 +241,7 @@ struct TextSnippetsView: View {
                 Button("Add Your First Snippet") {
                     triggerFieldFocused = true
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.small)
             }
         }

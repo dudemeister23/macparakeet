@@ -455,7 +455,7 @@ struct OnboardingFlowView: View {
                     Button("Skip — I'll set this up later") {
                         viewModel.skipMeetingRecordingStep()
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                 }
 
                 if !viewModel.screenRecordingGranted {
@@ -527,7 +527,7 @@ struct OnboardingFlowView: View {
                     Button("Skip — I'll set this up later") {
                         viewModel.skipCalendarStep()
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                 }
             }
             .padding(DesignSystem.Spacing.lg)
@@ -776,7 +776,7 @@ struct OnboardingFlowView: View {
                             Button("Open Settings") {
                                 onOpenSettings()
                             }
-                            .buttonStyle(.bordered)
+                            .parakeetAction(.secondary)
                         }
                     }
 

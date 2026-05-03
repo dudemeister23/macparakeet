@@ -250,9 +250,8 @@ struct EngineDownloadBanner: View {
         switch mode {
         case .download:
             Button("Download", action: action)
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.regular)
-                .tint(DesignSystem.Colors.accent)
                 .accessibilityLabel("Download \(title)")
         case .downloading:
             HStack(spacing: DesignSystem.Spacing.xs) {
@@ -265,9 +264,8 @@ struct EngineDownloadBanner: View {
             .accessibilityLabel("Downloading \(title)")
         case .retry:
             Button("Retry Download", action: action)
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.regular)
-                .tint(DesignSystem.Colors.errorRed)
                 .accessibilityLabel("Retry downloading \(title)")
         }
     }

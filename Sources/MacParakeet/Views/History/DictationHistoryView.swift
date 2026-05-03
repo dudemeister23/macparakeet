@@ -281,7 +281,7 @@ struct DictationHistoryView: View {
                 ForEach(viewModel.groupedDictations, id: \.0) { dateHeader, dictations in
                     HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.sm) {
                         Text(dateHeader.uppercased())
-                            .font(DesignSystem.Typography.sectionHeader)
+                            .font(DesignSystem.Typography.bodySmall.weight(.semibold))
                             .foregroundStyle(DesignSystem.Colors.accent.opacity(0.8))
                         Text("\(dictations.count)")
                             .font(DesignSystem.Typography.duration)
@@ -524,11 +524,17 @@ struct DictationCardRow: View {
 
         let nsText = text as NSString
         var searchRange = NSRange(location: 0, length: nsText.length)
+        // Apply the alpha inside a dynamic provider so the highlight re-resolves
+        // on light/dark flip. Resolves `accent` under the supplied appearance,
+        // then attaches alpha — keeps `DesignSystem.Colors.accent` as the single
+        // source of truth without snapping to whatever appearance was current
+        // when the attributed string was built.
         let highlightColor = NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return isDark
-                ? NSColor(red: 1.0, green: 0.54, blue: 0.36, alpha: 0.2)
-                : NSColor(red: 0.91, green: 0.42, blue: 0.23, alpha: 0.2)
+            var resolved = NSColor.clear
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor(DesignSystem.Colors.accent)
+            }
+            return resolved.withAlphaComponent(0.2)
         }
 
         while searchRange.length > 0 {

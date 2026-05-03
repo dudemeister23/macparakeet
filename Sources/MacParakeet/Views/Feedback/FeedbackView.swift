@@ -237,14 +237,13 @@ struct FeedbackView: View {
                 Button("Cancel") {
                     viewModel.resetForm()
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .keyboardShortcut(.cancelAction)
 
                 Button(viewModel.submissionState == .submitting ? "Sending..." : "Send Feedback") {
                     viewModel.submit()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primaryProminent)
                 .disabled(!viewModel.canSubmit)
                 .keyboardShortcut(.defaultAction)
             }
@@ -359,7 +358,7 @@ struct FeedbackView: View {
                         .font(DesignSystem.Typography.body)
                 }
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
         }
     }
 

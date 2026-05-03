@@ -123,7 +123,7 @@ struct TranscriptionVideoPanel: View {
                     await playerViewModel.load(for: transcription)
                 }
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
         }
         .frame(maxWidth: .infinity)
         .aspectRatio(16/9, contentMode: .fit)

@@ -72,7 +72,7 @@ struct MeetingCountdownToastView: View {
                     Text(viewModel.primaryActionLabel)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .controlSize(.small)
                 .keyboardShortcut(.escape, modifiers: [])
 
@@ -82,7 +82,7 @@ struct MeetingCountdownToastView: View {
                         Text(confirmLabel)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .parakeetAction(.primaryProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.return, modifiers: [])
                 }

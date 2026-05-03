@@ -48,7 +48,7 @@ final class YouTubeInputPanelController {
             }
         )
 
-        let hosting = NSHostingView(rootView: view.tint(DesignSystem.Colors.accent))
+        let hosting = NSHostingView(rootView: view)
         // Extra padding around the 460pt SwiftUI card for shadow clearance
         let panelWidth: CGFloat = 540
         let panelHeight: CGFloat = 280

@@ -123,7 +123,7 @@ struct LLMSettingsView: View {
                     Button("Test Connection") {
                         viewModel.testConnection()
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                     .disabled(viewModel.connectionTestState == .testing || !viewModel.canTestConnection)
 
                     connectionStatusIndicator
@@ -155,15 +155,14 @@ struct LLMSettingsView: View {
                 Button("Save") {
                     viewModel.saveConfiguration()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primaryProminent)
                 .disabled(!viewModel.canSave)
 
                 if viewModel.isConfigured {
                     Button("Clear", role: .destructive) {
                         viewModel.clearConfiguration()
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.destructive)
                 }
 
                 saveStateIndicator
@@ -323,8 +322,7 @@ struct LLMSettingsView: View {
                 Button(isSelected ? "Selected" : buttonTitle) {
                     viewModel.chooseLocalAIApp(provider)
                 }
-                .buttonStyle(.bordered)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.secondary)
                 .disabled(isSelected)
 
                 if isSelected {

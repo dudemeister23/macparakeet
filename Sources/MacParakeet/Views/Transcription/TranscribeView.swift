@@ -442,7 +442,7 @@ struct TranscribeView: View {
                 Button("Cancel Transcription", role: .destructive) {
                     showCancelConfirmation = true
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.destructive)
                 .padding(.top, DesignSystem.Spacing.sm)
                 .alert("Cancel Transcription?", isPresented: $showCancelConfirmation) {
                     Button("Cancel Transcription", role: .destructive) {

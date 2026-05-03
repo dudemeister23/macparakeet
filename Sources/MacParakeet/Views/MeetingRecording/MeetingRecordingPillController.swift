@@ -85,7 +85,7 @@ final class MeetingRecordingPillController {
                 }
             }
         )
-        let hosting = NSHostingView(rootView: view.tint(DesignSystem.Colors.accent))
+        let hosting = NSHostingView(rootView: view)
 
         let panelWidth: CGFloat = 240
         let panelHeight: CGFloat = 150

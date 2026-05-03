@@ -68,7 +68,7 @@ struct AskPromptsSheet: View {
                 .padding(DesignSystem.Spacing.xl)
             }
         }
-        .background(DesignSystem.Colors.background)
+        .background(.thickMaterial)
         .frame(minWidth: 720, minHeight: 640)
         .alert(
             "Delete prompt?",
@@ -130,12 +130,6 @@ struct AskPromptsSheet: View {
                 CreatePromptSheet(viewModel: viewModel)
             }
         }
-        // Cascade our brand accent into every `.borderedProminent` /
-        // `.tint`-aware native control inside this sheet (Done, plus the Save
-        // and Add inside child edit / create sheets, which inherit the
-        // environment). System blue would otherwise leak through against the
-        // coral brand.
-        .tint(DesignSystem.Colors.accent)
     }
 
     // MARK: - Header
@@ -174,7 +168,7 @@ struct AskPromptsSheet: View {
                     .font(DesignSystem.Typography.body.weight(.semibold))
                     .padding(.horizontal, DesignSystem.Spacing.sm)
             }
-            .buttonStyle(.borderedProminent)
+            .parakeetAction(.primaryProminent)
             .controlSize(.large)
             // Esc dismisses (Apple HIG default for sheets). `.cancelAction`
             // is Esc + Cmd-. on macOS — both reach the close intent.
@@ -507,9 +501,10 @@ private struct EditPromptSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { attemptCancel() }
+                    .parakeetAction(.secondary)
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { commit() }
-                    .buttonStyle(.borderedProminent)
+                    .parakeetAction(.primaryProminent)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(DesignSystem.Spacing.lg)
@@ -529,8 +524,7 @@ private struct EditPromptSheet: View {
             }
         }
         .frame(minWidth: 560, minHeight: 480)
-        .background(DesignSystem.Colors.background)
-        .tint(DesignSystem.Colors.accent)
+        .background(.thickMaterial)
         .alert("Discard changes?", isPresented: $showingDiscardConfirm) {
             Button("Discard", role: .destructive) {
                 onCancel()
@@ -661,13 +655,14 @@ private struct CreatePromptSheet: View {
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                 Spacer()
                 Button("Cancel") { attemptCancel() }
+                    .parakeetAction(.secondary)
                     .keyboardShortcut(.cancelAction)
                 Button("Add") {
                     if viewModel.commitCreating() {
                         dismiss()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .keyboardShortcut(.defaultAction)
             }
             .padding(DesignSystem.Spacing.lg)
@@ -702,8 +697,7 @@ private struct CreatePromptSheet: View {
             }
         }
         .frame(minWidth: 560, minHeight: 480)
-        .background(DesignSystem.Colors.background)
-        .tint(DesignSystem.Colors.accent)
+        .background(.thickMaterial)
         .alert("Discard new prompt?", isPresented: $showingDiscardConfirm) {
             Button("Discard", role: .destructive) {
                 viewModel.cancelCreating()

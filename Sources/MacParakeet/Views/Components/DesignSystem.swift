@@ -30,6 +30,11 @@ enum DesignSystem {
         static let textTertiary = Color(light: .init(red: 0.61, green: 0.61, blue: 0.61),
                                         dark: .init(red: 0.39, green: 0.39, blue: 0.40))
 
+        /// Neutral label tint — for `.bordered` buttons that should NOT carry
+        /// brand color. Resolves to the system label color (white in dark mode,
+        /// near-black in light). Used via `.parakeetAction(.secondary)`.
+        static let tintNeutral = Color.primary
+
         // Semantic
         static let successGreen = Color(light: .init(red: 0.20, green: 0.66, blue: 0.33),
                                         dark: .init(red: 0.29, green: 0.87, blue: 0.50))
@@ -142,12 +147,6 @@ enum DesignSystem {
         /// naturally beside the 26pt Merkaba glyph inside a low-profile horizontal
         /// oval pill.
         static let dictationOverlayTerminalLabel = Font.system(size: 9.5, weight: .medium, design: .rounded)
-
-        // Legacy aliases (kept for existing references)
-        static let headline = Font.system(size: 17, weight: .semibold, design: .rounded)
-        static let title = Font.system(size: 22, weight: .semibold, design: .rounded)
-        static let largeTitle = Font.system(size: 28, weight: .bold, design: .rounded)
-        static let sectionHeader = Font.system(size: 13, weight: .semibold)
     }
 
     // MARK: - Layout

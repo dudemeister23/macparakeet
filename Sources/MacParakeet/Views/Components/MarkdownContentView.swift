@@ -79,27 +79,13 @@ struct MarkdownContentView: NSViewRepresentable {
     private func buildAttributedString(blocks: [MarkdownBlock]) -> NSAttributedString {
         let result = NSMutableAttributedString()
 
-        // Use dynamic NSColors that auto-adapt to light/dark mode.
-        // NSApp.effectiveAppearance is unreliable when the view isn't in the hierarchy yet.
-        let textColor = NSColor(name: nil) { appearance in
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return dark ? .white : NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1)
-        }
-        let secondaryColor = NSColor(name: nil) { appearance in
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return dark ? NSColor(red: 0.63, green: 0.63, blue: 0.65, alpha: 1)
-                        : NSColor(red: 0.42, green: 0.42, blue: 0.42, alpha: 1)
-        }
-        let tertiaryColor = NSColor(name: nil) { appearance in
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return dark ? NSColor(red: 0.39, green: 0.39, blue: 0.40, alpha: 1)
-                        : NSColor(red: 0.61, green: 0.61, blue: 0.61, alpha: 1)
-        }
-        let accentColor = NSColor(name: nil) { appearance in
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return dark ? NSColor(red: 1.0, green: 0.54, blue: 0.36, alpha: 1)
-                        : NSColor(red: 0.91, green: 0.42, blue: 0.23, alpha: 1)
-        }
+        // Bridge SwiftUI design tokens into appearance-aware NSColors. The
+        // `NSColor(_ swiftuiColor:)` initializer preserves the dynamic light/dark
+        // resolution of `Color(light:dark:)`.
+        let textColor = NSColor(DesignSystem.Colors.textPrimary)
+        let secondaryColor = NSColor(DesignSystem.Colors.textSecondary)
+        let tertiaryColor = NSColor(DesignSystem.Colors.textTertiary)
+        let accentColor = NSColor(DesignSystem.Colors.accent)
 
         let bodyFont = NSFont.systemFont(ofSize: baseFontSize)
         let bodyParagraphStyle = NSMutableParagraphStyle()
@@ -197,15 +183,23 @@ struct MarkdownContentView: NSViewRepresentable {
                 codeStyle.lineSpacing = 2
                 codeStyle.paragraphSpacing = 10
 
+                // Apply the alpha inside a dynamic NSColor provider so the result
+                // re-resolves on light/dark flip. We resolve `surfaceElevated` under
+                // the supplied appearance, then attach the alpha — this keeps the
+                // single source of truth (`DesignSystem.Colors.surfaceElevated`)
+                // without snapping to the appearance that was current at first draw.
+                let codeBackground = NSColor(name: nil) { appearance in
+                    var resolved = NSColor.clear
+                    appearance.performAsCurrentDrawingAppearance {
+                        resolved = NSColor(DesignSystem.Colors.surfaceElevated)
+                    }
+                    return resolved.withAlphaComponent(0.7)
+                }
                 let codeStr = NSMutableAttributedString(string: code, attributes: [
                     .font: codeFont,
                     .foregroundColor: textColor,
                     .paragraphStyle: codeStyle,
-                    .backgroundColor: NSColor(name: nil) { appearance in
-                        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                        return dark ? NSColor(red: 0.23, green: 0.23, blue: 0.24, alpha: 0.7)
-                                    : NSColor(red: 0.96, green: 0.96, blue: 0.94, alpha: 0.7)
-                    }
+                    .backgroundColor: codeBackground
                 ])
                 result.append(codeStr)
                 result.append(NSAttributedString(string: "\n"))

@@ -331,7 +331,7 @@ struct SettingsView: View {
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
-                        .buttonStyle(.bordered)
+                        .parakeetAction(.secondary)
                         .help("Refresh microphones")
                         .accessibilityLabel("Refresh microphones")
                     }
@@ -355,8 +355,7 @@ struct SettingsView: View {
                             systemImage: viewModel.microphoneTestState == .testing ? "stop.fill" : "waveform"
                         )
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primaryProminent)
                     .disabled(!viewModel.microphoneGranted && viewModel.microphoneTestState != .testing)
                 }
             }
@@ -624,7 +623,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Recover", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.bordered)
+                        .parakeetAction(.secondary)
                     }
                 }
 
@@ -876,14 +875,14 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: DesignSystem.Spacing.md)
                 Button("Reset") { onResetFolder() }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                     .help(resetHelp)
                 Button("Choose…") {
                     if let url = Self.presentAutoSaveFolderPicker(message: panelMessage) {
                         onChooseFolder(url)
                     }
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
             }
         }
         .padding(DesignSystem.Spacing.sm)
@@ -1445,21 +1444,19 @@ struct SettingsView: View {
                             Button("Open Accessibility Settings") {
                                 openAccessibilitySettings()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(DesignSystem.Colors.accent)
+                            .parakeetAction(.primaryProminent)
                         }
 
                         if needsScreenRecordingAction {
                             Button("Enable meeting recording") {
                                 viewModel.requestScreenRecordingAccess()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(DesignSystem.Colors.accent)
+                            .parakeetAction(.primaryProminent)
 
                             Button("Open Screen Recording Settings") {
                                 viewModel.openScreenRecordingSystemSettings()
                             }
-                            .buttonStyle(.bordered)
+                            .parakeetAction(.secondary)
                         }
                     }
                 }
@@ -1537,8 +1534,7 @@ struct SettingsView: View {
                     Button("Check for Updates...") {
                         updater.checkForUpdates()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primaryProminent)
                     .disabled(!updater.canCheckForUpdates)
                 }
             }
@@ -1562,8 +1558,7 @@ struct SettingsView: View {
                 Button("Open Setup...") {
                     NotificationCenter.default.post(name: .macParakeetOpenOnboarding, object: nil)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primaryProminent)
             }
         }
     }
@@ -1601,7 +1596,7 @@ struct SettingsView: View {
                             copiedBuildIdentity = false
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                 }
 
                 Divider()
@@ -1719,13 +1714,12 @@ struct SettingsView: View {
         let label = isWorking ? "Working…" : action.label
         if action.isProminent {
             Button(label, action: action.run)
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.small)
                 .disabled(isWorking)
         } else {
             Button(label, action: action.run)
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .controlSize(.small)
                 .disabled(isWorking)
         }

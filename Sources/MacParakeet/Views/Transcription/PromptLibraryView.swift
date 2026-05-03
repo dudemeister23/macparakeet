@@ -35,7 +35,7 @@ struct PromptLibraryView: View {
                         .font(DesignSystem.Typography.body.weight(.semibold))
                         .padding(.horizontal, DesignSystem.Spacing.sm)
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.large)
                 // Esc dismisses (Apple HIG default for sheets).
                 .keyboardShortcut(.cancelAction)
@@ -99,7 +99,7 @@ struct PromptLibraryView: View {
         }
         .background {
             ZStack {
-                DesignSystem.Colors.background
+                Rectangle().fill(.thickMaterial)
                 VStack {
                     Spacer()
                     HStack {
@@ -143,7 +143,6 @@ struct PromptLibraryView: View {
         ) {
             if let prompt = viewModel.editingPrompt {
                 editSheet(prompt: prompt)
-                    .tint(DesignSystem.Colors.accent)
                     .alert("Discard changes?", isPresented: $showingDiscardConfirm) {
                         Button("Discard", role: .destructive) {
                             viewModel.editingPrompt = nil
@@ -453,9 +452,8 @@ struct PromptLibraryView: View {
                     }
                     .padding(.horizontal, DesignSystem.Spacing.sm)
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.large)
-                .tint(DesignSystem.Colors.accent)
                 .disabled(viewModel.newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.newContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(DesignSystem.Spacing.md)
@@ -540,7 +538,7 @@ struct PromptLibraryView: View {
                 Button("Cancel") {
                     attemptCancelEdit(prompt: prompt)
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .controlSize(.large)
                 // Esc cancels (HIG default). hasChanges check inside
                 // attemptCancelEdit decides whether to confirm or dismiss.
@@ -549,9 +547,8 @@ struct PromptLibraryView: View {
                 Button("Save Changes") {
                     viewModel.updatePrompt(prompt, name: editName, content: editContent)
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primaryProminent)
                 .controlSize(.large)
-                .tint(DesignSystem.Colors.accent)
                 // Cmd+Return (not bare Return) because the Instructions
                 // TextEditor below treats Return as a literal newline; bare
                 // Return would steal that.
@@ -562,7 +559,7 @@ struct PromptLibraryView: View {
             .background(DesignSystem.Colors.surfaceElevated.opacity(0.3))
         }
         .frame(width: 540, height: 500)
-        .background(DesignSystem.Colors.surface)
+        .background(.thickMaterial)
     }
 }
 
