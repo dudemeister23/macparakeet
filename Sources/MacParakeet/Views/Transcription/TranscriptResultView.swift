@@ -1165,7 +1165,7 @@ struct TranscriptResultView: View {
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(notesCopied ? DesignSystem.Colors.successGreen : .primary)
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .controlSize(.small)
                 .accessibilityLabel(notesCopied ? "Notes copied" : "Copy your notes")
             }
@@ -1480,7 +1480,7 @@ struct TranscriptResultView: View {
                         }
                         .font(DesignSystem.Typography.caption)
                     }
-                    .buttonStyle(.bordered)
+                    .parakeetAction(.secondary)
                     .controlSize(.small)
                 }
 
@@ -1581,7 +1581,7 @@ struct TranscriptResultView: View {
                 } label: {
                     Label("Manage Prompts", systemImage: "slider.horizontal.3")
                 }
-                .buttonStyle(.bordered)
+                .parakeetAction(.secondary)
                 .controlSize(.regular)
 
                 Spacer()
@@ -1597,7 +1597,7 @@ struct TranscriptResultView: View {
                 } label: {
                     Label("Generate", systemImage: "sparkles")
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primary, prominent: true)
                 .controlSize(.regular)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!promptResultsViewModel.canGenerateManualPromptResult || transcriptText.isEmpty)
@@ -1838,7 +1838,7 @@ struct TranscriptResultView: View {
                 Label("New Chat", systemImage: "plus.bubble")
                     .font(DesignSystem.Typography.caption)
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
             .controlSize(.small)
         }
         .padding(.horizontal, DesignSystem.Spacing.md)
@@ -2583,7 +2583,7 @@ struct TranscriptResultView: View {
                 } label: {
                     Label("Export", systemImage: "arrow.down.doc")
                 }
-                .buttonStyle(.borderedProminent)
+                .parakeetAction(.primary, prominent: true)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2635,7 +2635,7 @@ struct TranscriptResultView: View {
                 Label("Show in Finder", systemImage: "folder")
                     .font(DesignSystem.Typography.caption)
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
         }
         .padding(DesignSystem.Spacing.md)
         .frame(minWidth: 220)
