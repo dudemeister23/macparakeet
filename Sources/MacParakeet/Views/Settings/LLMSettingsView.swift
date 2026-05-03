@@ -322,7 +322,7 @@ struct LLMSettingsView: View {
                 Button(isSelected ? "Selected" : buttonTitle) {
                     viewModel.chooseLocalAIApp(provider)
                 }
-                .parakeetAction(.primary)
+                .parakeetAction(.secondary)
                 .disabled(isSelected)
 
                 if isSelected {
