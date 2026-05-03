@@ -24,6 +24,19 @@
 | 12 | [Processing Layer](12-processing-layer.md) | Prompt library, multi-summary, v0.5 implementation contract | Active |
 | 13 | [Agent Workflows](13-agent-workflows.md) | Future actions, workflows, agents, voice control, App Intents | Draft |
 
+## Design References
+
+- [UI Patterns](04-ui-patterns.md) is the active product UI contract.
+- [`docs/brand-identity.md`](../docs/brand-identity.md) is the active runtime
+  brand identity reference: canonical parakeet mark, app accent color, sizing,
+  and usage rules.
+- [`brand-assets/README.md`](../brand-assets/README.md) is the active
+  promotional/editorial asset library: recolorable vector mark, Pop palette,
+  composition templates, and regenerated PNG exports.
+- [`docs/design-overhaul.md`](../docs/design-overhaul.md) is historical design
+  context only; do not treat it as the current source of truth when it conflicts
+  with the active brand docs or this spec.
+
 ## Root Decisions (Locked)
 
 These decisions are final. Do not second-guess them.

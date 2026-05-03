@@ -157,6 +157,9 @@ The UI layer. Thin shell over MacParakeetCore. No business logic lives here.
 
 **Shared Components** (`Views/Components/`):
 - `DesignSystem` — Centralized design tokens (Colors, Typography, Spacing, Layout, Animation)
+- `BreathWaveLogo` / `BreathWaveIcon.brandMark` — Inline parakeet brand mark
+  surfaces backed by the bundled canonical PNG; vector/promo assets live in
+  `brand-assets/` and are not runtime dependencies.
 - `SacredGeometry` — Shared sacred geometry components:
   - `TriangleShape` — Equilateral triangle Shape
   - `SpinnerRingView` — Compact merkaba spinner

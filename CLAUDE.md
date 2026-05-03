@@ -44,6 +44,7 @@ DMG release yet.
 | ADRs (locked decisions) | `spec/adr/` -> individual decision records |
 | CLI testing guide | `docs/cli-testing.md` |
 | Brand identity | `docs/brand-identity.md` |
+| Brand asset library (vectors, palette, posters) | `brand-assets/README.md` |
 | UI/UX design overhaul | `docs/design-overhaul.md` |
 | Distribution, signing & auto-updates | `docs/distribution.md` |
 | Telemetry system | `docs/telemetry.md` |
@@ -292,6 +293,13 @@ macparakeet/
 │   ├── README.md       # Canonical CLI vocabulary + install for agents calling the CLI
 │   ├── openclaw/README.md
 │   └── hermes/README.md
+├── brand-assets/       # Vector marks, Pop palette, poster compositions, raster exports
+│   ├── README.md       # Library guide and philosophy
+│   ├── marks/          # parakeet-line.svg (canonical recolorable line mark)
+│   ├── palette/        # palette.json/css/svg/png
+│   ├── compositions/   # Reusable SVG layouts (Warhol grid, OG, social, lockup)
+│   ├── exports/        # Ready-to-grab PNG renders
+│   └── scripts/render.sh
 ├── Sources/
 │   ├── MacParakeet/            # GUI app (SwiftUI, imports MacParakeetCore + ViewModels)
 │   ├── CLI/                    # macparakeet-cli (ArgumentParser, imports MacParakeetCore)

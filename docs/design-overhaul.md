@@ -1,6 +1,9 @@
 # MacParakeet UI/UX Design Overhaul
 
 > Status: **HISTORICAL** — Design proposal from pre-v0.6. Some elements were implemented; others (trial UI, licensing) are no longer applicable. Kept for design reference.
+> Current brand source of truth: `docs/brand-identity.md` for runtime mark/color
+> rules and `brand-assets/README.md` for promotional/editorial vectors, Pop
+> palette, composition templates, and PNG exports.
 
 ## Locked Decisions
 
@@ -84,7 +87,7 @@ Primary Text:         #1A1A1A  (near-black, high contrast)
 Secondary Text:       #6B6B6B  (descriptions, metadata)
 Tertiary Text:        #9B9B9B  (timestamps, hints — use sparingly)
 
-Accent:               #E86B3A  (warm coral-orange — the "parrot" color)
+Accent:               #E86B3B  (warm coral-orange — the parakeet color)
 Accent Light:         #FFF0EB  (tinted backgrounds, hover states)
 Accent Dark:          #C45428  (pressed states)
 

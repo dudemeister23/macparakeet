@@ -18,6 +18,21 @@ Design philosophy: **Simple, native, stays out of the way.** No chrome, no clutt
 
 ---
 
+## Brand And Asset Sources
+
+- In-app brand surfaces use the canonical parakeet PNG through
+  `BreathWaveIcon.brandMark` and `BreathWaveLogo`; see
+  `docs/brand-identity.md` for sizing, tinting, and usage rules.
+- App chrome uses `DesignSystem.Colors.accent`, the warm coral-orange brand
+  accent (`#E86B3B` in the light palette). System colors carry the rest of the
+  UI.
+- Promotional and editorial design uses `brand-assets/`: the recolorable
+  `parakeet-line.svg`, Pop palette, composition templates, and generated PNG
+  exports. The Pop palette is for campaigns, posters, social assets, and launch
+  moments; it must not leak into app chrome.
+
+---
+
 ## Main Window (v0.1)
 
 ### Layout
