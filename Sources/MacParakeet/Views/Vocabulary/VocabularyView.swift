@@ -431,8 +431,7 @@ struct VocabularyView: View {
                     action()
                 }
                 .font(DesignSystem.Typography.caption.weight(.semibold))
-                .buttonStyle(.bordered)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primary)
             }
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)

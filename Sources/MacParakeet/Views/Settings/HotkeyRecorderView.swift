@@ -63,7 +63,7 @@ struct HotkeyRecorderView: View {
             Button(trigger.isDisabled ? "Set Hotkey..." : "Change...") {
                 startRecording(modifierCaptureMode: .generic)
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
 
             Menu {
                 if !trigger.isDisabled {
@@ -116,7 +116,7 @@ struct HotkeyRecorderView: View {
             Button("Cancel") {
                 stopRecording()
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

@@ -281,7 +281,7 @@ struct VocabularyImportPreviewSheet: View {
                 viewModel.cancelImport()
                 dismiss()
             }
-            .buttonStyle(.bordered)
+            .parakeetAction(.secondary)
             .keyboardShortcut(.cancelAction)
 
             Button(importButtonTitle) {
@@ -291,8 +291,7 @@ struct VocabularyImportPreviewSheet: View {
                     }
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(DesignSystem.Colors.accent)
+            .parakeetAction(.primary, prominent: true)
             .keyboardShortcut(.defaultAction)
             .disabled(preview.wordsTotal == 0 && preview.snippetsTotal == 0)
         }

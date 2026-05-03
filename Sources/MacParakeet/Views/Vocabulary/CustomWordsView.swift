@@ -59,8 +59,7 @@ struct CustomWordsView: View {
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primary, prominent: true)
                     .keyboardShortcut(.cancelAction)
             }
         }
@@ -118,8 +117,7 @@ struct CustomWordsView: View {
                     Button("Add") {
                         viewModel.addWord()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primary, prominent: true)
                     .disabled(viewModel.newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -201,8 +199,7 @@ struct CustomWordsView: View {
                 Button("Add Your First Rule") {
                     wordFieldFocused = true
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .parakeetAction(.primary, prominent: true)
                 .controlSize(.small)
             }
         }

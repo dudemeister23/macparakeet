@@ -45,8 +45,7 @@ struct SettingsEmptyState: View {
 
             if let actionLabel, let action {
                 Button(actionLabel, action: action)
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignSystem.Colors.accent)
+                    .parakeetAction(.primary, prominent: true)
                     .padding(.top, 6)
             }
         }

@@ -45,9 +45,8 @@ struct SettingsDestructiveButton: View {
             isPresented = true
         } label: {
             Text(title)
-                .foregroundStyle(DesignSystem.Colors.errorRed)
         }
-        .buttonStyle(.bordered)
+        .parakeetAction(.destructive)
         .accessibilityLabel(accessibilityLabelOverride ?? title)
         .alert(confirmationTitle, isPresented: $isPresented) {
             Button("Cancel", role: .cancel) {}

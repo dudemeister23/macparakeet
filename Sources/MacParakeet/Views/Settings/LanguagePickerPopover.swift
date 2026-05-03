@@ -28,7 +28,7 @@ struct LanguagePickerButton: View {
             }
             .frame(width: LanguagePickerLayout.buttonWidth)
         }
-        .buttonStyle(.bordered)
+        .parakeetAction(.secondary)
         .disabled(isDisabled)
         .accessibilityLabel("Whisper language: \(WhisperLanguageCatalog.displayLabel(for: selection))")
         .popover(isPresented: $isShowing, arrowEdge: .bottom) {
