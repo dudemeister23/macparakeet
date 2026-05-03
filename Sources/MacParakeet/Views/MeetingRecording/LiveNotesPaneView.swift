@@ -45,6 +45,17 @@ struct LiveNotesPaneView: View {
 
     private var editor: some View {
         ZStack(alignment: .topLeading) {
+            // Mirrors the Transcript tab's empty-state visual: a slowly
+            // breathing seed-of-life centered behind the editor, fading to
+            // a watermark the moment the user starts typing. Purely
+            // decorative — never intercepts clicks or assistive focus.
+            BreathingSeedOfLifeView()
+                .opacity(viewModel.notesText.isEmpty ? 1.0 : 0.15)
+                .animation(.easeInOut(duration: 0.8), value: viewModel.notesText.isEmpty)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
             TextEditor(text: viewModel.notesBinding)
                 .font(DesignSystem.Typography.body)
                 .scrollContentBackground(.hidden)
