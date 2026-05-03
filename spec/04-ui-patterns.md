@@ -104,9 +104,9 @@ States, all bound to the long-lived `MeetingRecordingPillViewModel` shared with 
 - **Recording**: rosette rotates (12s/turn — matches the floating pill exactly), audio halo grows with mic level, breathing red dot + monospaced MM:SS timer, white-on-red Stop button. Border picks up `recordingRed` opacity.
 - **Completing / Transcribing**: spinner replaces rosette; "Wrapping up..." then "Transcribing..." labels.
 - **Completed**: green checkmark + "Saved to Library"; auto-reverts to idle.
-- **Error**: amber triangle + recovery message + dismiss button.
+- **Error**: amber triangle + recovery message; auto-dismisses through the recording flow coordinator.
 
-Tapping the tile or the Stop button calls the same `toggleRecording` path the menu bar uses. The floating pill stays visible during recording so users who hide the main window keep an active control surface.
+Tapping the tile in idle/recording states, or pressing Stop while recording, calls the same `toggleRecording` path the menu bar uses. Completing, transcribing, completed, and error states are inert. The floating pill stays visible during recording so users who hide the main window keep an active control surface.
 
 ### Library Meetings Filter
 
