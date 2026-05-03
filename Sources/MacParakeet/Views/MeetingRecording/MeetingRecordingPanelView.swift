@@ -18,10 +18,10 @@ struct MeetingRecordingPanelView: View {
             tabBar
             Divider()
             paneContent
-            // Notes and Ask own their own bottom UI (Notes shows a soft-cap
-            // footer when relevant; Ask owns its composer + follow-up pills).
-            // The footer stays transcript-specific (Copy, auto-scroll toggle, Stop).
-            // The floating recording pill remains the canonical Stop control.
+            // Stop lives in the header so it's reachable from every tab. Notes
+            // and Ask own their own bottom UI (Notes shows a soft-cap footer
+            // when relevant; Ask owns its composer + follow-up pills); only
+            // Transcript needs the Copy + auto-scroll footer.
             if viewModel.selectedTab == .transcript {
                 Divider()
                 footer
@@ -229,6 +229,12 @@ struct MeetingRecordingPanelView: View {
                         .font(.system(size: 10, weight: .regular).monospacedDigit())
                         .foregroundStyle(DesignSystem.Colors.textTertiary.opacity(0.8))
                 }
+
+                if viewModel.canStop {
+                    StopRecordingButton {
+                        viewModel.onStop?()
+                    }
+                }
             }
 
             if viewModel.showsLaggingIndicator {
@@ -281,7 +287,8 @@ struct MeetingRecordingPanelView: View {
     }
 
     /// Only rendered when `selectedTab == .transcript` (parent body guards), so
-    /// no inner conditional needed here.
+    /// no inner conditional needed here. Stop now lives in the header so every
+    /// tab can reach it; this footer is just Copy (left) and auto-scroll (right).
     private var footer: some View {
         HStack(spacing: DesignSystem.Spacing.md) {
             FooterButton(
@@ -295,20 +302,14 @@ struct MeetingRecordingPanelView: View {
                 copyTranscript()
             }
 
+            Spacer()
+
             FooterIconButton(
                 icon: autoScroll ? "chevron.down.circle.fill" : "chevron.down.circle",
                 activeColor: autoScroll ? DesignSystem.Colors.accent : nil,
                 tooltip: autoScroll ? "Auto-scroll on" : "Auto-scroll paused"
             ) {
                 autoScroll.toggle()
-            }
-
-            Spacer()
-
-            if viewModel.canStop {
-                StopRecordingButton {
-                    viewModel.onStop?()
-                }
             }
         }
         .padding(DesignSystem.Spacing.md)
