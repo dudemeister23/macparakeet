@@ -531,7 +531,8 @@ private struct FollowUpPill: View {
 /// "Whisper" layout — designed for the live in-meeting context, not a generic
 /// chat. Asymmetric on purpose: user turns are small accent-tinted capsules
 /// (gestural, low visual weight); assistant turns are bubble-less typeset prose
-/// anchored by a leading accent rule with a sparkles glyph at the top. The rule
+/// anchored by a leading accent rule with the MacParakeet brand mark at the
+/// top (resting state) or a spinning merkaba (streaming state). The rule
 /// breathes while streaming, echoing the recording pill's sacred-geometry
 /// language. Optimized for glance-and-return cognition in a narrow panel — no
 /// avatar burning width, no chat-app chrome competing with content. Distinct
@@ -785,9 +786,10 @@ private struct ThinkingDots: View {
 }
 
 /// Head of the assistant column — swaps between a spinning merkaba (streaming)
-/// and a static sparkles glyph (idle). Same visual language as the dictation
-/// overlay and post-meeting transcript chat avatar; carries sacred-geometry
-/// motion into the live Ask without bringing back chat-app avatar chrome.
+/// and the MacParakeet brand mark (idle). Streaming carries sacred-geometry
+/// motion into the live Ask; idle carries the brand identity (Cursive P /
+/// Breath Wave) for subtle product recognition next to every completed AI
+/// turn. Two glyphs, two roles: motion = "thinking", brand = "sender."
 private struct AssistantHead: View {
     let isStreaming: Bool
 
@@ -797,9 +799,7 @@ private struct AssistantHead: View {
                 SpinnerRingView(size: 14, revolutionDuration: 2.0, tintColor: DesignSystem.Colors.accent)
                     .transition(.opacity)
             } else {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(DesignSystem.Colors.accent.opacity(0.85))
+                BreathWaveLogo(size: 16, tint: DesignSystem.Colors.accent, opacity: 0.85)
                     .transition(.opacity)
             }
         }
