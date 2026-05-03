@@ -106,7 +106,7 @@ States, all bound to the long-lived `MeetingRecordingPillViewModel` shared with 
 - **Completed**: green checkmark + "Saved to Library"; auto-reverts to idle.
 - **Error**: amber triangle + recovery message; auto-dismisses through the recording flow coordinator.
 
-Tapping the tile in idle/recording states, or pressing Stop while recording, calls the same `toggleRecording` path the menu bar uses. Completing, transcribing, completed, and error states are inert. The floating pill stays visible during recording so users who hide the main window keep an active control surface.
+The tile is a real SwiftUI `Button` only in actionable states: idle starts recording, and recording stops it through the same `toggleRecording` path the menu bar uses. Completing, transcribing, completed, and error states render as inert status surfaces and must not expose button traits or no-op accessibility actions. The floating pill stays visible during recording so users who hide the main window keep an active control surface.
 
 ### Library Meetings Filter
 
@@ -1201,7 +1201,7 @@ All UI listed above is v0.1 except where noted:
 - Dictation overlay (all 5 states)
 - Menu bar with status
 - File transcription (drop zone + progress + result)
-- Settings: General, Dictation, Storage, About
+- Settings: Modes / Engine / AI / System tab shell with search
 
 ### v0.2 (AI Refinement)
 

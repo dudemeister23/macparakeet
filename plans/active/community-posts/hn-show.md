@@ -61,7 +61,7 @@ Architecture summary:
               FluidAudio             (CoreML on the Apple Neural Engine)
                        │
               ┌────────┴────────┐
-              │ MacParakeetCore │   Swift library, no UI deps
+              │ MacParakeetCore │   Swift library, no SwiftUI views
               │ STT · DB · LLM  │
               └────────┬────────┘
                        │

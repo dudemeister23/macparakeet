@@ -144,10 +144,18 @@ bundles; product-health analytics come from typed telemetry operation events in
 - `.fault` -- Unrecoverable corruption or crash-adjacent failures
 
 **Privacy:** Transcript text, prompts, notes, file names, file paths, URLs,
-provider error bodies, microphone names, and device UIDs must be logged as
-`.private` or omitted. Prefer structured safe dimensions such as extension,
-file-size bucket, source, stage, outcome, device transport, and classified
-`error_type`.
+provider error bodies, microphone names, CoreAudio device IDs, and device UIDs
+must be logged as `.private` or omitted. Prefer structured safe dimensions such
+as extension, file-size bucket, source, stage, outcome, device presence,
+coarse device transport, and classified `error_type`.
+
+Shareable audio diagnostics are stricter than local `os.Logger` entries. Raw
+`localizedDescription` values may be kept in private OSLog fields for local
+debugging, but `~/Library/Logs/MacParakeet/dictation-audio.log` and any future
+diagnostic bundle must use classified `error_type` plus sanitized, single-line
+`error_detail` values. Device identity in these shareable logs is limited to
+`present`/`none` and coarse transport labels such as `built-in`, `usb`,
+`bluetooth`, `aggregate-*`, `virtual`, or `unknown`.
 
 ## Retry Strategy
 
@@ -170,4 +178,5 @@ The desired support path is an explicit user-triggered bundle containing recent
 MacParakeet `os.Logger` entries, `~/Library/Logs/MacParakeet/dictation-audio.log`,
 app version/build info, and redacted runtime metadata. It must not include
 audio, transcripts, notes, prompts, file names, file paths, URLs, API keys, or
-device UIDs, and it must not upload automatically.
+microphone identity (names, CoreAudio device IDs, device UIDs), and it must not
+upload automatically.

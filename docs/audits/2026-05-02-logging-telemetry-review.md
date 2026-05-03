@@ -72,7 +72,9 @@ correlation mechanism.
    dictation/transcription lifecycle logs, including making one captured audio
    path private. New logs should prefer stable event names, safe dimensions,
    classified `error_type`, and `.private` for paths, URLs, filenames, device
-   names/UIDs, prompts, notes, and provider bodies.
+   names/CoreAudio IDs/UIDs, prompts, notes, and provider bodies. Shareable
+   audio diagnostics should be stricter: safe device presence/transport labels,
+   public `error_type`, and sanitized single-line `error_detail` only.
 
 6. **No shipped diagnostic export path was found.** The spec described
    `Help > Export Diagnostic Logs`, but current menus/settings only expose copy

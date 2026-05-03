@@ -4,7 +4,7 @@
 
 ## What is MacParakeet?
 
-A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, and optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage.
+A **fast, private, local-first voice app** for macOS. The public stable DMG currently ships system-wide dictation plus file/URL transcription. On `main`, the product direction adds Labs meeting recording and optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage.
 
 **North Star:** Fast, local-first voice app for Mac.
 
@@ -16,13 +16,14 @@ A **fast, private, local-first voice app** for macOS. The v0.6 release ships sys
 
 | Channel | Agent Assumption | Features |
 |---------|------------------|----------|
-| Stable DMG | User-facing release, recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, optional WhisperKit, exports, vocabulary, AI features |
-| `main` | Development | v0.6 release scope plus hidden calendar auto-start/reminder code under `AppFeatures.calendarEnabled = false` |
+| Stable DMG | User-facing release, recommended for normal use | Dictation, file/video/YouTube transcription, exports, vocabulary, AI features |
+| `main` | Development | Stable features plus Labs meeting recording, optional WhisperKit, and hidden calendar auto-start/reminder code under `AppFeatures.calendarEnabled = false` |
 
-When editing public-facing docs, preserve this distinction: v0.6 ships meeting
-recording and WhisperKit. Calendar reminders, auto-start, and auto-stop are
-implemented in source but hidden from v0.6 behind `AppFeatures.calendarEnabled =
-false` pending hands-on end-to-end validation.
+When editing public-facing docs, preserve this distinction: meeting recording
+and WhisperKit are implemented on `main` as Labs features, but they are not in
+the current public DMG yet. Calendar reminders, auto-start, and auto-stop are
+implemented in source but hidden behind `AppFeatures.calendarEnabled = false`
+pending hands-on end-to-end validation.
 
 ## Quick Navigation
 
@@ -119,7 +120,7 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 ## Current Phase
 
-**Current main branch** -- v0.6 release scope includes meeting recording and optional WhisperKit multilingual STT. Calendar auto-start/reminders are implemented in source but hidden from v0.6 behind `AppFeatures.calendarEnabled = false`.
+**Current main branch** -- Labs scope includes meeting recording and optional WhisperKit multilingual STT. These are implemented on `main` but are not in the current public DMG yet. Calendar auto-start/reminders are implemented in source but hidden behind `AppFeatures.calendarEnabled = false`.
 
 - **v0.1** MVP -- System-wide dictation, file transcription, overlay, history, export, SQLite, CLI, STT engine
 - **v0.2** Clean Pipeline -- Text processing (filler removal, custom words, snippets), Vocabulary UI, feedback form
@@ -153,7 +154,7 @@ The Transcribe tab is the unified capture surface — one place for all three mo
 +--------------------------------------------------+
 ```
 
-The Meeting Recording tile (third row, ~96pt strip) reflects live recording state via a long-lived `MeetingRecordingPillViewModel` shared with the floating pill — both surfaces stay in sync. Meeting browse lives under `Library`'s Meetings filter chip (Labs-badged) as a date-grouped list rather than the thumbnail grid the other filters use.
+The Meeting Recording tile (third row, ~96pt strip) reflects live recording state via a long-lived `MeetingRecordingPillViewModel` shared with the floating pill -- both surfaces stay in sync. Meeting browse lives under `Library`'s Meetings filter chip as a date-grouped list rather than the thumbnail grid the other filters use.
 
 ADR-016 defines the STT architecture as one process-wide scheduler path with a reserved dictation slot and a shared background slot where meeting work outranks file transcription. ADR-021 extends that path with speech-engine routing, engine-switch guards, and meeting-session engine leases.
 
@@ -216,11 +217,11 @@ MacParakeet is a **menu bar app** with these UI surfaces:
 ```
 Menu Bar Icon (always visible)
     |
-    +-- Main Window (file transcription)
-    |   +-- Drop zone / file browser
-    |   +-- Transcript display
-    |   +-- Export controls
-    |   +-- Recent transcriptions list
+    +-- Main Window (capture hub + library)
+    |   +-- Transcribe tab: YouTube card, file drop card, Meeting Recording tile
+    |   +-- Library tab: file/YouTube/meeting transcript browse
+    |   +-- Dictations, Vocabulary, Feedback, Settings, Discover
+    |   +-- Global transcription progress bar outside Transcribe
     |
     +-- Idle Pill (persistent floating indicator)
     |   +-- Always visible when not dictating
@@ -261,7 +262,7 @@ Menu Bar Icon (always visible)
     |   +-- Shares state with the Transcribe tile
     |
     +-- Library Panel
-    |   +-- Filter bar: All/YouTube/Local/Meetings(Labs)/Favorites
+    |   +-- Filter bar: All/YouTube/Local/Meetings/Favorites
     |   +-- Thumbnail grid for All/YouTube/Local/Favorites
     |   +-- Date-grouped list (Today/Yesterday/...) for Meetings filter
     |   +-- Search and sort
@@ -322,7 +323,7 @@ macparakeet/
 │   ├── MacParakeet/            # GUI app (SwiftUI, imports MacParakeetCore + ViewModels)
 │   ├── CLI/                    # macparakeet-cli (ArgumentParser, imports MacParakeetCore)
 │   │   └── CHANGELOG.md        # CLI semver + compatibility policy (public contract)
-│   ├── MacParakeetCore/        # Shared library (no UI deps)
+│   ├── MacParakeetCore/        # Shared library (no SwiftUI views)
 │   └── MacParakeetViewModels/  # ViewModels (testable, depends on Core)
 ├── Tests/
 │   ├── MacParakeetTests/   # Unit, database, integration, ViewModel tests
@@ -526,7 +527,7 @@ open Package.swift  # Select MacParakeet scheme
 | Manual NSApplication.run() | No SwiftUI `App` protocol -- manual `NSApplication.shared.run()` for reliable CLI execution without .app bundle. Same pattern as Oatmeal. |
 | NSStatusItem for menu bar | Menu bar via `NSStatusBar.system.statusItem()`, not SwiftUI `MenuBarExtra` |
 | NSWindow + NSHostingView | Main window created programmatically, SwiftUI content hosted via `NSHostingView` |
-| Core library has no UI deps | `MacParakeetCore` imports Foundation + GRDB + FluidAudio plus optional WhisperKit, never SwiftUI. **Exception:** `ExportService` imports AppKit for PDF/DOCX generation -- no Foundation-only alternative on macOS. |
+| Core library has no SwiftUI views | `MacParakeetCore` is primarily Foundation + GRDB + FluidAudio plus optional WhisperKit. AppKit is limited to small macOS adapter services (`ClipboardService`, `PermissionService`, `TelemetryService` termination notification, `ExportService`) and must not introduce UI ownership. |
 | ViewModels in separate target | `MacParakeetViewModels/` -- testable without GUI, depends only on Core |
 | Views organized by feature | `Views/Dictation/`, `Views/Transcription/`, not flat |
 | Observable ViewModels | `@MainActor @Observable` on all ViewModels |

@@ -18,8 +18,8 @@
 │  │                           (SwiftUI)                                        │  │
 │  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────┐  │  │
 │  │  │  Main Window  │  │   Menu Bar    │  │   Dictation   │  │ Settings  │  │  │
-│  │  │  (Drop Zone + │  │   (Status +   │  │   Overlay     │  │   View    │  │  │
-│  │  │  Transcripts) │  │    Quick      │  │  (Recording   │  │           │  │  │
+│  │  │  (Capture Hub │  │   (Status +   │  │   Overlay     │  │   View    │  │  │
+│  │  │  + Library)   │  │    Quick      │  │  (Recording   │  │           │  │  │
 │  │  │               │  │    Actions)   │  │   Indicator)  │  │           │  │  │
 │  │  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘  └─────┬─────┘  │  │
 │  │          └──────────────────┴──────────────────┴─────────────────┘         │  │
@@ -147,11 +147,12 @@ The UI layer. Thin shell over MacParakeetCore. No business logic lives here.
 
 #### Main Window
 
-**Responsibility:** Primary interface for file transcription. Accepts drag-and-drop, displays transcripts, provides export controls.
+**Responsibility:** Primary in-app navigation shell. Hosts the Transcribe capture hub, Library, Dictations, Vocabulary, Feedback, Settings, and Discover surfaces. File/URL transcription, meeting recording, transcript browse, dictation history, prompt actions, and settings all route through this window.
 
 **Key Types:**
-- `MainWindowView` — Sidebar (Transcribe / Dictations / Vocabulary / Settings) + content pane
-- `TranscribeView` — Drop zone + recent transcriptions list
+- `MainWindowView` — `NavigationSplitView` sidebar (Transcribe / Library / Dictations / Vocabulary / Feedback / Settings) plus pinned Discover card and a global transcription progress bar
+- `TranscribeView` — YouTube card, file drop card, Meeting Recording tile, and transcript detail / progress surfaces
+- `TranscriptionLibraryView` — file, YouTube, meeting, and favorite transcript browse with search/sort/filter support
 - `TranscriptResultView` — Scrollable text with optional word-level timestamps
 - `DictationHistoryView` — Flat chronological list with bottom bar audio player
 
@@ -166,14 +167,14 @@ The UI layer. Thin shell over MacParakeetCore. No business logic lives here.
   - `MeditativeMerkabaView` — Large, slow merkaba for empty states
   - `SacredGeometryDivider` — Thin line with centered diamond ornament
 
-**Dependencies:** `TranscriptionService`, `ExportService`
+**Dependencies:** `TranscriptionService`, `TranscriptionLibraryViewModel`, `ExportService`, `MeetingRecordingPillViewModel`, feature-gated meeting recording coordinators
 
 **Data Flow:**
 ```
-File dropped → MainWindowView → TranscriptionService.transcribe(fileURL:)
-                                       │
-                                       ▼
-                              Transcript displayed
+File/URL/meeting action -> MainWindowView/TranscribeView -> TranscriptionService or MeetingRecordingFlowCoordinator
+                                                                |
+                                                                v
+                                                  TranscriptResultView / Library
 ```
 
 #### Menu Bar
@@ -202,13 +203,16 @@ File dropped → MainWindowView → TranscriptionService.transcribe(fileURL:)
 
 #### Settings View
 
-**Responsibility:** User preferences and diagnostics. Dictation hotkey, processing mode, custom words, text snippets, general preferences.
+**Responsibility:** User preferences and diagnostics. Four-tab settings shell for modes, local speech engines, optional AI, system permissions, storage, updates, and retained entitlement diagnostics.
 
 **Key Types:**
-- `SettingsView` — Card-based scrollable container
+- `SettingsView` — Tabbed/searchable shell (`Modes`, `Engine`, `AI`, `System`) with per-tab scroll bodies
+- `SettingsRootViewModel` — Owns active-tab persistence and search state
+- `SettingsTab` — Stable tab identifiers shared by search and view routing
+- `SettingsSearchIndex` — Cross-tab search entries; hides calendar entries while `AppFeatures.calendarEnabled` is `false`
 - `SettingsViewModel` — Manages settings state, permissions, model status, speech-engine selection, calendar preferences, and legacy entitlement state
 
-**Dependencies:** `UserDefaults`, `CustomWordRepository`, `TextSnippetRepository`
+**Dependencies:** `UserDefaults`, `CustomWordRepository`, `TextSnippetRepository`, `STTModelManager`, `WhisperModelManager`, `SPUUpdater`
 
 #### Feedback View
 
@@ -226,7 +230,7 @@ File dropped → MainWindowView → TranscriptionService.transcribe(fileURL:)
 ### 2. MacParakeetCore (Library — No SwiftUI Dependencies)
 
 The shared core. All business logic, all data access, all service orchestration. Imported by the GUI app (and optionally by a future CLI).  
-Core may use AppKit for macOS system integrations (for example pasteboard, accessibility checks, document export), but does not own SwiftUI views.
+Core may use AppKit for small macOS adapter services (for example pasteboard, System Settings deep links, app termination notification, document export), but does not own SwiftUI views.
 
 #### 2.1 DictationService
 
@@ -885,9 +889,17 @@ CREATE TABLE transcriptions (
     speakerCount    INTEGER,               -- number of speakers (v0.4+)
     speakers        TEXT,                   -- JSON: [{"id":"S1","label":"Speaker 1"}, ...] (v0.4+)
     sourceType      TEXT NOT NULL DEFAULT 'file', -- file | youtube | meeting (v0.6)
+    thumbnailURL    TEXT,                   -- YouTube thumbnail URL (v0.5)
+    channelName     TEXT,                   -- YouTube channel name (v0.5)
+    videoDescription TEXT,                  -- YouTube video description (v0.5)
+    isFavorite      BOOLEAN NOT NULL DEFAULT 0, -- favorite marker (v0.5)
     recoveredFromCrash BOOLEAN NOT NULL DEFAULT 0, -- recovered interrupted meeting (v0.7.5)
     isTranscriptEdited BOOLEAN NOT NULL DEFAULT 0, -- user-edited transcript flag (v0.7.7)
     userNotes       TEXT,                   -- meeting notes (v0.8)
+    engine          TEXT,                   -- STT engine attribution (v0.8)
+    engineVariant   TEXT,                   -- engine-specific model variant (v0.8)
+    derivedTitle    TEXT,                   -- cached display title (v0.9)
+    derivedSnippet  TEXT,                   -- cached display preview (v0.9)
     status          TEXT NOT NULL DEFAULT 'processing', -- 'processing' | 'completed' | 'error' | 'cancelled'
     errorMessage    TEXT,                   -- non-null if status == 'error'
     exportPath      TEXT,                   -- path to exported file
@@ -897,7 +909,8 @@ CREATE TABLE transcriptions (
 CREATE INDEX idx_transcriptions_created_at ON transcriptions(createdAt);
 
 -- Additional active tables omitted here for brevity:
--- custom_words, text_snippets, chat_conversations, prompts, summaries (PromptResult)
+-- custom_words, text_snippets, chat_conversations, prompts, summaries (PromptResult),
+-- lifetime_dictation_stats, quick_prompts
 ```
 
 ### Migrations
@@ -1333,7 +1346,7 @@ open Package.swift
 
 ## Architecture Principles
 
-1. **MacParakeetCore has zero UI dependencies.** Import Foundation, never SwiftUI. This enables future CLI and keeps business logic testable.
+1. **MacParakeetCore has no SwiftUI/view ownership.** Core is primarily Foundation + GRDB + FluidAudio + optional WhisperKit. AppKit is limited to small macOS adapter services with no Foundation-only alternative (clipboard, permission deep links, app termination notification, export). This keeps business logic testable without moving platform shims into SwiftUI views.
 
 2. **Protocol-first services.** Every service has a protocol. Tests inject mocks. No singletons.
 

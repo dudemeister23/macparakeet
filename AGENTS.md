@@ -7,16 +7,19 @@
 
 ## What this project is
 
-MacParakeet is a fast, private, local-first voice app for macOS. The v0.6
-release scope has three co-equal modes: system-wide dictation, file
+MacParakeet is a fast, private, local-first voice app for macOS. Stable
+releases focus on system-wide dictation and file transcription; the `main`
+branch product direction has three co-equal modes: system-wide dictation, file
 transcription, and meeting recording. Parakeet TDT 0.6B v3 via FluidAudio
 CoreML on the Apple Neural Engine is the default STT engine. WhisperKit is also
-available as an optional local multilingual engine for languages Parakeet does
-not cover.
+available on `main` as an optional local multilingual engine for languages
+Parakeet does not cover.
 
-**Release status:** v0.6 ships dictation, file/URL transcription, meeting
-recording, and optional WhisperKit multilingual STT. Calendar reminders,
-auto-start, and auto-stop are implemented in source but hidden from v0.6 behind
+**Release status:** the public DMG is the stable channel and currently ships
+dictation + file/URL transcription. Meeting recording and WhisperKit
+multilingual STT are Labs features implemented on `main`, under active
+testing, and not in the current public DMG yet. Calendar reminders, auto-start,
+and auto-stop are implemented in source but hidden behind
 `AppFeatures.calendarEnabled = false` pending hands-on end-to-end validation.
 
 Free and open-source (GPL-3.0). Apple Silicon only. Requires macOS 14.2+.
@@ -57,9 +60,12 @@ code-change work complete.
   [`Sources/MacParakeetCore/Database/`](./Sources/MacParakeetCore/Database/)).
 - Comments explain *why*, not *what* -- well-named identifiers carry the what.
   Default to writing none.
-- `MacParakeetCore` has no UI dependencies (Foundation + GRDB + FluidAudio,
-  with optional WhisperKit). One exception: `ExportService` imports AppKit for
-  PDF/DOCX. No new AppKit imports in Core.
+- `MacParakeetCore` has no SwiftUI/view dependencies. It is primarily
+  Foundation + GRDB + FluidAudio + optional WhisperKit, with small
+  AppKit-backed macOS adapter services where no Foundation-only API exists
+  (`ClipboardService`, `PermissionService`, `TelemetryService` termination
+  notification, `ExportService`). New AppKit use in Core should stay
+  adapter-shaped and must not introduce UI ownership.
 - ViewModels live in their own SPM target (`Sources/MacParakeetViewModels/`)
   so they can be tested without the GUI.
 - Async/await for all I/O. No completion handlers, no Combine in new code.
