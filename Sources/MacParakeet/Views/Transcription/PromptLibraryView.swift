@@ -9,6 +9,11 @@ struct PromptLibraryView: View {
     @State private var editContent: String = ""
     @State private var hoveredPromptId: UUID?
     @State private var expandedPromptIds: Set<UUID> = []
+    @State private var showingDiscardConfirm = false
+    /// Tracks which row currently owns keyboard focus so a Tab-only user
+    /// gets the same icon brightening + AutoRunBadge reveal that a mouse
+    /// user gets on hover.
+    @FocusState private var focusedPromptId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +37,8 @@ struct PromptLibraryView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                // Esc dismisses (Apple HIG default for sheets).
+                .keyboardShortcut(.cancelAction)
             }
             .padding(DesignSystem.Spacing.xl)
             .background(DesignSystem.Colors.surface)
@@ -136,7 +143,27 @@ struct PromptLibraryView: View {
         ) {
             if let prompt = viewModel.editingPrompt {
                 editSheet(prompt: prompt)
+                    .alert("Discard changes?", isPresented: $showingDiscardConfirm) {
+                        Button("Discard", role: .destructive) {
+                            viewModel.editingPrompt = nil
+                        }
+                        Button("Keep editing", role: .cancel) { }
+                    } message: {
+                        Text("Your edits to '\(prompt.name)' will be lost.")
+                    }
             }
+        }
+    }
+
+    /// Cancel button in the edit sheet. Confirms before throwing away typed
+    /// work; silent dismiss when nothing changed (Mail-compose pattern).
+    private func attemptCancelEdit(prompt: Prompt) {
+        let nameChanged = editName != prompt.name
+        let contentChanged = editContent != prompt.content
+        if nameChanged || contentChanged {
+            showingDiscardConfirm = true
+        } else {
+            viewModel.editingPrompt = nil
         }
     }
 
@@ -192,7 +219,9 @@ struct PromptLibraryView: View {
     }
 
     private func promptRow(_ prompt: Prompt, allowEdit: Bool) -> some View {
-        let isHovered = hoveredPromptId == prompt.id
+        // Treat keyboard focus the same as hover so a Tab-only user gets
+        // identical icon brightening + AutoRunBadge reveal.
+        let isActive = hoveredPromptId == prompt.id || focusedPromptId == prompt.id
         let isAutoRun = prompt.isAutoRun
         let isExpanded = expandedPromptIds.contains(prompt.id)
 
@@ -202,25 +231,38 @@ struct PromptLibraryView: View {
                 get: { prompt.isVisible },
                 set: { _ in withAnimation { viewModel.toggleVisibility(prompt) } }
             ))
+            .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.small)
             .tint(DesignSystem.Colors.accent)
             .padding(.top, 2)
+            .focused($focusedPromptId, equals: prompt.id)
+            .accessibilityLabel("Show \(prompt.name)")
+            .accessibilityHint(isAutoRun ? "Auto-runs on new transcripts" : "")
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(prompt.name)
                         .font(DesignSystem.Typography.bodyLarge.weight(.semibold))
                         .foregroundStyle(prompt.isVisible ? DesignSystem.Colors.textPrimary : DesignSystem.Colors.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     if isAutoRun {
                         AutoRunBadge(isAutoRun: true) {
                             withAnimation { viewModel.toggleAutoRun(prompt) }
                         }
-                    } else if isHovered {
+                        .accessibilityLabel("Auto-Run")
+                        .accessibilityValue("on")
+                        .accessibilityHint("Toggles whether \(prompt.name) auto-runs on new transcripts")
+                    } else if isActive {
                         AutoRunBadge(isAutoRun: false) {
                             withAnimation { viewModel.toggleAutoRun(prompt) }
                         }
+                        .focused($focusedPromptId, equals: prompt.id)
+                        .accessibilityLabel("Auto-Run")
+                        .accessibilityValue("off")
+                        .accessibilityHint("Toggles whether \(prompt.name) auto-runs on new transcripts")
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     }
 
@@ -260,27 +302,31 @@ struct PromptLibraryView: View {
                             .font(.system(size: 14))
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                             .frame(width: 28, height: 28)
-                            .background(isHovered ? DesignSystem.Colors.rowHoverBackground : .clear)
+                            .background(isActive ? DesignSystem.Colors.rowHoverBackground : .clear)
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .focused($focusedPromptId, equals: prompt.id)
                     .help("Edit prompt")
+                    .accessibilityLabel("Edit \(prompt.name)")
 
                     Button {
                         viewModel.pendingDeletePrompt = prompt
                     } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 14))
-                            .foregroundStyle(isHovered ? DesignSystem.Colors.errorRed : DesignSystem.Colors.textTertiary)
+                            .foregroundStyle(isActive ? DesignSystem.Colors.errorRed : DesignSystem.Colors.textTertiary)
                             .frame(width: 28, height: 28)
-                            .background(isHovered ? DesignSystem.Colors.errorRed.opacity(0.1) : .clear)
+                            .background(isActive ? DesignSystem.Colors.errorRed.opacity(0.1) : .clear)
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .focused($focusedPromptId, equals: prompt.id)
                     .help("Delete prompt")
+                    .accessibilityLabel("Delete \(prompt.name)")
                 }
-                .opacity(isHovered ? 1.0 : 0.4)
-                .animation(.easeInOut(duration: 0.2), value: isHovered)
+                .opacity(isActive ? 1.0 : 0.4)
+                .animation(.easeInOut(duration: 0.2), value: isActive)
             }
 
             Button {
@@ -295,17 +341,19 @@ struct PromptLibraryView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .bold))
                     .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                    .foregroundStyle(isHovered ? DesignSystem.Colors.textSecondary : DesignSystem.Colors.textTertiary)
+                    .foregroundStyle(isActive ? DesignSystem.Colors.textSecondary : DesignSystem.Colors.textTertiary)
                     .frame(width: 24, height: 24)
-                    .background(isHovered ? DesignSystem.Colors.rowHoverBackground : .clear)
+                    .background(isActive ? DesignSystem.Colors.rowHoverBackground : .clear)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .focused($focusedPromptId, equals: prompt.id)
             .padding(.top, 2)
             .help(isExpanded ? "Collapse" : "Expand")
+            .accessibilityLabel(isExpanded ? "Collapse \(prompt.name)" : "Expand \(prompt.name)")
         }
         .padding(DesignSystem.Spacing.lg)
-        .background(isHovered ? DesignSystem.Colors.surfaceElevated.opacity(0.5) : Color.clear)
+        .background(isActive ? DesignSystem.Colors.surfaceElevated.opacity(0.5) : Color.clear)
         .onHover { hovering in
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             withAnimation(DesignSystem.Animation.hoverTransition) {
@@ -488,10 +536,13 @@ struct PromptLibraryView: View {
             HStack {
                 Spacer()
                 Button("Cancel") {
-                    viewModel.editingPrompt = nil
+                    attemptCancelEdit(prompt: prompt)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                // Esc cancels (HIG default). hasChanges check inside
+                // attemptCancelEdit decides whether to confirm or dismiss.
+                .keyboardShortcut(.cancelAction)
 
                 Button("Save Changes") {
                     viewModel.updatePrompt(prompt, name: editName, content: editContent)
@@ -499,6 +550,9 @@ struct PromptLibraryView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(DesignSystem.Colors.accent)
+                // Cmd+Return (not bare Return) because the Instructions
+                // TextEditor below treats Return as a literal newline; bare
+                // Return would steal that.
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(editName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || editContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
