@@ -13,7 +13,24 @@ struct MeetingRecordingTile: View {
 
     @State private var isHovered = false
 
+    @ViewBuilder
     var body: some View {
+        if interactive {
+            Button(action: onTap) {
+                tileSurface
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint(accessibilityHint)
+        } else {
+            tileSurface
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityHint(accessibilityHint)
+        }
+    }
+
+    private var tileSurface: some View {
         ZStack {
             background
             content
@@ -24,19 +41,8 @@ struct MeetingRecordingTile: View {
         .frame(height: 96)
         .contentShape(RoundedRectangle(cornerRadius: DesignSystem.Layout.dropZoneCornerRadius))
         .onHover { isHovered = $0 }
-        .onTapGesture {
-            // Only fire onTap in states the tile signals as interactive
-            // (idle/recording). Transcribing/completing/completed/error stay
-            // inert so users don't get a no-op tap on a disabled-looking tile.
-            guard interactive else { return }
-            onTap()
-        }
         .scaleEffect(isHovered && interactive ? 1.005 : 1.0)
         .animation(DesignSystem.Animation.hoverTransition, value: isHovered)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(interactive ? .isButton : [])
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(accessibilityHint)
     }
 
     // MARK: - Background
@@ -235,24 +241,19 @@ struct MeetingRecordingTile: View {
     }
 
     private var stopButton: some View {
-        Button(action: onTap) {
-            HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white)
-                    .frame(width: 8, height: 8)
-                Text("Stop")
-                    .font(DesignSystem.Typography.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(
-                Capsule().fill(DesignSystem.Colors.recordingRed)
-            )
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(.white)
+                .frame(width: 8, height: 8)
+            Text("Stop")
+                .font(DesignSystem.Typography.caption.weight(.semibold))
+                .foregroundStyle(.white)
         }
-        .buttonStyle(.plain)
-        .help("Stop recording")
-        .accessibilityLabel("Stop recording")
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule().fill(DesignSystem.Colors.recordingRed)
+        )
     }
 
     // MARK: - Interactivity

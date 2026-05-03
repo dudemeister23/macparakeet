@@ -336,8 +336,8 @@ public actor AudioRecorder {
                         let was = logged; logged = true; return was
                     }
                     if !alreadyLogged {
-                        let desc = error.localizedDescription
-                        Task { await self.logTapError("audio_write_error: \(desc)") }
+                        let errorFields = AudioCaptureDiagnostics.errorFields(error)
+                        Task { await self.logTapError("audio_write_error \(errorFields)") }
                     }
                 }
             case .error:
@@ -345,8 +345,8 @@ public actor AudioRecorder {
                     let was = logged; logged = true; return was
                 }
                 if !alreadyLogged {
-                    let desc = error?.localizedDescription ?? "unknown"
-                    Task { await self.logTapError("converter_error: \(desc)") }
+                    let errorFields = error.map(AudioCaptureDiagnostics.errorFields) ?? "error_type=unknown"
+                    Task { await self.logTapError("converter_error \(errorFields)") }
                 }
             case .endOfStream, .inputRanDry:
                 break
@@ -389,7 +389,7 @@ public actor AudioRecorder {
         } catch {
             try? FileManager.default.removeItem(at: url)
             AudioCaptureDiagnostics.append(
-                "dictation_capture_start_failed reason=\"\(error.localizedDescription)\""
+                "dictation_capture_start_failed \(AudioCaptureDiagnostics.errorFields(error))"
             )
             throw AudioProcessorError.recordingFailed(error.localizedDescription)
         }
@@ -424,12 +424,12 @@ public actor AudioRecorder {
         let liveFormat = sharedStream.inputFormat
         let liveSampleRate = liveFormat?.sampleRate ?? 0
         let liveChannelCount = liveFormat?.channelCount ?? 0
-        let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceLabel()
+        let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceSummary()
         AudioCaptureDiagnostics.append(
-            "dictation_capture_engine_started file=\(url.lastPathComponent) default_input=\(defaultInput) sr=\(liveSampleRate) ch=\(liveChannelCount)"
+            "dictation_capture_engine_started file_created=true \(defaultInput) sr=\(liveSampleRate) ch=\(liveChannelCount)"
         )
         logger.info(
-            "dictation_capture_started file=\(url.lastPathComponent, privacy: .public)"
+            "dictation_capture_started"
         )
 
         // Diagnostic instrumentation. Strictly log-only — these timers fire
@@ -560,9 +560,9 @@ public actor AudioRecorder {
             guard shouldFire else { return }
             guard self.sessionGeneration.withLock({ $0 }) == armedGeneration else { return }
             let isRunning = stream.diagnostics.engineRunning
-            let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceLabel()
+            let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceSummary()
             AudioCaptureDiagnostics.append(
-                "dictation_capture_no_buffers_within_timeout isRunning=\(isRunning) default_input=\(defaultInput)"
+                "dictation_capture_no_buffers_within_timeout isRunning=\(isRunning) \(defaultInput)"
             )
         }
     }
@@ -580,9 +580,9 @@ public actor AudioRecorder {
             guard self.sessionGeneration.withLock({ $0 }) == armedGeneration else { return }
             let metrics = self.runtimeMetrics.withLock { $0 }
             let isRunning = stream.diagnostics.engineRunning
-            let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceLabel()
+            let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceSummary()
             AudioCaptureDiagnostics.append(
-                "dictation_capture_heartbeat input_buffers=\(metrics.inputBufferCount) input_frames=\(metrics.inputFrameCount) isRunning=\(isRunning) default_input=\(defaultInput)"
+                "dictation_capture_heartbeat input_buffers=\(metrics.inputBufferCount) input_frames=\(metrics.inputFrameCount) isRunning=\(isRunning) \(defaultInput)"
             )
             self.scheduleCaptureHeartbeat(generation: armedGeneration, stream: stream)
         }

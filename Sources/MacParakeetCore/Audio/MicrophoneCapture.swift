@@ -141,7 +141,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
         }
 
         AudioCaptureDiagnostics.append(
-            "meeting_mic_capture_starting requested_mode=\(String(describing: processingMode)) default_input_pre=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+            "meeting_mic_capture_starting requested_mode=\(String(describing: processingMode)) \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
         )
 
         handlerLock.withLock {
@@ -190,11 +190,12 @@ public final class MicrophoneCapture: @unchecked Sendable {
         } catch {
             switch processingMode {
             case .vpioPreferred:
+                let errorType = AudioCaptureDiagnostics.errorType(error)
                 logger.warning(
-                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw reason=\(error.localizedDescription, privacy: .public)"
+                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                 )
                 AudioCaptureDiagnostics.append(
-                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw reason=\"\(error.localizedDescription)\""
+                    "meeting_mic_processing_fallback requested=vpioPreferred effective=raw \(AudioCaptureDiagnostics.errorFields(error))"
                 )
                 do {
                     token = try await sharedStream.subscribe(
@@ -206,17 +207,17 @@ public final class MicrophoneCapture: @unchecked Sendable {
                 } catch let fallbackError {
                     finalizeFailure(
                         processingMode: processingMode,
-                        reason: fallbackError.localizedDescription
+                        errorFields: AudioCaptureDiagnostics.errorFields(fallbackError)
                     )
                     throw MeetingAudioError.audioEngineStartFailed(fallbackError.localizedDescription)
                 }
             case .vpioRequired:
                 AudioCaptureDiagnostics.append(
-                    "meeting_mic_processing_unavailable mode=vpioRequired reason=\"\(error.localizedDescription)\""
+                    "meeting_mic_processing_unavailable mode=vpioRequired \(AudioCaptureDiagnostics.errorFields(error))"
                 )
                 finalizeFailure(
                     processingMode: processingMode,
-                    reason: error.localizedDescription
+                    errorFields: AudioCaptureDiagnostics.errorFields(error)
                 )
                 throw MeetingAudioError.microphoneProcessingUnavailable(
                     mode: .vpioRequired,
@@ -225,7 +226,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
             case .raw:
                 finalizeFailure(
                     processingMode: processingMode,
-                    reason: error.localizedDescription
+                    errorFields: AudioCaptureDiagnostics.errorFields(error)
                 )
                 throw MeetingAudioError.audioEngineStartFailed(error.localizedDescription)
             }
@@ -235,11 +236,11 @@ public final class MicrophoneCapture: @unchecked Sendable {
             let reason = "VPIO engagement deferred by active non-VPIO subscriber"
             await sharedStream.unsubscribe(token)
             AudioCaptureDiagnostics.append(
-                "meeting_mic_processing_unavailable mode=vpioRequired reason=\"\(reason)\""
+                "meeting_mic_processing_unavailable mode=vpioRequired reason_code=vpio_deferred"
             )
             finalizeFailure(
                 processingMode: processingMode,
-                reason: reason
+                errorFields: "reason_code=vpio_deferred"
             )
             throw MeetingAudioError.microphoneProcessingUnavailable(
                 mode: .vpioRequired,
@@ -284,7 +285,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
             "microphone_capture_started requested_mode=\(String(describing: processingMode), privacy: .public) effective_mode=\(effectiveMode.rawValue, privacy: .public) sample_rate=\(activeSampleRate, privacy: .public) channels=\(activeChannelCount, privacy: .public) interleaved=\(activeInterleaved, privacy: .public)"
         )
         AudioCaptureDiagnostics.append(
-            "meeting_mic_capture_started requested_mode=\(String(describing: processingMode)) effective_mode=\(effectiveMode.rawValue) sr=\(activeSampleRate) ch=\(activeChannelCount) default_input=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+            "meeting_mic_capture_started requested_mode=\(String(describing: processingMode)) effective_mode=\(effectiveMode.rawValue) sr=\(activeSampleRate) ch=\(activeChannelCount) \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
         )
 
         return MeetingMicrophoneCaptureStartReport(
@@ -295,7 +296,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
 
     private func finalizeFailure(
         processingMode: MeetingMicProcessingMode,
-        reason: String
+        errorFields: String
     ) {
         handlerLock.withLock {
             bufferHandler = nil
@@ -306,7 +307,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
             state = .idle
         }
         AudioCaptureDiagnostics.append(
-            "meeting_mic_capture_start_failed mode=\(String(describing: processingMode)) reason=\"\(reason)\""
+            "meeting_mic_capture_start_failed mode=\(String(describing: processingMode)) \(errorFields)"
         )
     }
 
@@ -332,7 +333,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
         Task { await stream.unsubscribe(token) }
         logger.info("microphone_capture_stopped")
         AudioCaptureDiagnostics.append(
-            "meeting_mic_capture_stopped default_input_post=\(AudioCaptureDiagnostics.defaultInputDeviceLabel())"
+            "meeting_mic_capture_stopped \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
         )
     }
 

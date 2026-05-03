@@ -167,6 +167,7 @@ final class TranscriptionRepositoryTests: XCTestCase {
 
         XCTAssertEqual(results.map(\.id), [meetingID])
         XCTAssertEqual(try repo.fetchBySourceType(.meeting, idPrefix: "AABBCCDD-1111").map(\.id), [meetingID])
+        XCTAssertEqual(try repo.fetchBySourceType(.meeting, idPrefix: "AABBCCDD1111").map(\.id), [meetingID])
     }
 
     func testFetchByIDPrefixFiltersInDatabaseAcrossSourceTypes() throws {
@@ -196,6 +197,7 @@ final class TranscriptionRepositoryTests: XCTestCase {
 
         XCTAssertEqual(results.map(\.id), [newerID, olderID])
         XCTAssertEqual(try repo.fetchByIDPrefix("AABBCCDD-1111").map(\.id), [olderID])
+        XCTAssertEqual(try repo.fetchByIDPrefix("aabbccdd1111").map(\.id), [olderID])
     }
 
     func testFetchBySourceTypeAndFileNameIsCaseInsensitive() throws {

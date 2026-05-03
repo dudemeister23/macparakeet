@@ -96,11 +96,12 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                 }
                 return format.sampleRate > 0 && format.channelCount > 0 ? format : nil
             } catch {
+                let errorType = AudioCaptureDiagnostics.errorType(error)
                 logger.error(
-                    "shared_mic_engine_input_format_failed reason=\(error.localizedDescription, privacy: .public)"
+                    "shared_mic_engine_input_format_failed error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                 )
                 AudioCaptureDiagnostics.append(
-                    "shared_mic_engine_input_format_failed reason=\"\(error.localizedDescription)\""
+                    "shared_mic_engine_input_format_failed \(AudioCaptureDiagnostics.errorFields(error))"
                 )
                 return nil
             }
@@ -141,12 +142,13 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
 
             var lastError: Error?
             for attempt in attempts {
+                let transport = AudioCaptureDiagnostics.deviceTransportLabel(attempt.deviceID)
                 guard AudioDeviceManager.setInputDevice(attempt.deviceID, on: audioEngine) else {
                     logger.warning(
-                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue, privacy: .public) id=\(attempt.deviceID, privacy: .public)"
+                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public)"
                     )
                     AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue) id=\(attempt.deviceID)"
+                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue) device=present transport=\(transport)"
                     )
                     if lastError == nil {
                         lastError = AVAudioEngineMicrophonePlatformError.deviceSetFailed(attempt)
@@ -162,21 +164,21 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                         tapHandler: tapHandler
                     )
                     lastSucceededAttemptLocked = attempt
-                    let name = AudioDeviceManager.deviceName(attempt.deviceID) ?? "unknown"
                     logger.info(
-                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue, privacy: .public) id=\(attempt.deviceID, privacy: .public) name=\(name, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
+                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
                     )
                     AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue) id=\(attempt.deviceID) name=\(name) vpio=\(vpioEnabled)"
+                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue) device=present transport=\(transport) vpio=\(vpioEnabled)"
                     )
                     return
                 } catch {
                     lastError = error
+                    let errorType = AudioCaptureDiagnostics.errorType(error)
                     logger.warning(
-                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue, privacy: .public) id=\(attempt.deviceID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                     )
                     AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue) id=\(attempt.deviceID) error=\"\(error.localizedDescription)\""
+                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue) device=present transport=\(transport) \(AudioCaptureDiagnostics.errorFields(error))"
                     )
                     // startEngineLocked already replaces the engine on
                     // failure, so nothing more to reset here.
@@ -223,8 +225,9 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                     )
                 }
             } catch {
+                let errorType = AudioCaptureDiagnostics.errorType(error)
                 logger.debug(
-                    "shared_mic_engine_ducking_config_failed reason=\(error.localizedDescription, privacy: .public)"
+                    "shared_mic_engine_ducking_config_failed error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                 )
             }
         }
@@ -351,9 +354,9 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                     ch: format?.channelCount ?? 0,
                     isRunning: self.running
                 )
-                let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceLabel()
+                let defaultInput = AudioCaptureDiagnostics.defaultInputDeviceSummary()
                 AudioCaptureDiagnostics.append(
-                    "shared_mic_engine_configuration_changed sr=\(snapshot.sr) ch=\(snapshot.ch) isRunning=\(snapshot.isRunning) default_input=\(defaultInput)"
+                    "shared_mic_engine_configuration_changed sr=\(snapshot.sr) ch=\(snapshot.ch) isRunning=\(snapshot.isRunning) \(defaultInput)"
                 )
                 self.logger.info(
                     "shared_mic_engine_configuration_changed sr=\(snapshot.sr, privacy: .public) ch=\(snapshot.ch, privacy: .public) isRunning=\(snapshot.isRunning, privacy: .public)"
@@ -379,7 +382,7 @@ public enum AVAudioEngineMicrophonePlatformError: Error, Equatable, LocalizedErr
     public var errorDescription: String? {
         switch self {
         case .deviceSetFailed(let attempt):
-            return "Failed to set input device \(attempt.deviceID) from \(attempt.source.logValue)"
+            return "Failed to set \(attempt.source.logValue) input device"
         case .invalidInputFormat(let sampleRate, let channels):
             return "Invalid input format: sampleRate=\(sampleRate) channels=\(channels)"
         case .noDeviceAvailable:

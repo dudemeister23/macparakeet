@@ -284,7 +284,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             )
         } catch {
             AudioCaptureDiagnostics.append(
-                "meeting_recording_start_failed session=\(sessionID.uuidString) reason=\"\(error.localizedDescription)\""
+                "meeting_recording_start_failed session=\(sessionID.uuidString) \(AudioCaptureDiagnostics.errorFields(error))"
             )
             await cleanupFailedStart(folderURL: folderURL)
             throw error
@@ -405,7 +405,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             )
         } catch {
             logger.error(
-                "meeting_mix_failed_nonfatal session=\(session.id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                "meeting_mix_failed_nonfatal session=\(session.id.uuidString, privacy: .public) error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
             )
         }
 
@@ -420,7 +420,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             )
         } catch {
             logger.warning(
-                "meeting_notes_file_write_failed session=\(session.id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                "meeting_notes_file_write_failed session=\(session.id.uuidString, privacy: .public) error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
             )
         }
 
@@ -465,7 +465,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         do {
             try lockFileStore.delete(folderURL: recording.folderURL)
         } catch {
-            logger.error("meeting_recording_lock_cleanup_failed session=\(recording.sessionID.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            logger.error("meeting_recording_lock_cleanup_failed session=\(recording.sessionID.uuidString, privacy: .public) error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         }
         await finishTranscriptionAttempt(for: recording)
     }
@@ -507,7 +507,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         } catch {
             // Notes persistence is best-effort — losing one debounce write to
             // an I/O error is preferable to surfacing a UI error mid-meeting.
-            logger.error("meeting_recording_notes_persist_failed session=\(session.id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            logger.error("meeting_recording_notes_persist_failed session=\(session.id.uuidString, privacy: .public) error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -603,7 +603,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     private func failCapture(_ error: Error) async {
         captureFailed = true
         latestLevels = MeetingAudioLevels()
-        logger.error("Meeting capture failed: \(error.localizedDescription, privacy: .public)")
+        logger.error("meeting_capture_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         await audioCaptureService.stop()
     }
 
@@ -756,7 +756,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             let file = try AVAudioFile(forReading: url)
             return file.length > 0
         } catch {
-            logger.error("Failed to inspect recorded source audio: \(error.localizedDescription, privacy: .public)")
+            logger.error("meeting_recorded_source_audio_inspect_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
             return false
         }
     }

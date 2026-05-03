@@ -219,7 +219,11 @@ final class MeetingAudioStorageWriter {
         }
 
         if status == .error {
-            logger.error("Meeting audio conversion failed: \(error?.localizedDescription ?? "unknown", privacy: .public)")
+            if let error {
+                logger.error("meeting_audio_conversion_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
+            } else {
+                logger.error("meeting_audio_conversion_failed error_type=unknown")
+            }
             throw MeetingAudioError.storageFailed(error?.localizedDescription ?? "conversion failed")
         }
 
@@ -284,7 +288,7 @@ final class MeetingAudioStorageWriter {
         let finalizedWriter = FinalizedAVAssetWriter(writer)
         finalizedWriter.writer.finishWriting {
             if let error = finalizedWriter.writer.error {
-                logger.error("meeting_audio_writer_finalize_failed error=\(error.localizedDescription, privacy: .public)")
+                logger.error("meeting_audio_writer_finalize_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
             }
             completion()
         }

@@ -90,13 +90,13 @@ public enum AudioDeviceManager {
         return deviceIDs.compactMap { id in
             guard hasInputChannels(id) else { return nil }
             let name = deviceName(id) ?? "Unknown Device"
+            let transport = transportType(id)
             guard let uid = deviceUID(id) else {
                 logger.debug(
-                    "skipping_input_device_without_uid id=\(id, privacy: .public) name=\(name, privacy: .public)"
+                    "skipping_input_device_without_uid transport=\(InputDevice.label(for: transport), privacy: .public)"
                 )
                 return nil
             }
-            let transport = transportType(id)
             return InputDevice(id: id, uid: uid, name: name, transportType: transport)
         }
     }
@@ -165,8 +165,9 @@ public enum AudioDeviceManager {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         if status != noErr {
+            let transport = InputDevice.label(for: transportType(deviceID))
             logger.error(
-                "set_input_device failed: device_id=\(deviceID) OSStatus=\(status)"
+                "set_input_device failed: transport=\(transport, privacy: .public) OSStatus=\(status)"
             )
             return false
         }

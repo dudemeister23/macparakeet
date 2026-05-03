@@ -58,8 +58,15 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
         public init(id: UUID = UUID()) { self.id = id }
     }
 
-    public enum SubscribeError: Error, Equatable {
+    public enum SubscribeError: Error, Equatable, LocalizedError {
         case engineStartFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .engineStartFailed(let reason):
+                return "Microphone engine failed to start: \(reason)"
+            }
+        }
     }
 
     public struct Diagnostics: Equatable, Sendable {
@@ -202,7 +209,11 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                         Self.refreshHandlersSnapshot(&state)
                     }
                     self.emitDiagnosticsLog(transition: "subscribe_failed", wantsVPIO: wantsVPIO)
-                    cont.resume(throwing: SubscribeError.engineStartFailed(error.localizedDescription))
+                    cont.resume(
+                        throwing: SubscribeError.engineStartFailed(
+                            AudioCaptureDiagnostics.sanitizedLogValue(error.localizedDescription)
+                        )
+                    )
                 }
             }
         }
@@ -256,11 +267,12 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                             Self.refreshHandlersSnapshot(&state)
                             return callbacks
                         }
+                        let errorType = AudioCaptureDiagnostics.errorType(error)
                         self.logger.error(
-                            "shared_mic_engine_reconfigure_failed engine_dead=true reason=\(error.localizedDescription, privacy: .public)"
+                            "shared_mic_engine_reconfigure_failed engine_dead=true error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                         )
                         AudioCaptureDiagnostics.append(
-                            "shared_mic_engine_reconfigure_failed engine_dead=true reason=\"\(error.localizedDescription)\""
+                            "shared_mic_engine_reconfigure_failed engine_dead=true \(AudioCaptureDiagnostics.errorFields(error))"
                         )
                         self.emitDiagnosticsLog(transition: "unsubscribe_engine_dead", wantsVPIO: nil)
                         // Fire callbacks off-lock and off the engine queue so
@@ -273,11 +285,12 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                             }
                         }
                     case .stopEngine:
+                        let errorType = AudioCaptureDiagnostics.errorType(error)
                         self.logger.error(
-                            "shared_mic_engine_stop_failed reason=\(error.localizedDescription, privacy: .public)"
+                            "shared_mic_engine_stop_failed error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                         )
                         AudioCaptureDiagnostics.append(
-                            "shared_mic_engine_stop_failed reason=\"\(error.localizedDescription)\""
+                            "shared_mic_engine_stop_failed \(AudioCaptureDiagnostics.errorFields(error))"
                         )
                         self.emitDiagnosticsLog(transition: "unsubscribe_stop_failed", wantsVPIO: nil)
                     case .startEngine, .none:

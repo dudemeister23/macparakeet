@@ -68,7 +68,7 @@ public final class SystemAudioStream: NSObject, @unchecked Sendable {
             )
         } catch {
             AudioCaptureDiagnostics.append(
-                "system_audio_stream_start_failed reason=\"\(error.localizedDescription)\""
+                "system_audio_stream_start_failed \(AudioCaptureDiagnostics.errorFields(error))"
             )
             await tearDownAfterFailedStart()
             throw MeetingAudioError.systemAudioCaptureFailed(error.localizedDescription)
@@ -80,7 +80,7 @@ public final class SystemAudioStream: NSObject, @unchecked Sendable {
         do {
             try stream.removeStreamOutput(self, type: .audio)
         } catch {
-            logger.debug("system_audio_stream_remove_output_failed reason=\(error.localizedDescription, privacy: .public)")
+            logger.debug("system_audio_stream_remove_output_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         }
         await stopCapture(stream)
         logger.info("system_audio_stream_stopped")
@@ -173,7 +173,7 @@ public final class SystemAudioStream: NSObject, @unchecked Sendable {
         do {
             try stream.removeStreamOutput(self, type: .audio)
         } catch {
-            logger.debug("system_audio_stream_failed_start_remove_output_failed reason=\(error.localizedDescription, privacy: .public)")
+            logger.debug("system_audio_stream_failed_start_remove_output_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         }
         await stopCapture(stream)
     }
@@ -349,7 +349,7 @@ extension SystemAudioStream: SCStreamOutput, SCStreamDelegate {
             let handler = stateQueue.sync { bufferHandler }
             handler?(buffer, time)
         } catch {
-            logger.warning("system_audio_stream_buffer_conversion_failed reason=\(error.localizedDescription, privacy: .public)")
+            logger.warning("system_audio_stream_buffer_conversion_failed error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
             let observer = watchdogLock.withLock { stallObserver }
             observer?(
                 .captureRuntimeFailure(
@@ -360,9 +360,9 @@ extension SystemAudioStream: SCStreamOutput, SCStreamDelegate {
     }
 
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        logger.error("system_audio_stream_stopped_with_error reason=\(error.localizedDescription, privacy: .public)")
+        logger.error("system_audio_stream_stopped_with_error error_type=\(AudioCaptureDiagnostics.errorType(error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
         AudioCaptureDiagnostics.append(
-            "system_audio_stream_stopped_with_error reason=\"\(error.localizedDescription)\""
+            "system_audio_stream_stopped_with_error \(AudioCaptureDiagnostics.errorFields(error))"
         )
         let observer = watchdogLock.withLock { stallObserver }
         observer?(.captureRuntimeFailure("system audio stream stopped: \(error.localizedDescription)"))
