@@ -57,10 +57,8 @@ struct DictationHistoryView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             // Title row
-            HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
-                Image(systemName: "waveform.badge.magnifyingglass")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(DesignSystem.Colors.accent)
+            HStack(alignment: .center, spacing: DesignSystem.Spacing.sm) {
+                BreathWaveLogo(size: 18, tint: DesignSystem.Colors.accent)
                     .frame(width: 30, height: 30)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
