@@ -723,7 +723,7 @@ struct SettingsView: View {
 
                 settingsToggleRow(
                     title: "Speaker detection",
-                    detail: "Identify who said what using Pyannote community-1. Typically ~85% accurate — best with clear audio and distinct voices.",
+                    detail: "Optional. Adds speaker labels when audio is clear; leave off if labels are unreliable.",
                     isOn: $viewModel.speakerDiarization
                 )
 

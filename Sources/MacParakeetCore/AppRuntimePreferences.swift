@@ -95,7 +95,7 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
     }
 
     public var shouldDiarize: Bool {
-        defaults.object(forKey: Self.speakerDiarizationKey) as? Bool ?? true
+        defaults.object(forKey: Self.speakerDiarizationKey) as? Bool ?? false
     }
 
     public var aiFormatterEnabled: Bool {

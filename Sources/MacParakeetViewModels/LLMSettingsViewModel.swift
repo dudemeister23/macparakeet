@@ -424,11 +424,6 @@ public final class LLMSettingsViewModel {
         aiFormatterPrompt = AIFormatter.defaultPromptTemplate
     }
 
-    public func chooseLocalAIApp(_ providerID: LLMProviderID) {
-        guard Self.usesDiscoveredModelList(providerID) else { return }
-        selectedProviderID = providerID
-    }
-
     public func refreshAvailableModels() {
         guard let llmClient, canRefreshModelList else { return }
 

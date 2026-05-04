@@ -82,6 +82,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.silenceDelay, 2.0, "silenceDelay should default to 2.0")
         XCTAssertTrue(viewModel.saveAudioRecordings, "saveAudioRecordings should default to true")
         XCTAssertTrue(viewModel.saveTranscriptionAudio, "saveTranscriptionAudio should default to true")
+        XCTAssertFalse(viewModel.speakerDiarization, "speakerDiarization should default to false")
         XCTAssertEqual(viewModel.meetingHotkeyTrigger, .chord(modifiers: ["command", "shift"], keyCode: 46))
         XCTAssertEqual(viewModel.meetingAudioSourceMode, .microphoneAndSystem)
         XCTAssertEqual(
@@ -100,6 +101,7 @@ final class SettingsViewModelTests: XCTestCase {
         testDefaults.set(3.0, forKey: "silenceDelay")
         testDefaults.set(false, forKey: "saveAudioRecordings")
         testDefaults.set(false, forKey: "saveTranscriptionAudio")
+        testDefaults.set(true, forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey)
         testDefaults.set("usb-mic-uid", forKey: UserDefaultsAppRuntimePreferences.selectedMicrophoneDeviceUIDKey)
         testDefaults.set(
             MeetingAudioSourceMode.systemOnly.rawValue,
@@ -117,6 +119,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.silenceDelay, 3.0)
         XCTAssertFalse(vm.saveAudioRecordings)
         XCTAssertFalse(vm.saveTranscriptionAudio)
+        XCTAssertTrue(vm.speakerDiarization)
         XCTAssertEqual(vm.selectedMicrophoneDeviceUID, "usb-mic-uid")
         XCTAssertEqual(vm.meetingAudioSourceMode, .systemOnly)
         XCTAssertEqual(vm.meetingHotkeyTrigger, .chord(modifiers: ["control", "option"], keyCode: 46))
@@ -401,6 +404,12 @@ final class SettingsViewModelTests: XCTestCase {
         viewModel.saveTranscriptionAudio = false
 
         XCTAssertFalse(testDefaults.bool(forKey: "saveTranscriptionAudio"))
+    }
+
+    func testSettingSpeakerDiarizationPersists() {
+        viewModel.speakerDiarization = true
+
+        XCTAssertTrue(testDefaults.bool(forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey))
     }
 
     func testMeetingHotkeyPersistsToDedicatedDefaultsKey() {
@@ -957,6 +966,7 @@ final class SettingsViewModelTests: XCTestCase {
         viewModel.silenceDelay = 5.0
         viewModel.saveAudioRecordings = false
         viewModel.saveTranscriptionAudio = false
+        viewModel.speakerDiarization = true
 
         // Create a new ViewModel reading from the same defaults
         let vm2 = SettingsViewModel(defaults: testDefaults)
@@ -968,6 +978,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm2.silenceDelay, 5.0)
         XCTAssertFalse(vm2.saveAudioRecordings)
         XCTAssertFalse(vm2.saveTranscriptionAudio)
+        XCTAssertTrue(vm2.speakerDiarization)
     }
 }
 

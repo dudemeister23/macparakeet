@@ -469,7 +469,7 @@ public final class SettingsViewModel {
         saveDictationHistory = defaults.object(forKey: UserDefaultsAppRuntimePreferences.saveDictationHistoryKey) as? Bool ?? true
         saveAudioRecordings = defaults.object(forKey: UserDefaultsAppRuntimePreferences.saveAudioRecordingsKey) as? Bool ?? true
         saveTranscriptionAudio = defaults.object(forKey: UserDefaultsAppRuntimePreferences.saveTranscriptionAudioKey) as? Bool ?? true
-        speakerDiarization = defaults.object(forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey) as? Bool ?? true
+        speakerDiarization = defaults.object(forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey) as? Bool ?? false
         speechEnginePreference = SpeechEnginePreference.current(defaults: defaults)
         whisperDefaultLanguage = SpeechEnginePreference.whisperDefaultLanguage(defaults: defaults) ?? "auto"
         // Ensure auto-save folders are configured before reading paths.

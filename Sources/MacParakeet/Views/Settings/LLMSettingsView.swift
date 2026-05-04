@@ -24,10 +24,6 @@ struct LLMSettingsView: View {
 
             Divider()
 
-            localAIAppSection
-
-            Divider()
-
             selectedAIOptionSection
 
             if viewModel.selectedProviderID != nil {
@@ -208,39 +204,13 @@ struct LLMSettingsView: View {
         }
     }
 
-    private var localAIAppSection: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Use a local AI app")
-                    .font(DesignSystem.Typography.body)
-                Text("Run AI on this Mac. Transcript text stays on this Mac.")
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            localAIAppRow(
-                provider: .lmstudio,
-                subtitle: "Recommended. Start LM Studio's local server, then refresh models.",
-                buttonTitle: "Choose LM Studio",
-                badge: "Recommended"
-            )
-
-            localAIAppRow(
-                provider: .ollama,
-                subtitle: "Also works. Start Ollama or run `ollama serve`, then refresh models.",
-                buttonTitle: "Choose Ollama",
-                badge: nil
-            )
-        }
-    }
-
     private var selectedAIOptionSection: some View {
         VStack(spacing: DesignSystem.Spacing.md) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Current choice")
                         .font(DesignSystem.Typography.body)
-                    Text("Choose a local app, an API key, or a command-line AI tool.")
+                    Text("Choose a local provider, an API key, or a command-line AI tool.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -258,7 +228,7 @@ struct LLMSettingsView: View {
 
             if viewModel.selectedProviderID == nil {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("API keys and command-line tools are still available from this menu.")
+                    Text("Local providers, API keys, and command-line tools are available from this menu.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                     Text("Dictation, transcription, and meeting recording work without AI setup.")
@@ -268,79 +238,6 @@ struct LLMSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    private func localAIAppRow(
-        provider: LLMProviderID,
-        subtitle: String,
-        buttonTitle: String,
-        badge: String?
-    ) -> some View {
-        let isSelected = viewModel.selectedProviderID == provider
-        return HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
-            Image(systemName: provider == .lmstudio ? "desktopcomputer" : "terminal")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isSelected ? DesignSystem.Colors.accent : DesignSystem.Colors.textTertiary)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        isSelected
-                            ? DesignSystem.Colors.accent.opacity(0.10)
-                            : DesignSystem.Colors.surfaceElevated
-                    )
-                )
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(provider.displayName)
-                        .font(DesignSystem.Typography.bodySmall.weight(.medium))
-                    if let badge {
-                        Text(badge)
-                            .font(DesignSystem.Typography.micro.weight(.semibold))
-                            .foregroundStyle(DesignSystem.Colors.successGreen)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(DesignSystem.Colors.successGreen.opacity(0.10)))
-                    }
-                }
-                Text(subtitle)
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if isSelected {
-                    Text(localAIAppStatusText(for: provider))
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundStyle(localAIAppStatusTint)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: DesignSystem.Spacing.sm)
-
-            VStack(alignment: .trailing, spacing: 6) {
-                Button(isSelected ? "Selected" : buttonTitle) {
-                    viewModel.chooseLocalAIApp(provider)
-                }
-                .parakeetAction(.secondary)
-                .disabled(isSelected)
-
-                if isSelected {
-                    Button(viewModel.isLoadingModelList ? "Refreshing..." : "Refresh models") {
-                        viewModel.refreshAvailableModels()
-                    }
-                    .buttonStyle(.plain)
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .disabled(viewModel.isLoadingModelList)
-                }
-            }
-        }
-        .padding(DesignSystem.Spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
-                .fill(isSelected ? DesignSystem.Colors.accentLight : DesignSystem.Colors.surfaceElevated.opacity(0.55))
-        )
     }
 
     private func setupStatusIcon(for status: LLMSettingsViewModel.AISetupStatus) -> String {
@@ -374,35 +271,6 @@ struct LLMSettingsView: View {
         case .cannotConnect(let displayName, let message):
             return "MacParakeet could not reach \(displayName): \(message)"
         }
-    }
-
-    private func localAIAppStatusText(for provider: LLMProviderID) -> String {
-        if viewModel.isLoadingModelList {
-            return "Checking for models..."
-        }
-        if let error = viewModel.modelListErrorMessage {
-            return error
-        }
-        if viewModel.discoveredModelCount == 1 {
-            return "Detected 1 model."
-        }
-        if viewModel.discoveredModelCount > 1 {
-            return "Detected \(viewModel.discoveredModelCount) models."
-        }
-        if provider == .ollama {
-            return "No running Ollama server detected yet. You can still save a recommended model name."
-        }
-        return "No running LM Studio server detected yet."
-    }
-
-    private var localAIAppStatusTint: Color {
-        if viewModel.modelListErrorMessage != nil {
-            return DesignSystem.Colors.warningAmber
-        }
-        if viewModel.discoveredModelCount > 0 {
-            return DesignSystem.Colors.successGreen
-        }
-        return DesignSystem.Colors.textSecondary
     }
 
     @ViewBuilder
