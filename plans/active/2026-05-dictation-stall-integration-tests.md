@@ -8,10 +8,20 @@
 ## Status (2026-05-03)
 
 - **Tier 1 shipped** — 5 tests in `Tests/MacParakeetTests/Audio/MicrophoneEngineRealPlatformTests.swift`. Run with `MACPARAKEET_HARDWARE_TESTS=1`. The 3-min idle test gates additionally on `MACPARAKEET_SLOW_HARDWARE_TESTS=1`.
-- **Local results**: 4 of 5 tests passed in ~5 s; idle-gap test was skipped. Cold start, post-cycle, post-VPIO, and 10-cycle stress paths are healthy on developer hardware. The bug did not reproduce in these scenarios. Trigger likely needs the 3-min idle gap, cross-process VPAU residue, or system-level events (sleep/wake). Tier 1 still earns its keep as permanent regression coverage for the healthy paths.
-- **Tier 2 deferred** — needs a test seam that doesn't exist today. Two routes documented below; recommended route is a small pure-function extraction.
-- **Tier 3 not started** — gated on Tier 1 idle-gap test result + a manual cross-process repro.
-- **Next**: run `MACPARAKEET_SLOW_HARDWARE_TESTS=1 swift test --filter testIdleGapDeliversBuffers` on a developer machine to test the most likely remaining trigger. If that reproduces, fix path (HAL probe + retry behind `dictationStallRecovery` flag) becomes concrete.
+- **Local results — ALL 5 tests pass on developer hardware**:
+  - `testColdStartDeliversBuffers` ✓ 0.39 s
+  - `testPostCycleDeliversBuffers` ✓ 0.61 s
+  - `testPostVPIODeliversBuffers` ✓ 0.99 s
+  - `testStressTenCycles` ✓ 2.94 s
+  - `testIdleGapDeliversBuffers` ✓ 180.75 s (gated)
+- **What this narrows the hypothesis to**: the bug is not triggered by any same-process scenario we can reach from a test — neither engine recreate, nor VPIO transition, nor 3-min idle. The remaining suspects are external triggers we haven't yet exercised:
+  1. **HAL configuration change mid-session** (default-input device switch, sample-rate change, virtual-audio routing toggle). The user's reported-stall log shows 9+ `engine_configuration_changed` events, including one with `ch=9` (multichannel virtual-audio). The idle-gap test sits idle without inducing a config change, so it can't catch this.
+  2. **Cross-process VPAU residue** (Tier 3 below).
+  3. **System-level events** — sleep/wake, exclusive-access takeover by another process.
+- **Tier 2 deferred** — needs a test seam that doesn't exist today.
+- **Tier 3 not started** — feasible follow-up.
+- **Tier 4 (new) — proposed**: HAL config-change injection. Programmatically toggle the default input device via `AudioObjectSetPropertyData(kAudioHardwarePropertyDefaultInputDevice)` mid-session and assert the platform survives + buffers continue. This is the most direct match for the bug signature seen in the field log.
+- **Tier 1 earns its keep** as permanent regression coverage for the healthy paths even though it didn't reproduce the bug. Any future change that breaks the contract on these paths fails immediately.
 
 ## Context
 
