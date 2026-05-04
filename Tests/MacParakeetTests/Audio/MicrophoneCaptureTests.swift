@@ -323,7 +323,7 @@ final class MicrophoneCaptureTests: XCTestCase {
             attempts,
             [
                 MeetingInputDeviceAttempt(source: .selected(uid: "usb-mic"), deviceID: 10),
-                MeetingInputDeviceAttempt(source: .systemDefault, deviceID: 20),
+                .implicitSystemDefault(resolvedDeviceID: 20),
                 MeetingInputDeviceAttempt(source: .builtIn, deviceID: 30),
             ]
         )
@@ -340,7 +340,7 @@ final class MicrophoneCaptureTests: XCTestCase {
         XCTAssertEqual(
             attempts,
             [
-                MeetingInputDeviceAttempt(source: .systemDefault, deviceID: 20),
+                .implicitSystemDefault(resolvedDeviceID: 20),
                 MeetingInputDeviceAttempt(source: .builtIn, deviceID: 30),
             ]
         )
@@ -357,7 +357,7 @@ final class MicrophoneCaptureTests: XCTestCase {
         XCTAssertEqual(
             attempts,
             [
-                MeetingInputDeviceAttempt(source: .systemDefault, deviceID: 30),
+                .implicitSystemDefault(resolvedDeviceID: 30),
             ]
         )
     }
@@ -373,9 +373,66 @@ final class MicrophoneCaptureTests: XCTestCase {
         XCTAssertEqual(
             attempts,
             [
+                .implicitSystemDefault(resolvedDeviceID: nil),
                 MeetingInputDeviceAttempt(source: .builtIn, deviceID: 30),
             ]
         )
+    }
+
+    func testSystemDefaultAttemptUsesImplicitEngineRouting() {
+        let attempts = meetingInputDeviceAttempts(
+            selectedUID: "usb-mic",
+            selectedInputDeviceID: { uid in uid == "usb-mic" ? AudioDeviceID(10) : nil },
+            defaultInputDevice: { AudioDeviceID(10) },
+            builtInMicrophone: { nil }
+        )
+
+        XCTAssertEqual(
+            attempts,
+            [
+                MeetingInputDeviceAttempt(source: .selected(uid: "usb-mic"), deviceID: 10),
+                .implicitSystemDefault(resolvedDeviceID: 10),
+            ]
+        )
+        XCTAssertFalse(attempts[0].usesImplicitSystemDefault)
+        XCTAssertTrue(attempts[1].usesImplicitSystemDefault)
+        XCTAssertEqual(attempts[0].explicitDeviceID, 10)
+        XCTAssertNil(attempts[1].explicitDeviceID)
+    }
+
+    func testExplicitSystemDefaultAttemptCanStillPinDevice() {
+        let attempt = MeetingInputDeviceAttempt(source: .systemDefault, deviceID: 20)
+
+        XCTAssertFalse(attempt.usesImplicitSystemDefault)
+        XCTAssertEqual(attempt.explicitDeviceID, 20)
+    }
+
+    func testPlatformSkipsInputDeviceSetterForImplicitSystemDefaultAttempt() throws {
+        let recorder = MicrophoneCaptureInputDeviceSetterRecorder()
+        let platform = AVAudioEngineMicrophonePlatform(
+            deviceAttemptsBuilder: {
+                [
+                    MeetingInputDeviceAttempt(source: .selected(uid: "usb-mic"), deviceID: 10),
+                    .implicitSystemDefault(resolvedDeviceID: 20),
+                    MeetingInputDeviceAttempt(source: .builtIn, deviceID: 30),
+                ]
+            },
+            inputDeviceSetter: { deviceID, _ in
+                recorder.record(deviceID)
+                return false
+            },
+            engineStarter: { _, _, _, _ in }
+        )
+
+        try platform.configureAndStart(
+            vpioEnabled: false,
+            bufferSize: 1024,
+            tapHandler: { _, _ in }
+        )
+        defer { platform.stopEngine() }
+
+        XCTAssertEqual(recorder.deviceIDs, [10])
+        XCTAssertEqual(platform.lastSucceededAttempt, .implicitSystemDefault(resolvedDeviceID: 20))
     }
 
     private func makeSharedTestBuffer() -> AVAudioPCMBuffer {
@@ -414,6 +471,21 @@ final class MicrophoneCaptureTests: XCTestCase {
 
 private enum MicrophoneCaptureMockError: Error, Equatable {
     case simulatedFailure
+}
+
+private final class MicrophoneCaptureInputDeviceSetterRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var deviceIDsLocked: [AudioDeviceID] = []
+
+    var deviceIDs: [AudioDeviceID] {
+        lock.withLock { deviceIDsLocked }
+    }
+
+    func record(_ deviceID: AudioDeviceID) {
+        lock.withLock {
+            deviceIDsLocked.append(deviceID)
+        }
+    }
 }
 
 private final class MicrophoneCaptureTestCounter: @unchecked Sendable {

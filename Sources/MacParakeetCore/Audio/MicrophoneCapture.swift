@@ -9,12 +9,52 @@ public struct MeetingInputDeviceAttempt: Equatable, Sendable {
         case builtIn
     }
 
+    public enum Routing: Equatable, Sendable {
+        case explicit(AudioDeviceID)
+        case implicitSystemDefault(resolvedDeviceID: AudioDeviceID?)
+    }
+
     public let source: Source
-    public let deviceID: AudioDeviceID
+    public let routing: Routing
 
     public init(source: Source, deviceID: AudioDeviceID) {
         self.source = source
-        self.deviceID = deviceID
+        self.routing = .explicit(deviceID)
+    }
+
+    private init(source: Source, routing: Routing) {
+        self.source = source
+        self.routing = routing
+    }
+
+    public static func implicitSystemDefault(resolvedDeviceID: AudioDeviceID? = nil) -> MeetingInputDeviceAttempt {
+        MeetingInputDeviceAttempt(
+            source: .systemDefault,
+            routing: .implicitSystemDefault(resolvedDeviceID: resolvedDeviceID)
+        )
+    }
+
+    public var deviceID: AudioDeviceID? {
+        switch routing {
+        case .explicit(let deviceID):
+            return deviceID
+        case .implicitSystemDefault(let resolvedDeviceID):
+            return resolvedDeviceID
+        }
+    }
+
+    public var explicitDeviceID: AudioDeviceID? {
+        switch routing {
+        case .explicit(let deviceID):
+            return deviceID
+        case .implicitSystemDefault:
+            return nil
+        }
+    }
+
+    public var usesImplicitSystemDefault: Bool {
+        if case .implicitSystemDefault = routing { return true }
+        return false
     }
 }
 
@@ -40,17 +80,22 @@ public func meetingInputDeviceAttempts(
     var attempts: [MeetingInputDeviceAttempt] = []
     var seenDeviceIDs = Set<AudioDeviceID>()
 
-    func append(_ source: MeetingInputDeviceAttempt.Source, deviceID: AudioDeviceID?) {
+    func appendExplicit(_ source: MeetingInputDeviceAttempt.Source, deviceID: AudioDeviceID?) {
         guard let deviceID, seenDeviceIDs.insert(deviceID).inserted else { return }
         attempts.append(MeetingInputDeviceAttempt(source: source, deviceID: deviceID))
     }
 
     if let selectedUID {
-        append(.selected(uid: selectedUID), deviceID: selectedInputDeviceID(selectedUID))
+        appendExplicit(.selected(uid: selectedUID), deviceID: selectedInputDeviceID(selectedUID))
     }
 
-    append(.systemDefault, deviceID: defaultInputDevice())
-    append(.builtIn, deviceID: builtInMicrophone())
+    let defaultDeviceID = defaultInputDevice()
+    if let defaultDeviceID {
+        seenDeviceIDs.insert(defaultDeviceID)
+    }
+    attempts.append(.implicitSystemDefault(resolvedDeviceID: defaultDeviceID))
+
+    appendExplicit(.builtIn, deviceID: builtInMicrophone())
 
     return attempts
 }

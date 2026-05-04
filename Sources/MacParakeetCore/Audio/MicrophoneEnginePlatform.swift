@@ -49,11 +49,18 @@ public protocol MicrophoneEnginePlatform: AnyObject, Sendable {
 ///   the VPAU aggregate device. A long-lived engine keeps the VPAU alive
 ///   indefinitely, which inherits the duplex layout into other engines.
 /// - When configured with a `deviceAttemptsBuilder`, each `configureAndStart`
-///   walks the resolved attempt list (selected → systemDefault → builtIn) and
-///   recreates the engine on every failed attempt before trying the next —
-///   the same fallback shape `MicrophoneCapture` uses today.
+///   walks the resolved attempt list (selected → implicit systemDefault →
+///   builtIn) and recreates the engine on every failed attempt before trying
+///   the next — the same fallback shape `MicrophoneCapture` uses today.
 public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @unchecked Sendable {
     public typealias DeviceAttemptsBuilder = @Sendable () -> [MeetingInputDeviceAttempt]
+    public typealias InputDeviceSetter = @Sendable (AudioDeviceID, AVAudioEngine) -> Bool
+    typealias EngineStarter = @Sendable (
+        AVAudioEngine,
+        Bool,
+        AVAudioFrameCount,
+        @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    ) throws -> Void
 
     private let logger = Logger(
         subsystem: "com.macparakeet.core",
@@ -61,6 +68,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     )
     private let queue = DispatchQueue(label: "com.macparakeet.shared-mic-platform")
     private let deviceAttemptsBuilder: DeviceAttemptsBuilder?
+    private let inputDeviceSetter: InputDeviceSetter
+    private let engineStarter: EngineStarter?
     private var audioEngine = AVAudioEngine()
     private var running: Bool = false
     private var lastSucceededAttemptLocked: MeetingInputDeviceAttempt?
@@ -74,8 +83,27 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     /// trigger for the silent tap-stall under investigation.
     private var configurationChangeObserver: NSObjectProtocol?
 
-    public init(deviceAttemptsBuilder: DeviceAttemptsBuilder? = nil) {
+    public init(
+        deviceAttemptsBuilder: DeviceAttemptsBuilder? = nil,
+        inputDeviceSetter: @escaping InputDeviceSetter = { deviceID, engine in
+            AudioDeviceManager.setInputDevice(deviceID, on: engine)
+        }
+    ) {
         self.deviceAttemptsBuilder = deviceAttemptsBuilder
+        self.inputDeviceSetter = inputDeviceSetter
+        self.engineStarter = nil
+    }
+
+    init(
+        deviceAttemptsBuilder: DeviceAttemptsBuilder? = nil,
+        inputDeviceSetter: @escaping InputDeviceSetter = { deviceID, engine in
+            AudioDeviceManager.setInputDevice(deviceID, on: engine)
+        },
+        engineStarter: @escaping EngineStarter
+    ) {
+        self.deviceAttemptsBuilder = deviceAttemptsBuilder
+        self.inputDeviceSetter = inputDeviceSetter
+        self.engineStarter = engineStarter
     }
 
     public var isEngineRunning: Bool {
@@ -131,7 +159,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             let attempts = deviceAttemptsBuilder?() ?? []
             if attempts.isEmpty {
                 // No device chain — use whatever the engine's input node picks.
-                try startEngineLocked(
+                try startConfiguredEngineLocked(
                     vpioEnabled: vpioEnabled,
                     bufferSize: bufferSize,
                     tapHandler: tapHandler
@@ -143,22 +171,25 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             var lastError: Error?
             for attempt in attempts {
                 let transport = AudioCaptureDiagnostics.deviceTransportLabel(attempt.deviceID)
-                guard AudioDeviceManager.setInputDevice(attempt.deviceID, on: audioEngine) else {
-                    logger.warning(
-                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public)"
-                    )
-                    AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue) device=present transport=\(transport)"
-                    )
-                    if lastError == nil {
-                        lastError = AVAudioEngineMicrophonePlatformError.deviceSetFailed(attempt)
+                let deviceLabel = AudioCaptureDiagnostics.deviceLabel(attempt.deviceID)
+                if let deviceID = attempt.explicitDeviceID {
+                    guard inputDeviceSetter(deviceID, audioEngine) else {
+                        logger.warning(
+                            "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public)"
+                        )
+                        AudioCaptureDiagnostics.append(
+                            "shared_mic_engine_input_device_set_failed source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport)"
+                        )
+                        if lastError == nil {
+                            lastError = AVAudioEngineMicrophonePlatformError.deviceSetFailed(attempt)
+                        }
+                        resetEngineLocked()
+                        continue
                     }
-                    resetEngineLocked()
-                    continue
                 }
 
                 do {
-                    try startEngineLocked(
+                    try startConfiguredEngineLocked(
                         vpioEnabled: vpioEnabled,
                         bufferSize: bufferSize,
                         tapHandler: tapHandler
@@ -168,7 +199,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                         "shared_mic_engine_input_device_started source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
                     )
                     AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue) device=present transport=\(transport) vpio=\(vpioEnabled)"
+                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport) vpio=\(vpioEnabled)"
                     )
                     return
                 } catch {
@@ -178,9 +209,9 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                         "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                     )
                     AudioCaptureDiagnostics.append(
-                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue) device=present transport=\(transport) \(AudioCaptureDiagnostics.errorFields(error))"
+                        "shared_mic_engine_input_device_start_failed source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport) \(AudioCaptureDiagnostics.errorFields(error))"
                     )
-                    // startEngineLocked already replaces the engine on
+                    // startConfiguredEngineLocked already replaces the engine on
                     // failure, so nothing more to reset here.
                 }
             }
@@ -199,6 +230,30 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     }
 
     // MARK: - Internals (queue-held)
+
+    private func startConfiguredEngineLocked(
+        vpioEnabled: Bool,
+        bufferSize: AVAudioFrameCount,
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    ) throws {
+        guard let engineStarter else {
+            try startEngineLocked(
+                vpioEnabled: vpioEnabled,
+                bufferSize: bufferSize,
+                tapHandler: tapHandler
+            )
+            return
+        }
+
+        do {
+            try engineStarter(audioEngine, vpioEnabled, bufferSize, tapHandler)
+        } catch {
+            replaceEngineAfterFailureLocked()
+            throw error
+        }
+        running = true
+        installConfigurationChangeObserverLocked()
+    }
 
     private func startEngineLocked(
         vpioEnabled: Bool,
