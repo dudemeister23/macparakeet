@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import os
 import XCTest
 @testable import MacParakeetCore
@@ -29,6 +30,10 @@ import XCTest
 /// `MACPARAKEET_SLOW_HARDWARE_TESTS=1` so a normal hardware run stays under
 /// ~30 seconds.
 ///
+/// The tests that mutate system audio state have their own gates:
+/// `MACPARAKEET_STRESS_HARDWARE_TESTS=1` for long cycle stress and
+/// `MACPARAKEET_HAL_MUTATION_TESTS=1` for default-input switching.
+///
 /// ## Why these can't run in CI
 ///
 /// Real microphone access requires TCC permission for the test runner and a
@@ -43,6 +48,9 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
 
     /// Production buffer size used by both dictation and meeting recording.
     private static let bufferSize: AVAudioFrameCount = 4096
+
+    private static let halMutationBufferDeadline: TimeInterval = 2.0
+    private static let halMutationDeviceDeadline: TimeInterval = 5.0
 
     private var platform: AVAudioEngineMicrophonePlatform!
 
@@ -104,6 +112,129 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
         )
     }
 
+    /// Product-path concurrency case: meeting mic subscribes first with VPIO,
+    /// then dictation joins as a non-VPIO subscriber. This drives the real
+    /// `SharedMicrophoneStream` and verifies both subscribers keep seeing
+    /// buffers from the single VPIO engine.
+    func testConcurrentVPIODeliversBuffersToLateNonVPIOSubscriber() async throws {
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: Self.bufferSize)
+        let vpioCounter = OSAllocatedUnfairLock(initialState: 0)
+        let dictationCounter = OSAllocatedUnfairLock(initialState: 0)
+        var tokens: [SharedMicrophoneStream.SubscriberToken] = []
+
+        do {
+            let vpioToken = try await stream.subscribe(wantsVPIO: true) { _, _ in
+                vpioCounter.withLock { $0 += 1 }
+            }
+            tokens.append(vpioToken)
+
+            let firstVPIOCount = try await awaitCounterIncrease(
+                counter: vpioCounter,
+                from: 0,
+                timeout: Self.firstBufferDeadline
+            )
+            XCTAssertGreaterThan(firstVPIOCount, 0, "VPIO subscriber should receive buffers.")
+            XCTAssertTrue(stream.diagnostics.vpioEngaged)
+
+            let dictationToken = try await stream.subscribe(wantsVPIO: false) { _, _ in
+                dictationCounter.withLock { $0 += 1 }
+            }
+            tokens.append(dictationToken)
+
+            let dictationCount = try await awaitCounterIncrease(
+                counter: dictationCounter,
+                from: 0,
+                timeout: Self.firstBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                dictationCount,
+                0,
+                "Non-VPIO subscriber joining an active VPIO engine should receive buffers."
+            )
+
+            let secondVPIOCount = try await awaitCounterIncrease(
+                counter: vpioCounter,
+                from: firstVPIOCount,
+                timeout: Self.firstBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                secondVPIOCount,
+                firstVPIOCount,
+                "Existing VPIO subscriber should keep receiving buffers after dictation joins."
+            )
+            XCTAssertEqual(stream.diagnostics.subscriberCount, 2)
+        } catch {
+            await unsubscribeAll(&tokens, from: stream)
+            throw error
+        }
+
+        await unsubscribeAll(&tokens, from: stream)
+    }
+
+    /// Edge-path concurrency case: dictation subscribes first, a meeting wants
+    /// VPIO while dictation is still in flight, then dictation leaves and the
+    /// remaining meeting subscriber must survive the raw -> VPIO promotion.
+    func testDeferredVPIOPromotionDeliversBuffersAfterRawSubscriberLeaves() async throws {
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: Self.bufferSize)
+        let dictationCounter = OSAllocatedUnfairLock(initialState: 0)
+        let vpioCounter = OSAllocatedUnfairLock(initialState: 0)
+        var tokens: [SharedMicrophoneStream.SubscriberToken] = []
+
+        do {
+            let dictationToken = try await stream.subscribe(wantsVPIO: false) { _, _ in
+                dictationCounter.withLock { $0 += 1 }
+            }
+            tokens.append(dictationToken)
+
+            _ = try await awaitCounterIncrease(
+                counter: dictationCounter,
+                from: 0,
+                timeout: Self.firstBufferDeadline
+            )
+
+            let vpioToken = try await stream.subscribe(wantsVPIO: true) { _, _ in
+                vpioCounter.withLock { $0 += 1 }
+            }
+            tokens.append(vpioToken)
+
+            XCTAssertFalse(stream.diagnostics.vpioEngaged)
+            XCTAssertTrue(stream.diagnostics.vpioDeferred)
+
+            let deferredVPIOCount = try await awaitCounterIncrease(
+                counter: vpioCounter,
+                from: 0,
+                timeout: Self.firstBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                deferredVPIOCount,
+                0,
+                "Deferred VPIO subscriber should still receive raw-engine buffers."
+            )
+
+            await stream.unsubscribe(dictationToken)
+            tokens.removeAll { $0 == dictationToken }
+
+            XCTAssertTrue(stream.diagnostics.vpioEngaged)
+            XCTAssertFalse(stream.diagnostics.vpioDeferred)
+
+            let promotedVPIOCount = try await awaitCounterIncrease(
+                counter: vpioCounter,
+                from: deferredVPIOCount,
+                timeout: Self.firstBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                promotedVPIOCount,
+                deferredVPIOCount,
+                "Remaining VPIO subscriber should keep receiving buffers after promotion."
+            )
+        } catch {
+            await unsubscribeAll(&tokens, from: stream)
+            throw error
+        }
+
+        await unsubscribeAll(&tokens, from: stream)
+    }
+
     /// Stress: 10 back-to-back subscribe/stop cycles. If any one cycle fails
     /// to deliver buffers, surface which cycle. Catches timing-flaky variants
     /// of the bug that pass single-shot tests.
@@ -116,6 +247,129 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
             )
             platform.stopEngine()
         }
+    }
+
+    /// Heavier opt-in stress: repeat the product-path shared stream lifecycle
+    /// while alternating raw and VPIO starts. This is intentionally separate
+    /// from the normal hardware gate so routine local runs stay short.
+    func testStressFiftySharedStreamCycles() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["MACPARAKEET_STRESS_HARDWARE_TESTS"] == "1",
+            "Set MACPARAKEET_STRESS_HARDWARE_TESTS=1 to run long shared-stream stress."
+        )
+
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: Self.bufferSize)
+        var tokens: [SharedMicrophoneStream.SubscriberToken] = []
+
+        do {
+            for cycle in 0..<50 {
+                let wantsVPIO = cycle % 2 == 0
+                let counter = OSAllocatedUnfairLock(initialState: 0)
+                let token = try await stream.subscribe(wantsVPIO: wantsVPIO) { _, _ in
+                    counter.withLock { $0 += 1 }
+                }
+                tokens.append(token)
+
+                let count = try await awaitCounterIncrease(
+                    counter: counter,
+                    from: 0,
+                    timeout: Self.firstBufferDeadline
+                )
+                XCTAssertGreaterThan(
+                    count,
+                    0,
+                    "Shared-stream stress cycle \(cycle) should deliver buffers within \(Self.firstBufferDeadline)s."
+                )
+
+                await stream.unsubscribe(token)
+                tokens.removeAll { $0 == token }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        } catch {
+            await unsubscribeAll(&tokens, from: stream)
+            throw error
+        }
+
+        await unsubscribeAll(&tokens, from: stream)
+    }
+
+    /// HAL mutation case: while the shared stream is running, switch the
+    /// system default input device away and back, then assert buffers still
+    /// arrive. This is the closest active reproducer for the field signature
+    /// where Core Audio configuration changed around the stall window.
+    ///
+    /// Gated separately because it changes the user's default microphone.
+    func testDefaultInputSwitchWhileSharedStreamRunningKeepsDeliveringBuffers() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["MACPARAKEET_HAL_MUTATION_TESTS"] == "1",
+            "Set MACPARAKEET_HAL_MUTATION_TESTS=1 to run default-input mutation."
+        )
+
+        guard let originalDefault = AudioDeviceManager.defaultInputDevice(),
+              let alternate = alternateInputDevice(excluding: originalDefault)
+        else {
+            throw XCTSkip("Need at least two input devices to run default-input mutation.")
+        }
+
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: Self.bufferSize)
+        let counter = OSAllocatedUnfairLock(initialState: 0)
+        var tokens: [SharedMicrophoneStream.SubscriberToken] = []
+
+        do {
+            let token = try await stream.subscribe(wantsVPIO: false) { _, _ in
+                counter.withLock { $0 += 1 }
+            }
+            tokens.append(token)
+
+            _ = try await awaitCounterIncrease(
+                counter: counter,
+                from: 0,
+                timeout: Self.firstBufferDeadline
+            )
+
+            try setSystemDefaultInputDevice(alternate.id)
+            try await waitForDefaultInputDevice(
+                alternate.id,
+                timeout: Self.halMutationDeviceDeadline
+            )
+
+            let switchedBaseline = counter.withLock { $0 }
+            let switchedCount = try await awaitCounterIncrease(
+                counter: counter,
+                from: switchedBaseline,
+                timeout: Self.halMutationBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                switchedCount,
+                switchedBaseline,
+                "Shared stream should keep delivering buffers after default-input switch."
+            )
+
+            try setSystemDefaultInputDevice(originalDefault)
+            try await waitForDefaultInputDevice(
+                originalDefault,
+                timeout: Self.halMutationDeviceDeadline
+            )
+
+            let restoredBaseline = counter.withLock { $0 }
+            let restoredCount = try await awaitCounterIncrease(
+                counter: counter,
+                from: restoredBaseline,
+                timeout: Self.halMutationBufferDeadline
+            )
+            XCTAssertGreaterThan(
+                restoredCount,
+                restoredBaseline,
+                "Shared stream should keep delivering buffers after restoring default input."
+            )
+        } catch {
+            try? setSystemDefaultInputDevice(originalDefault)
+            await unsubscribeAll(&tokens, from: stream)
+            throw error
+        }
+
+        try? setSystemDefaultInputDevice(originalDefault)
+        await unsubscribeAll(&tokens, from: stream)
     }
 
     /// Idle-gap case: matches the wall-clock signature of the journal-reported
@@ -156,24 +410,79 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
             counter.withLock { $0 += 1 }
         }
 
-        return await awaitNonZero(counter: counter, timeout: Self.firstBufferDeadline)
+        return try await awaitCounterIncrease(
+            counter: counter,
+            from: 0,
+            timeout: Self.firstBufferDeadline
+        )
     }
 
-    /// Poll the counter every 20 ms until it goes nonzero or the deadline
-    /// passes. Returns the final count. Polling beats `XCTestExpectation`
-    /// here because the tap closure is `@Sendable` and must remain so —
-    /// expectations under Swift 6 strict concurrency add ceremony for no
-    /// diagnostic gain.
-    private func awaitNonZero(
+    /// Poll the counter every 20 ms until it increases past `baseline` or the
+    /// deadline passes. Returns the final count. Polling beats
+    /// `XCTestExpectation` here because the tap closure is `@Sendable` and
+    /// must remain so — expectations under Swift 6 strict concurrency add
+    /// ceremony for no diagnostic gain.
+    private func awaitCounterIncrease(
         counter: OSAllocatedUnfairLock<Int>,
+        from baseline: Int,
         timeout: TimeInterval
-    ) async -> Int {
+    ) async throws -> Int {
         let deadline = ContinuousClock.now + .seconds(timeout)
         while ContinuousClock.now < deadline {
             let n = counter.withLock { $0 }
-            if n > 0 { return n }
-            try? await Task.sleep(for: .milliseconds(20))
+            if n > baseline { return n }
+            try await Task.sleep(for: .milliseconds(20))
         }
         return counter.withLock { $0 }
+    }
+
+    private func unsubscribeAll(
+        _ tokens: inout [SharedMicrophoneStream.SubscriberToken],
+        from stream: SharedMicrophoneStream
+    ) async {
+        while let token = tokens.popLast() {
+            await stream.unsubscribe(token)
+        }
+    }
+
+    private func alternateInputDevice(
+        excluding original: AudioDeviceID
+    ) -> AudioDeviceManager.InputDevice? {
+        let candidates = AudioDeviceManager.inputDevices().filter { $0.id != original }
+        return candidates.first(where: { $0.isBuiltIn })
+            ?? candidates.first(where: { $0.transportType != kAudioDeviceTransportTypeAggregate })
+            ?? candidates.first
+    }
+
+    private func setSystemDefaultInputDevice(_ deviceID: AudioDeviceID) throws {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var mutableDeviceID = deviceID
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size),
+            &mutableDeviceID
+        )
+        guard status == noErr else {
+            throw XCTSkip("Set default input failed with OSStatus \(status).")
+        }
+    }
+
+    private func waitForDefaultInputDevice(
+        _ expected: AudioDeviceID,
+        timeout: TimeInterval
+    ) async throws {
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while ContinuousClock.now < deadline {
+            if AudioDeviceManager.defaultInputDevice() == expected { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw XCTSkip("Default input mutation was not observable for device \(expected).")
     }
 }
