@@ -230,24 +230,7 @@ struct MeetingRecordingTile: View {
     }
 
     private var stopButton: some View {
-        Button(action: onTap) {
-            HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white)
-                    .frame(width: 8, height: 8)
-                Text("Stop")
-                    .font(DesignSystem.Typography.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(
-                Capsule().fill(DesignSystem.Colors.recordingRed)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Stop recording")
-        .accessibilityHint("Ends the recording and starts transcription.")
+        StopConfirmCapsule(onStop: onTap)
     }
 
     // MARK: - Accessibility
@@ -271,6 +254,105 @@ struct MeetingRecordingTile: View {
         // Tile body is informational; Start / Stop buttons carry the
         // action hints themselves.
         ""
+    }
+}
+
+// MARK: - Stop Confirm Capsule (two-step end)
+
+/// Two-step end button. First click expands the red capsule into "End now"
+/// with a 3-second countdown drain; second click stops the recording.
+/// Reverts to "Stop" if no second click. Mirrors the floating pill's
+/// `StopRecordingButton` confirm UX with polish tuned for the larger,
+/// light-surface tile (white-on-red filled capsule rather than the pill's
+/// red-on-dark outline style).
+private struct StopConfirmCapsule: View {
+    var onStop: () -> Void
+
+    @State private var confirming = false
+    @State private var countdownProgress: CGFloat = 1.0
+    @State private var revertTask: Task<Void, Never>?
+    @State private var isHovered = false
+
+    var body: some View {
+        Group {
+            if confirming {
+                Button(action: confirm) {
+                    Text("End now")
+                        .font(DesignSystem.Typography.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(DesignSystem.Colors.errorRed))
+                        .overlay(
+                            Capsule().stroke(.white.opacity(0.35), lineWidth: 0.6)
+                        )
+                        // Countdown strip: thin 2pt bar at the bottom that
+                        // drains right→left over 3s. Lives inside the capsule
+                        // padding so it doesn't bleed into the rounded corners.
+                        .overlay(alignment: .bottom) {
+                            GeometryReader { geo in
+                                Capsule()
+                                    .fill(.white.opacity(0.55))
+                                    .frame(width: geo.size.width * countdownProgress, height: 2)
+                            }
+                            .frame(height: 2)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 4)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("End recording now")
+                .accessibilityLabel("Confirm end recording")
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
+            } else {
+                Button(action: beginConfirmation) {
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(.white)
+                            .frame(width: 8, height: 8)
+                        Text("Stop")
+                            .font(DesignSystem.Typography.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(DesignSystem.Colors.recordingRed))
+                    .scaleEffect(isHovered ? 1.03 : 1.0)
+                    .animation(.easeOut(duration: 0.15), value: isHovered)
+                }
+                .buttonStyle(.plain)
+                .onHover { isHovered = $0 }
+                .help("Stop recording")
+                .accessibilityLabel("Stop recording")
+                .accessibilityHint("Asks for confirmation, then ends the recording.")
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
+        .onDisappear { revertTask?.cancel() }
+    }
+
+    private func beginConfirmation() {
+        countdownProgress = 1.0
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            confirming = true
+        }
+        withAnimation(.linear(duration: 3)) {
+            countdownProgress = 0
+        }
+        revertTask?.cancel()
+        revertTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                confirming = false
+            }
+        }
+    }
+
+    private func confirm() {
+        revertTask?.cancel()
+        confirming = false
+        onStop()
     }
 }
 
