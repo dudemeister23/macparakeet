@@ -211,15 +211,16 @@ struct MainWindowView: View {
             if let fraction = transcriptionViewModel.transcriptionProgress {
                 Spacer(minLength: DesignSystem.Spacing.sm)
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(Int((fraction * 100).rounded()))%")
-                        .font(DesignSystem.Typography.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-
+                HStack(spacing: DesignSystem.Spacing.sm) {
                     ProgressView(value: fraction)
                         .progressViewStyle(.linear)
                         .tint(DesignSystem.Colors.accent)
                         .frame(width: 96)
+
+                    Text("\(Int((fraction * 100).rounded()))%")
+                        .font(DesignSystem.Typography.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 32, alignment: .trailing)
                 }
             }
 
