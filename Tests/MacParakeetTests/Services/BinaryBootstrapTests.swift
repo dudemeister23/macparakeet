@@ -149,6 +149,69 @@ final class BinaryBootstrapTests: XCTestCase {
         )
     }
 
+    func testReinstallYtDlpFromBundledSeedOrDownloadPrefersBundledSeed() async throws {
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data("bad-managed-yt-dlp".utf8).write(to: ytDlpPath)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ytDlpPath.path)
+
+        let bundledPath = rootDir
+            .appendingPathComponent("bundle", isDirectory: true)
+            .appendingPathComponent("yt-dlp")
+        try FileManager.default.createDirectory(at: bundledPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let bundledData = Data("fixed-bundled-yt-dlp".utf8)
+        try bundledData.write(to: bundledPath)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledPath.path)
+
+        let bootstrap = makeBootstrap(
+            bundledYtDlpPath: { bundledPath.path },
+            handler: { _ in
+                XCTFail("Bundled repair should avoid network install")
+                throw BinaryBootstrapError.downloadFailed("unexpected request")
+            }
+        )
+
+        let installedPath = try await bootstrap.reinstallYtDlpFromBundledSeedOrDownload()
+
+        XCTAssertEqual(installedPath, ytDlpPath.path)
+        XCTAssertEqual(try Data(contentsOf: ytDlpPath), bundledData)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: installedPath))
+    }
+
+    func testReinstallYtDlpFromBundledSeedOrDownloadDownloadsWhenNoBundledSeedExists() async throws {
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data("bad-managed-yt-dlp".utf8).write(to: ytDlpPath)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ytDlpPath.path)
+
+        let binaryData = Data("downloaded-repaired-yt-dlp".utf8)
+        let checksum = sha256Hex(binaryData)
+        let bootstrap = makeBootstrap { request in
+            guard let url = request.url else {
+                throw BinaryBootstrapError.downloadFailed("Missing URL")
+            }
+
+            switch url.lastPathComponent {
+            case "yt-dlp_macos":
+                return (Self.httpResponse(url: url, statusCode: 200), binaryData)
+            case "SHA2-256SUMS":
+                return (Self.httpResponse(url: url, statusCode: 200), Data("\(checksum) yt-dlp_macos\n".utf8))
+            default:
+                return (Self.httpResponse(url: url, statusCode: 404), Data())
+            }
+        }
+
+        let installedPath = try await bootstrap.reinstallYtDlpFromBundledSeedOrDownload()
+
+        XCTAssertEqual(installedPath, ytDlpPath.path)
+        XCTAssertEqual(try Data(contentsOf: ytDlpPath), binaryData)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: installedPath))
+
+        let defaults = UserDefaults(suiteName: suiteName)!
+        XCTAssertEqual(
+            defaults.object(forKey: "ytDlp.lastUpdateCheckAt") as? Date,
+            Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
     func testEnsureYtDlpAvailableChecksumMismatchRemovesTempBinary() async throws {
         let binaryData = Data("yt-dlp-test-binary".utf8)
 

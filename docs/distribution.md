@@ -170,6 +170,9 @@ Verify:
 ```bash
 spctl --assess --type execute --verbose=4 dist/MacParakeet.app
 # Expected: "accepted / source=Notarized Developer ID"
+
+dist/MacParakeet.app/Contents/Resources/yt-dlp --version
+# Expected: prints a yt-dlp version, not a [PYI:ERROR] Python shared library failure
 ```
 
 ### Step 3: Upload DMG to R2
@@ -270,6 +273,7 @@ npx wrangler r2 object put macparakeet-downloads/MacParakeet.dmg \
 | Update found but same version | Build number in appcast ≤ installed build | Ensure `sparkle:version` (build number) is strictly greater |
 | `notarytool` bus error / crash | Using `--wait` flag | **Never use `xcrun notarytool submit --wait`.** Submit without `--wait`, then poll with `xcrun notarytool info <submission-id>`. See gotcha #1 below. |
 | TCC permissions silently fail | User ran app from DMG volume instead of /Applications | DMG must include Applications symlink. See gotcha #3 below. |
+| YouTube transcription fails with `[PYI:ERROR] Failed to load Python shared library ... different Team IDs` | Bundled `yt-dlp_macos` was re-signed with hardened runtime but without disabling library validation | Sign `yt-dlp` with `com.apple.security.cs.disable-library-validation=true`, smoke-test `Contents/Resources/yt-dlp --version`, and repair any bad managed copy in Application Support |
 
 ### Known gotchas (hard-won lessons)
 
@@ -337,6 +341,34 @@ The Sparkle `sign_update` tool produces an EdDSA signature over the exact bytes 
 4. Put the signature in the appcast
 
 If another process or agent overwrites the R2 object between steps 2 and 3, the signature won't match. Always verify file sizes match after upload (Step 3 in the release workflow).
+
+#### 5. `yt-dlp_macos` is PyInstaller and needs a special signing entitlement
+
+MacParakeet bundles `yt-dlp` as a helper seed. Fresh installs copy that seed
+from `Contents/Resources/yt-dlp` into
+`~/Library/Application Support/MacParakeet/bin/yt-dlp` before first YouTube
+transcription. Existing users may already have a working managed helper, so a
+bad bundled seed can appear as a fresh-install-only bug.
+
+The official `yt-dlp_macos` asset is a PyInstaller binary. If the release script
+re-signs it with Developer ID + hardened runtime but does not include
+`com.apple.security.cs.disable-library-validation=true`, macOS library
+validation blocks PyInstaller's extracted embedded `Python.framework` at runtime:
+
+```text
+[PYI:ERROR] Failed to load Python shared library ... different Team IDs
+```
+
+This fails when a user starts YouTube transcription or opens the YouTube video
+playback stream extraction path. It does not affect dictation, local file
+transcription, meeting recording, or STT model loading.
+
+Release requirements:
+- Sign bundled `yt-dlp` with hardened runtime plus `com.apple.security.cs.disable-library-validation=true`, or do not apply hardened runtime to that helper.
+- Smoke-test after signing: `dist/MacParakeet.app/Contents/Resources/yt-dlp --version`.
+- If a bad build shipped, repair existing users by replacing
+  `~/Library/Application Support/MacParakeet/bin/yt-dlp`; a fixed bundled seed
+  alone will not help users who already copied the bad managed helper.
 
 ## Auto-Updates (Sparkle)
 

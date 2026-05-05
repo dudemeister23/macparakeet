@@ -417,6 +417,8 @@ Full guide: `docs/distribution.md`. Quick steps:
 0. **Pre-flight:** Run `swift test` (all must pass). Check current version: `curl -s "https://macparakeet.com/appcast.xml" | grep sparkle:shortVersionString`. Decide version bump -- patch (0.1.x) for fixes, minor (0.x.0) for features.
 1. **Build:** `VERSION=X.Y.Z scripts/dist/build_app_bundle.sh`
 2. **Sign + notarize:** `scripts/dist/sign_notarize.sh`
+   - After signing, smoke-test bundled helpers: `dist/MacParakeet.app/Contents/Resources/yt-dlp --version`.
+   - `yt-dlp_macos` is a PyInstaller binary. If it is signed with hardened runtime, it must have `com.apple.security.cs.disable-library-validation=true`; otherwise fresh installs can fail on first YouTube use with `[PYI:ERROR] Failed to load Python shared library ... different Team IDs`.
 3. **Upload DMG to R2:** `npx wrangler r2 object put macparakeet-downloads/MacParakeet.dmg --file dist/MacParakeet.dmg --content-type "application/x-apple-diskimage" --remote`
 4. **Verify R2 file size matches local:** `curl -sI "https://downloads.macparakeet.com/MacParakeet.dmg?ts=$(date +%s)" | grep content-length` -- must equal `stat -f%z dist/MacParakeet.dmg`
 5. **Sign for Sparkle:** `.build/artifacts/sparkle/Sparkle/bin/sign_update dist/MacParakeet.dmg`
@@ -571,6 +573,7 @@ These are hard-won lessons. Don't repeat them.
 - **Retained purchase activation is intentional** -- Do not delete `EntitlementsService`, `LemonSqueezyLicenseAPI`, entitlement state, or trial/license telemetry as dead code unless the project owner explicitly requests it and the decision is reflected in an ADR/spec update.
 - **Meeting recovery artifacts are user data** -- Do not delete meeting session folders, lock files, or source audio outside the recovery/discard flows without explicit user intent.
 - **CLI is a public contract** -- Preserve `macparakeet-cli` behavior and update `Sources/CLI/CHANGELOG.md` for compatibility-relevant changes.
+- **PyInstaller helpers need library-validation care** -- Bundled `yt-dlp_macos` unpacks and `dlopen`s an embedded Python framework. Developer ID + hardened runtime signing without `com.apple.security.cs.disable-library-validation=true` breaks fresh installs at first YouTube transcription/playback with a Team ID mismatch.
 - **Review agents catch real bugs** -- Running a review agent on critical flows catches P0 issues. Worth the 60 seconds.
 - **CI duplicates without workflow concurrency** -- Add `concurrency` with `cancel-in-progress: true` and a stable group key to avoid duplicate pipelines.
 

@@ -74,4 +74,21 @@ final class YouTubeDownloaderTests: XCTestCase {
         XCTAssertNil(result.thumbnailURL)
         XCTAssertNil(result.videoDescription)
     }
+
+    func testPyInstallerLibraryValidationErrorDetection() {
+        let error = YouTubeDownloadError.downloadFailed(
+            "[PYI-5863:ERROR] Failed to load Python shared library '<path>': dlopen(<path>): code signature not valid for use in process: mapping process and mapped file (non-platform) have different Team IDs"
+        )
+
+        XCTAssertTrue(YouTubeDownloader.isPyInstallerLibraryValidationError(error))
+    }
+
+    func testPyInstallerLibraryValidationErrorDetectionIgnoresOtherFailures() {
+        XCTAssertFalse(YouTubeDownloader.isPyInstallerLibraryValidationError(
+            YouTubeDownloadError.downloadFailed("ERROR: Video unavailable")
+        ))
+        XCTAssertFalse(YouTubeDownloader.isPyInstallerLibraryValidationError(
+            YouTubeDownloadError.ytDlpNotFound
+        ))
+    }
 }

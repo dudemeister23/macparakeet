@@ -68,6 +68,25 @@ public actor YouTubeDownloader {
         }
 
         let ytDlpPath = try await resolveYtDlpPath()
+        do {
+            return try await download(url: url, ytDlpPath: ytDlpPath, onProgress: onProgress)
+        } catch {
+            guard Self.isPyInstallerLibraryValidationError(error) else {
+                throw error
+            }
+
+            let repairedPath = try await binaryBootstrap.reinstallYtDlpFromBundledSeedOrDownload()
+            return try await download(url: url, ytDlpPath: repairedPath, onProgress: onProgress)
+        }
+    }
+
+    // MARK: - Private
+
+    private func download(
+        url: String,
+        ytDlpPath: String,
+        onProgress: (@Sendable (Int) -> Void)?
+    ) async throws -> DownloadResult {
 
         // Step 1: Fetch metadata
         let metadata = try await fetchMetadata(ytDlpPath: ytDlpPath, url: url)
@@ -84,8 +103,6 @@ public actor YouTubeDownloader {
             videoDescription: metadata.videoDescription
         )
     }
-
-    // MARK: - Private
 
     /// Build a PATH that includes common binary locations plus app-managed bin directory.
     private nonisolated static func extendedPATH() -> String {
@@ -463,6 +480,15 @@ public actor YouTubeDownloader {
         }
 
         return sanitized(lines.first ?? trimmed)
+    }
+
+    nonisolated static func isPyInstallerLibraryValidationError(_ error: Error) -> Bool {
+        guard case YouTubeDownloadError.downloadFailed(let reason) = error else {
+            return false
+        }
+        let normalized = reason.lowercased()
+        return normalized.contains("failed to load python shared library")
+            || (normalized.contains("pyi-") && normalized.contains("different team ids"))
     }
 
     private func runYtDlp(

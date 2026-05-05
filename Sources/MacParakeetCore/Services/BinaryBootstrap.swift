@@ -91,6 +91,22 @@ public actor BinaryBootstrap {
         return targetPath
     }
 
+    public func reinstallYtDlpFromBundledSeedOrDownload() async throws -> String {
+        try ensureDirectories()
+
+        let targetPath = ytDlpBinaryPath()
+        if let bundledPath = bundledYtDlpPath(),
+           fileManager.isExecutableFile(atPath: bundledPath)
+        {
+            try installExecutable(from: URL(fileURLWithPath: bundledPath), toPath: targetPath)
+            return targetPath
+        }
+
+        try await installYtDlp(at: targetPath)
+        defaults.set(now(), forKey: Self.ytDlpLastUpdateCheckKey)
+        return targetPath
+    }
+
     public nonisolated static func resolveYtDlpPath(
         fileManager: FileManager = .default,
         managedPath: String = AppPaths.ytDlpBinaryPath,
