@@ -99,6 +99,37 @@ final class DictationServiceTests: XCTestCase {
         XCTAssertEqual(operation["mode"], "hold")
     }
 
+    func testInterruptedSubscribeWithoutCancelEmitsFailureTelemetry() async throws {
+        let telemetry = DictationTelemetrySpy()
+        Telemetry.configure(telemetry)
+
+        await mockAudio.configureCaptureError(AudioProcessorError.recordingFailed("interrupted during subscribe"))
+
+        do {
+            try await service.startRecording(context: DictationTelemetryContext(trigger: .hotkey, mode: .hold))
+            XCTFail("Expected startRecording to throw")
+        } catch let error as AudioProcessorError {
+            if case .recordingFailed(let reason) = error {
+                XCTAssertEqual(reason, "interrupted during subscribe")
+            } else {
+                XCTFail("Expected interrupted recording failure, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let events = telemetry.snapshot()
+        XCTAssertTrue(events.contains { event in
+            if case .dictationFailed = event { return true }
+            return false
+        })
+
+        let operation = try XCTUnwrap(dictationOperationProps(in: events).last)
+        XCTAssertEqual(operation["outcome"], "failure")
+        XCTAssertEqual(operation["trigger"], "hotkey")
+        XCTAssertEqual(operation["mode"], "hold")
+    }
+
     func testCancelDuringStartCaptureStillEmitsCancelledOperation() async throws {
         let telemetry = DictationTelemetrySpy()
         Telemetry.configure(telemetry)
@@ -119,6 +150,71 @@ final class DictationServiceTests: XCTestCase {
                 && operation["trigger"] == "hotkey"
                 && operation["mode"] == "hold"
         })
+    }
+
+    func testInterruptedSubscribeAfterCancelDoesNotEmitFailureTelemetry() async throws {
+        let telemetry = DictationTelemetrySpy()
+        Telemetry.configure(telemetry)
+
+        let audio = StartInterruptedAudioProcessor()
+        service = DictationService(
+            audioProcessor: audio,
+            sttTranscriber: mockSTT,
+            dictationRepo: dictationRepo
+        )
+
+        let startTask = Task {
+            try await self.service.startRecording(context: DictationTelemetryContext(trigger: .hotkey, mode: .hold))
+        }
+
+        await audio.waitForStartCapture()
+        await service.confirmCancel()
+        try await startTask.value
+
+        let events = telemetry.snapshot()
+        XCTAssertFalse(events.contains { event in
+            if case .dictationFailed = event { return true }
+            return false
+        })
+
+        let operations = dictationOperationProps(in: events)
+        XCTAssertTrue(operations.contains { operation in
+            operation["outcome"] == "cancelled"
+                && operation["trigger"] == "hotkey"
+                && operation["mode"] == "hold"
+        })
+    }
+
+    func testInterruptedSubscribeAfterCancelLeavesServiceNonRecordingBeforeCancelCompletes() async throws {
+        let telemetry = DictationTelemetrySpy()
+        Telemetry.configure(telemetry)
+
+        let audio = StartInterruptedDelayedStopAudioProcessor()
+        service = DictationService(
+            audioProcessor: audio,
+            sttTranscriber: mockSTT,
+            dictationRepo: dictationRepo
+        )
+
+        let startTask = Task {
+            try await self.service.startRecording(context: DictationTelemetryContext(trigger: .hotkey, mode: .hold))
+            return await self.service.state
+        }
+
+        await audio.waitForStartCapture()
+        let cancelTask = Task { await service.confirmCancel() }
+        await audio.waitForStopCapture()
+
+        let stateAfterSuppressedStart = try await startTask.value
+        XCTAssertFalse(Self.isRecording(stateAfterSuppressedStart))
+
+        await audio.allowStopCaptureToReturn()
+        await cancelTask.value
+
+        let finalState = await service.state
+        if case .idle = finalState {} else {
+            XCTFail("Expected idle after confirmCancel, got \(finalState)")
+        }
     }
 
     func testStopRecordingTranscribesAndSaves() async throws {
@@ -261,5 +357,118 @@ final class DictationServiceTests: XCTestCase {
             guard case .dictationOperation = event else { return nil }
             return event.props ?? [:]
         }
+    }
+
+    private static func isRecording(_ state: DictationState) -> Bool {
+        if case .recording = state { return true }
+        return false
+    }
+}
+
+private actor StartInterruptedAudioProcessor: AudioProcessorProtocol {
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startRelease: CheckedContinuation<Void, Never>?
+    private var startCaptureEntered = false
+
+    var audioLevel: Float { 0 }
+    var isRecording: Bool { false }
+    var recordingDeviceInfo: RecordingDeviceInfo? { nil }
+
+    func convert(fileURL: URL) async throws -> URL {
+        fileURL
+    }
+
+    func startCapture() async throws {
+        startCaptureEntered = true
+        for waiter in startWaiters {
+            waiter.resume()
+        }
+        startWaiters.removeAll()
+
+        await withCheckedContinuation { continuation in
+            startRelease = continuation
+        }
+
+        throw AudioProcessorError.recordingFailed("interrupted during subscribe")
+    }
+
+    func stopCapture() async throws -> URL {
+        startRelease?.resume()
+        startRelease = nil
+        return URL(fileURLWithPath: "/tmp/interrupted-start.wav")
+    }
+
+    func waitForStartCapture() async {
+        guard !startCaptureEntered else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+}
+
+private actor StartInterruptedDelayedStopAudioProcessor: AudioProcessorProtocol {
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startRelease: CheckedContinuation<Void, Never>?
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var stopRelease: CheckedContinuation<Void, Never>?
+    private var startCaptureEntered = false
+    private var stopCaptureEntered = false
+
+    var audioLevel: Float { 0 }
+    var isRecording: Bool { false }
+    var recordingDeviceInfo: RecordingDeviceInfo? { nil }
+
+    func convert(fileURL: URL) async throws -> URL {
+        fileURL
+    }
+
+    func startCapture() async throws {
+        startCaptureEntered = true
+        for waiter in startWaiters {
+            waiter.resume()
+        }
+        startWaiters.removeAll()
+
+        await withCheckedContinuation { continuation in
+            startRelease = continuation
+        }
+
+        throw AudioProcessorError.recordingFailed("interrupted during subscribe")
+    }
+
+    func stopCapture() async throws -> URL {
+        stopCaptureEntered = true
+        for waiter in stopWaiters {
+            waiter.resume()
+        }
+        stopWaiters.removeAll()
+
+        startRelease?.resume()
+        startRelease = nil
+
+        await withCheckedContinuation { continuation in
+            stopRelease = continuation
+        }
+
+        return URL(fileURLWithPath: "/tmp/interrupted-start-delayed-stop.wav")
+    }
+
+    func waitForStartCapture() async {
+        guard !startCaptureEntered else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func waitForStopCapture() async {
+        guard !stopCaptureEntered else { return }
+        await withCheckedContinuation { continuation in
+            stopWaiters.append(continuation)
+        }
+    }
+
+    func allowStopCaptureToReturn() {
+        stopRelease?.resume()
+        stopRelease = nil
     }
 }

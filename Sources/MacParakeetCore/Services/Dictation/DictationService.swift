@@ -70,6 +70,7 @@ public actor DictationService: DictationServiceProtocol {
     private var currentOperationTelemetryContext = DictationTelemetryContext()
     private var currentObservabilityOperationContext: ObservabilityOperationContext?
     private var activeSessionID: Int = 0
+    private var cancellationRequestedDuringStartSessionID: Int?
 
     public var state: DictationState {
         _state
@@ -170,6 +171,7 @@ public actor DictationService: DictationServiceProtocol {
 
         let requestedSessionID = sessionID ?? activeSessionID + 1
         activeSessionID = requestedSessionID
+        cancellationRequestedDuringStartSessionID = nil
         currentOperationID = operationContext.operationID
         currentOperationTelemetryContext = context
         currentObservabilityOperationContext = operationContext
@@ -177,6 +179,9 @@ public actor DictationService: DictationServiceProtocol {
         do {
             try await audioProcessor.startCapture()
             // Guard against reentrancy: cancel or replacement may have run during the await above.
+            if cancellationRequestedDuringStartSessionID == requestedSessionID {
+                cancellationRequestedDuringStartSessionID = nil
+            }
             let activeAtStartCompletion = activeSessionID
             guard activeAtStartCompletion == requestedSessionID, case .recording = _state else {
                 let processorIsRecording: Bool
@@ -209,6 +214,20 @@ public actor DictationService: DictationServiceProtocol {
                     "startRecording stale failure ignored session=\(requestedSessionID) active=\(activeAtFailure) error=\(error.localizedDescription, privacy: .public)"
                 )
                 throw error
+            }
+            let cancellationRequestedDuringStart = cancellationRequestedDuringStartSessionID == requestedSessionID
+            if cancellationRequestedDuringStart {
+                cancellationRequestedDuringStartSessionID = nil
+            }
+            if Self.isInterruptedDuringSubscribe(error), cancellationRequestedDuringStart {
+                if cancellationRequestedDuringStart, case .recording = _state {
+                    _state = .cancelled
+                }
+                recordingStartedAt = nil
+                logger.notice(
+                    "startRecording interrupted after cancellation session=\(requestedSessionID) state=\(self.debugStateLabel(self._state), privacy: .public)"
+                )
+                return
             }
             let device = await audioProcessor.recordingDeviceInfo
             guard activeSessionID == requestedSessionID else {
@@ -358,6 +377,7 @@ public actor DictationService: DictationServiceProtocol {
         cancelGeneration += 1
         let generation = cancelGeneration
 
+        cancellationRequestedDuringStartSessionID = activeSessionID
         let audioURL = try? await audioProcessor.stopCapture()
         let device = await audioProcessor.recordingDeviceInfo
         pendingCancelledAudioURL = audioURL
@@ -392,6 +412,7 @@ public actor DictationService: DictationServiceProtocol {
         discardPendingCancelledAudio()
 
         if case .recording = _state {
+            cancellationRequestedDuringStartSessionID = activeSessionID
             if let url = try? await audioProcessor.stopCapture() {
                 try? FileManager.default.removeItem(at: url)
             }
@@ -481,6 +502,14 @@ public actor DictationService: DictationServiceProtocol {
         if let e = error as? DictationServiceError, e == .emptyTranscript { return true }
         if let e = error as? AudioProcessorError, case .insufficientSamples = e { return true }
         return false
+    }
+
+    private static func isInterruptedDuringSubscribe(_ error: Error) -> Bool {
+        guard let e = error as? AudioProcessorError,
+              case .recordingFailed(let reason) = e else {
+            return false
+        }
+        return reason == "interrupted during subscribe"
     }
 
     private func discardPendingCancelledAudio() {
