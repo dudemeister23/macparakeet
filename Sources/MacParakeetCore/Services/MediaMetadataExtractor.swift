@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 
 public struct MediaMetadata: Equatable, Sendable {
@@ -34,7 +34,7 @@ public protocol MediaMetadataExtracting: Sendable {
     func metadata(for fileURL: URL) async -> MediaMetadata
 }
 
-public actor AVMediaMetadataExtractor: MediaMetadataExtracting {
+public final class AVMediaMetadataExtractor: MediaMetadataExtracting {
     public init() {}
 
     public func metadata(for fileURL: URL) async -> MediaMetadata {
