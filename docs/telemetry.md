@@ -581,6 +581,44 @@ visible in the event breakdown until they have dedicated dashboard panels.
 Queries are simple SQL against D1. Dashboard is a Cloudflare Pages site at
 `https://macparakeet.com/stats/`.
 
+## Operational Feedback Loop
+
+MacParakeet now has enough telemetry coverage for a lightweight automated
+review loop, but the loop should keep counting and judgment separate:
+
+```text
+D1 telemetry -> deterministic review report -> thresholded signals -> agent/human review -> issue/PR/journal -> post-release verification
+```
+
+The deterministic layer lives in the website repo because it owns the D1
+binding and dashboard taxonomy:
+
+```bash
+cd ../macparakeet-website
+pnpm telemetry:review
+```
+
+That command runs `scripts/telemetry-review.mjs`, queries the remote
+`macparakeet-telemetry` D1 database, and writes Markdown + JSON reports to this
+repo's private `journal/` directory by default. The journal is gitignored; it is
+for candid field notes and daily operating context, not public documentation.
+Use the script's `--output-dir`, `--markdown-output`, or `--json-output` flags
+when a CI or cron job needs durable artifacts elsewhere.
+
+The reviewer script treats SQL as the source of truth for counts and rates. It
+separates GUI vs CLI surfaces, keeps true `outcome='failure'` operation rows
+separate from `cancelled` / `empty` / `unavailable`, and compares the current
+window against a prior baseline. It also carries watchlist checks for the v0.6
+incidents: exact CoreAudio `-10868`, `interrupted during subscribe`
+false-failure telemetry, and YouTube transcription failures after the 0.6.2
+hotfix.
+
+An agent reviewer can consume the generated report, but it should not be trusted
+to do raw counting ad hoc. Its job is code correlation and product judgment:
+whether a signal is real user impact, which release or code path is implicated,
+and whether the right follow-up is an issue, PR, dashboard taxonomy fix, or
+continued monitoring.
+
 ---
 
 ## Capacity Planning
