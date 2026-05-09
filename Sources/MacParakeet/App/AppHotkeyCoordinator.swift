@@ -158,7 +158,7 @@ final class AppHotkeyCoordinator {
         onTrigger: @escaping @MainActor () -> Void
     ) -> GlobalShortcutManager? {
         guard !trigger.isDisabled else { return nil }
-        if conflicts.contains(where: { !$0.isDisabled && $0 == trigger }) {
+        if conflicts.contains(where: { !$0.isDisabled && $0.overlaps(with: trigger) }) {
             return nil
         }
 

@@ -1,5 +1,6 @@
-import SwiftUI
+import CoreGraphics
 import MacParakeetCore
+import SwiftUI
 
 /// "Record a shortcut" UI for hotkey selection.
 /// Normal state:    [ fn Fn              Change... ]
@@ -20,7 +21,8 @@ struct HotkeyRecorderView: View {
     @State private var validationIsBlocked = false
     @State private var eventMonitor: Any?
     /// Tracks held modifiers during recording for two-phase chord capture.
-    @State private var pendingModifiers: [String] = []
+    @State private var pendingModifierComponents: [HotkeyTrigger.ModifierComponent] = []
+    @State private var candidateModifierComponents: [HotkeyTrigger.ModifierComponent] = []
     @State private var modifierCaptureMode: ModifierCaptureMode = .generic
 
     var body: some View {
@@ -103,7 +105,7 @@ struct HotkeyRecorderView: View {
 
     private var recordingView: some View {
         HStack(spacing: 8) {
-            if pendingModifiers.isEmpty {
+            if pendingModifierComponents.isEmpty {
                 Text("Press any key...")
                     .font(DesignSystem.Typography.body)
                     .foregroundStyle(.secondary)
@@ -128,9 +130,14 @@ struct HotkeyRecorderView: View {
 
     /// Symbols for currently held modifiers in standard macOS order (⌃⌥⇧⌘).
     private var pendingModifierSymbols: String {
+        if modifierCaptureMode == .sideSpecific {
+            return HotkeyTrigger.modifierChord(components: pendingModifierComponents).shortSymbol
+        }
+
         let order = ["control", "option", "shift", "command"]
         let symbols: [String: String] = ["control": "⌃", "option": "⌥", "shift": "⇧", "command": "⌘"]
-        return order.filter { pendingModifiers.contains($0) }
+        let names = pendingModifierComponents.map(\.modifierName)
+        return order.filter { names.contains($0) }
             .compactMap { symbols[$0] }
             .joined()
     }
@@ -144,7 +151,8 @@ struct HotkeyRecorderView: View {
         isRecording = true
         validationMessage = nil
         validationIsBlocked = false
-        pendingModifiers = []
+        pendingModifierComponents = []
+        candidateModifierComponents = []
         self.modifierCaptureMode = modifierCaptureMode
 
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [self] event in
@@ -165,7 +173,8 @@ struct HotkeyRecorderView: View {
                     let candidate = HotkeyTrigger.chord(modifiers: heldModifiers, keyCode: keyCode)
                     switch combinedValidation(for: candidate) {
                     case .blocked(let msg):
-                        pendingModifiers = []
+                        pendingModifierComponents = []
+                        candidateModifierComponents = []
                         validationMessage = msg
                         validationIsBlocked = true
                         return nil
@@ -221,12 +230,30 @@ struct HotkeyRecorderView: View {
                             }
                         }
                     } else {
-                        // Track held chord modifiers for preview
-                        let currentHeld = chordModifiersFromFlags(event.modifierFlags)
-                        pendingModifiers = currentHeld
-
-                        // If all chord-eligible modifiers released, accept as bare modifier
+                        let currentHeld = modifierComponentsAfterFlagsChanged(event, modifierName: name)
                         if currentHeld.isEmpty {
+                            let releasedComponents = candidateModifierComponents
+                            pendingModifierComponents = []
+                            candidateModifierComponents = []
+
+                            if let candidate = Self.modifierChordTrigger(
+                                components: releasedComponents,
+                                captureMode: modifierCaptureMode
+                            ) {
+                                switch combinedValidation(for: candidate) {
+                                case .blocked(let msg):
+                                    validationMessage = msg
+                                    validationIsBlocked = true
+                                    return event
+                                case .warned(let msg):
+                                    acceptTrigger(candidate, warning: msg)
+                                    return event
+                                case .allowed:
+                                    acceptTrigger(candidate, warning: nil)
+                                    return event
+                                }
+                            }
+
                             if let candidate = Self.bareModifierTrigger(
                                 for: name,
                                 keyCode: event.keyCode,
@@ -245,6 +272,12 @@ struct HotkeyRecorderView: View {
                                     return event
                                 }
                             }
+                        } else {
+                            pendingModifierComponents = currentHeld
+                            candidateModifierComponents = Self.mergedModifierComponents(
+                                candidateModifierComponents,
+                                currentHeld
+                            )
                         }
                     }
                 }
@@ -262,6 +295,64 @@ struct HotkeyRecorderView: View {
         if flags.contains(.shift) { modifiers.append("shift") }
         if flags.contains(.command) { modifiers.append("command") }
         return modifiers
+    }
+
+    private func modifierComponentsAfterFlagsChanged(
+        _ event: NSEvent,
+        modifierName: String
+    ) -> [HotkeyTrigger.ModifierComponent] {
+        switch modifierCaptureMode {
+        case .generic:
+            return chordModifiersFromFlags(event.modifierFlags).map {
+                HotkeyTrigger.ModifierComponent(modifierName: $0)
+            }
+        case .sideSpecific:
+            return Self.sideSpecificModifierComponentsAfterFlagsChanged(
+                pending: pendingModifierComponents,
+                eventKeyCode: event.keyCode,
+                modifierName: modifierName,
+                flags: event.modifierFlags
+            )
+        }
+    }
+
+    static func sideSpecificModifierComponentsAfterFlagsChanged(
+        pending: [HotkeyTrigger.ModifierComponent],
+        eventKeyCode: UInt16,
+        modifierName: String,
+        flags: NSEvent.ModifierFlags
+    ) -> [HotkeyTrigger.ModifierComponent] {
+        let cgFlags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        let sideSpecificKeyCodes: [UInt16] = [59, 62, 58, 61, 56, 60, 55, 54]
+        let sideSpecificHeld: [HotkeyTrigger.ModifierComponent] = sideSpecificKeyCodes.compactMap { keyCode in
+            guard ModifierKeyMatcher.sideSpecificModifierIsPressed(flags: cgFlags, keyCode: keyCode) else {
+                return nil
+            }
+            return HotkeyTrigger.modifierComponent(forKeyCode: keyCode)
+        }
+        if !sideSpecificHeld.isEmpty { return sideSpecificHeld }
+
+        guard let changed = HotkeyTrigger.modifierComponent(forKeyCode: eventKeyCode) else {
+            return pending
+        }
+
+        var current = pending
+        if current.contains(changed) {
+            current.removeAll { $0 == changed }
+        } else if modifierFlagIsPressed(modifierName, in: flags) {
+            current = mergedModifierComponents(current, [changed])
+        }
+        return current
+    }
+
+    private static func modifierFlagIsPressed(_ name: String, in flags: NSEvent.ModifierFlags) -> Bool {
+        switch name {
+        case "control": return flags.contains(.control)
+        case "option": return flags.contains(.option)
+        case "shift": return flags.contains(.shift)
+        case "command": return flags.contains(.command)
+        default: return false
+        }
     }
 
     /// Map a modifier name + physical keyCode to a bare modifier trigger.
@@ -282,6 +373,33 @@ struct HotkeyRecorderView: View {
         }
     }
 
+    static func modifierChordTrigger(
+        components: [HotkeyTrigger.ModifierComponent],
+        captureMode: ModifierCaptureMode
+    ) -> HotkeyTrigger? {
+        let trigger: HotkeyTrigger
+        switch captureMode {
+        case .generic:
+            trigger = HotkeyTrigger.modifierChord(
+                components: components.map {
+                    HotkeyTrigger.ModifierComponent(modifierName: $0.modifierName)
+                }
+            )
+        case .sideSpecific:
+            trigger = HotkeyTrigger.modifierChord(components: components)
+        }
+
+        guard trigger.normalizedModifierChordComponents.count >= 2 else { return nil }
+        return trigger
+    }
+
+    static func mergedModifierComponents(
+        _ lhs: [HotkeyTrigger.ModifierComponent],
+        _ rhs: [HotkeyTrigger.ModifierComponent]
+    ) -> [HotkeyTrigger.ModifierComponent] {
+        HotkeyTrigger.modifierChord(components: lhs + rhs).normalizedModifierChordComponents
+    }
+
     static func resetLabel(for trigger: HotkeyTrigger) -> String {
         if trigger == .fn { return "🌐 Fn" }
         if trigger.kind == .modifier { return trigger.displayName }
@@ -290,7 +408,8 @@ struct HotkeyRecorderView: View {
 
     private func stopRecording() {
         isRecording = false
-        pendingModifiers = []
+        pendingModifierComponents = []
+        candidateModifierComponents = []
         modifierCaptureMode = .generic
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)

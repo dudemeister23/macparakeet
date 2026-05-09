@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import MacParakeet
 @testable import MacParakeetCore
@@ -25,6 +26,91 @@ final class HotkeyRecorderViewTests: XCTestCase {
             candidate,
             HotkeyTrigger(kind: .modifier, modifierName: "option", keyCode: nil, modifierKeyCode: 61)
         )
+    }
+
+    func testGenericModifierChordCapturePreservesEitherSideBehavior() {
+        let candidate = HotkeyRecorderView.modifierChordTrigger(
+            components: [
+                .init(modifierName: "option", keyCode: 61),
+                .init(modifierName: "command", keyCode: 54),
+            ],
+            captureMode: .generic
+        )
+
+        XCTAssertEqual(candidate, .modifierChord(modifiers: ["option", "command"]))
+        XCTAssertEqual(
+            candidate?.normalizedModifierChordComponents,
+            [
+                .init(modifierName: "option"),
+                .init(modifierName: "command"),
+            ]
+        )
+    }
+
+    func testSideSpecificModifierChordCaptureRecordsPhysicalModifierSides() {
+        let candidate = HotkeyRecorderView.modifierChordTrigger(
+            components: [
+                .init(modifierName: "option", keyCode: 61),
+                .init(modifierName: "command", keyCode: 54),
+            ],
+            captureMode: .sideSpecific
+        )
+
+        XCTAssertEqual(
+            candidate,
+            .modifierChord(
+                components: [
+                    .init(modifierName: "option", keyCode: 61),
+                    .init(modifierName: "command", keyCode: 54),
+                ]
+            )
+        )
+    }
+
+    func testSingleModifierDoesNotBecomeModifierChord() {
+        let candidate = HotkeyRecorderView.modifierChordTrigger(
+            components: [.init(modifierName: "option", keyCode: 61)],
+            captureMode: .sideSpecific
+        )
+
+        XCTAssertNil(candidate)
+    }
+
+    func testSideSpecificModifierFallbackTracksBothSidesOfSameModifier() {
+        let leftOption = HotkeyTrigger.ModifierComponent(modifierName: "option", keyCode: 58)
+        let rightOption = HotkeyTrigger.ModifierComponent(modifierName: "option", keyCode: 61)
+
+        var pending = HotkeyRecorderView.sideSpecificModifierComponentsAfterFlagsChanged(
+            pending: [],
+            eventKeyCode: 58,
+            modifierName: "option",
+            flags: [.option]
+        )
+        XCTAssertEqual(pending, [leftOption])
+
+        pending = HotkeyRecorderView.sideSpecificModifierComponentsAfterFlagsChanged(
+            pending: pending,
+            eventKeyCode: 61,
+            modifierName: "option",
+            flags: [.option]
+        )
+        XCTAssertEqual(pending, [leftOption, rightOption])
+
+        pending = HotkeyRecorderView.sideSpecificModifierComponentsAfterFlagsChanged(
+            pending: pending,
+            eventKeyCode: 58,
+            modifierName: "option",
+            flags: [.option]
+        )
+        XCTAssertEqual(pending, [rightOption])
+
+        pending = HotkeyRecorderView.sideSpecificModifierComponentsAfterFlagsChanged(
+            pending: pending,
+            eventKeyCode: 61,
+            modifierName: "option",
+            flags: []
+        )
+        XCTAssertTrue(pending.isEmpty)
     }
 
     func testResetLabelUsesReadableFnName() {

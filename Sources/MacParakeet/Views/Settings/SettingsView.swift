@@ -493,13 +493,13 @@ struct SettingsView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         HotkeyRecorderView(trigger: $viewModel.hotkeyTrigger) { candidate in
                             guard AppFeatures.meetingRecordingEnabled else { return .allowed }
-                            guard !candidate.isDisabled, candidate == viewModel.meetingHotkeyTrigger else { return .allowed }
+                            guard !candidate.isDisabled, candidate.overlaps(with: viewModel.meetingHotkeyTrigger) else { return .allowed }
                             return .blocked("Already used by meeting recording.")
                         }
 
                         if AppFeatures.meetingRecordingEnabled,
                            !viewModel.hotkeyTrigger.isDisabled,
-                           viewModel.hotkeyTrigger == viewModel.meetingHotkeyTrigger {
+                           viewModel.hotkeyTrigger.overlaps(with: viewModel.meetingHotkeyTrigger) {
                             hotkeyConflictText
                         }
                     }
@@ -581,11 +581,12 @@ struct SettingsView: View {
                             trigger: $viewModel.meetingHotkeyTrigger,
                             defaultTrigger: .defaultMeetingRecording
                         ) { candidate in
-                            guard !candidate.isDisabled, candidate == viewModel.hotkeyTrigger else { return .allowed }
+                            guard !candidate.isDisabled, candidate.overlaps(with: viewModel.hotkeyTrigger) else { return .allowed }
                             return .blocked("Already used by dictation.")
                         }
 
-                        if !viewModel.meetingHotkeyTrigger.isDisabled, viewModel.hotkeyTrigger == viewModel.meetingHotkeyTrigger {
+                        if !viewModel.meetingHotkeyTrigger.isDisabled,
+                           viewModel.hotkeyTrigger.overlaps(with: viewModel.meetingHotkeyTrigger) {
                             hotkeyConflictText
                         }
                     }
@@ -762,13 +763,13 @@ struct SettingsView: View {
                     defaultTrigger: .disabled
                 ) { candidate in
                     guard !candidate.isDisabled else { return .allowed }
-                    if candidate == viewModel.hotkeyTrigger {
+                    if candidate.overlaps(with: viewModel.hotkeyTrigger) {
                         return .blocked("Already used by dictation.")
                     }
-                    if AppFeatures.meetingRecordingEnabled, candidate == viewModel.meetingHotkeyTrigger {
+                    if AppFeatures.meetingRecordingEnabled, candidate.overlaps(with: viewModel.meetingHotkeyTrigger) {
                         return .blocked("Already used by meeting recording.")
                     }
-                    if candidate == otherTranscriptionTrigger {
+                    if candidate.overlaps(with: otherTranscriptionTrigger) {
                         return .blocked("Already used by \(otherTranscriptionName).")
                     }
                     return .allowed
@@ -791,13 +792,13 @@ struct SettingsView: View {
         otherTranscriptionName: String
     ) -> String? {
         guard !trigger.isDisabled else { return nil }
-        if trigger == viewModel.hotkeyTrigger {
+        if trigger.overlaps(with: viewModel.hotkeyTrigger) {
             return "Disabled — conflicts with dictation hotkey."
         }
-        if AppFeatures.meetingRecordingEnabled, trigger == viewModel.meetingHotkeyTrigger {
+        if AppFeatures.meetingRecordingEnabled, trigger.overlaps(with: viewModel.meetingHotkeyTrigger) {
             return "Disabled — conflicts with meeting recording hotkey."
         }
-        if trigger == otherTranscription {
+        if trigger.overlaps(with: otherTranscription) {
             return "Disabled — conflicts with \(otherTranscriptionName) hotkey."
         }
         return nil
@@ -817,7 +818,7 @@ struct SettingsView: View {
         HStack(spacing: 4) {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 10))
-            Text("Dictation and meeting recording cannot use the same shortcut.")
+            Text("Dictation and meeting recording cannot use overlapping shortcuts.")
                 .font(DesignSystem.Typography.micro)
         }
         .foregroundStyle(DesignSystem.Colors.errorRed)

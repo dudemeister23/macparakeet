@@ -1,9 +1,19 @@
 import XCTest
 import CoreGraphics
+import IOKit.hidsystem
 @testable import MacParakeet
 @testable import MacParakeetCore
 
 final class GlobalShortcutManagerTests: XCTestCase {
+    private let leftOptionMask = UInt64(NX_DEVICELALTKEYMASK)
+    private let rightOptionMask = UInt64(NX_DEVICERALTKEYMASK)
+    private let leftCommandMask = UInt64(NX_DEVICELCMDKEYMASK)
+    private let rightCommandMask = UInt64(NX_DEVICERCMDKEYMASK)
+
+    private func sideSpecificFlags(_ masks: UInt64...) -> CGEventFlags {
+        CGEventFlags(rawValue: masks.reduce(0, |))
+    }
+
     func testTapRecoveryResyncsModifierAfterMissedRelease() {
         let manager = GlobalShortcutManager(trigger: .fn)
         var triggerCount = 0
@@ -167,5 +177,63 @@ final class GlobalShortcutManagerTests: XCTestCase {
                 flags: trigger.chordEventFlags
             )
         )
+    }
+
+    func testModifierChordTriggersOncePerPress() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        let manager = GlobalShortcutManager(trigger: trigger)
+        var triggerCount = 0
+        manager.onTrigger = { triggerCount += 1 }
+
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand])
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand, .maskAlternate])
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand, .maskAlternate])
+        manager.modifierChordFlagsChangedForTesting(flags: [])
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand, .maskAlternate])
+
+        XCTAssertEqual(triggerCount, 2)
+    }
+
+    func testModifierChordRequiresExactModifierSet() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        let manager = GlobalShortcutManager(trigger: trigger)
+        var triggerCount = 0
+        manager.onTrigger = { triggerCount += 1 }
+
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand, .maskAlternate, .maskShift])
+        manager.modifierChordFlagsChangedForTesting(flags: [.maskCommand, .maskAlternate])
+
+        XCTAssertEqual(triggerCount, 1)
+    }
+
+    func testSideSpecificModifierChordTriggersRecordedSideOnly() {
+        let trigger = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "option", keyCode: 61),
+                .init(modifierName: "command", keyCode: 54),
+            ]
+        )
+        let manager = GlobalShortcutManager(trigger: trigger)
+        var triggerCount = 0
+        manager.onTrigger = { triggerCount += 1 }
+
+        manager.modifierChordFlagsChangedForTesting(
+            flags: sideSpecificFlags(
+                CGEventFlags.maskAlternate.rawValue,
+                CGEventFlags.maskCommand.rawValue,
+                leftOptionMask,
+                leftCommandMask
+            )
+        )
+        manager.modifierChordFlagsChangedForTesting(
+            flags: sideSpecificFlags(
+                CGEventFlags.maskAlternate.rawValue,
+                CGEventFlags.maskCommand.rawValue,
+                rightOptionMask,
+                rightCommandMask
+            )
+        )
+
+        XCTAssertEqual(triggerCount, 1)
     }
 }

@@ -107,7 +107,7 @@ REQ-DIAR-001:
   status: implemented
 
 REQ-DICT-004:
-  description: Custom hotkey support (any single key + chord combos)
+  description: Custom hotkey support (any single key, modifier+key chords, and modifier-only chords)
   version: v0.4
   status: implemented
 

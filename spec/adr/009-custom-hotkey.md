@@ -59,3 +59,22 @@ Community issue #17 requested modifier+key combos (e.g., Cmd+9) because Logitech
 ### Original decision preserved
 
 Single-key triggers (`.modifier` and `.keyCode`) continue to work exactly as before. Chords are additive.
+
+## Amendment: Modifier-Only Chord Hotkey Support (2026-05-09)
+
+### Context
+
+Community issue #234 requested hotkeys such as Right Command+Right Option. The existing model supported single modifiers, side-specific single modifiers, standalone keys, and modifier+key chords, but not combinations made only of modifiers.
+
+### Changes
+
+1. **New `.modifierChord` kind** added to `HotkeyTrigger.Kind` — stores 2+ `ModifierComponent` values, each with a generic modifier name and optional physical key code for left/right specificity.
+2. **Exact modifier-set matching** — Modifier-only chords trigger only when the configured modifier set is pressed. Extra Control/Option/Shift/Command keys interrupt the bare-tap gesture instead of also matching a smaller chord.
+3. **Side-specific components** — Advanced recording can persist combinations such as Right Option+Right Command, while normal recording persists generic Option+Command behavior.
+4. **Shared matching helper** — Dictation hotkeys and auxiliary shortcuts use the same side-specific modifier masks so generic and physical-side behavior stays consistent.
+5. **Overlap detection replaces equality-only conflicts** — Settings and runtime startup reject physically overlapping shortcuts, including generic-vs-side-specific overlaps and bare-key-vs-modifier+key chord collisions.
+6. **Fn remains excluded** — Fn/Globe stays bare-modifier-only and is not valid inside modifier-only chords.
+
+### Original decision preserved
+
+Existing `.modifier`, `.keyCode`, and `.chord` persisted values decode unchanged. Modifier-only chords are additive and use the existing key-agnostic gesture state machine for double-tap and hold-to-talk semantics.

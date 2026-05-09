@@ -634,4 +634,145 @@ final class HotkeyTriggerTests: XCTestCase {
         let right = HotkeyTrigger(kind: .modifier, modifierName: "option", keyCode: nil, modifierKeyCode: 61)
         XCTAssertNotEqual(left, right)
     }
+
+    // MARK: - Modifier-Only Chords
+
+    func testModifierChordFactoryNormalizesOrdering() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "control", "option"])
+
+        XCTAssertEqual(trigger.kind, .modifierChord)
+        XCTAssertNil(trigger.keyCode)
+        XCTAssertNil(trigger.modifierName)
+        XCTAssertEqual(
+            trigger.normalizedModifierChordComponents,
+            [
+                .init(modifierName: "control"),
+                .init(modifierName: "option"),
+                .init(modifierName: "command"),
+            ]
+        )
+    }
+
+    func testModifierChordDisplayNames() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+
+        XCTAssertEqual(trigger.displayName, "Option+Command")
+        XCTAssertEqual(trigger.shortSymbol, "⌥⌘")
+    }
+
+    func testSideSpecificModifierChordDisplayNames() {
+        let trigger = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "command", keyCode: 54),
+                .init(modifierName: "option", keyCode: 61),
+            ]
+        )
+
+        XCTAssertEqual(trigger.displayName, "Right Option+Right Command")
+        XCTAssertEqual(trigger.shortSymbol, "R⌥R⌘")
+    }
+
+    func testModifierChordCodableRoundtrip() throws {
+        let trigger = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "command", keyCode: 54),
+                .init(modifierName: "option", keyCode: 61),
+            ]
+        )
+
+        let data = try JSONEncoder().encode(trigger)
+        let decoded = try JSONDecoder().decode(HotkeyTrigger.self, from: data)
+
+        XCTAssertEqual(decoded, trigger)
+        XCTAssertEqual(decoded.displayName, "Right Option+Right Command")
+    }
+
+    func testModifierChordPersistence() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        trigger.save(to: testDefaults)
+
+        let loaded = HotkeyTrigger.current(defaults: testDefaults)
+
+        XCTAssertEqual(loaded, trigger)
+        XCTAssertEqual(loaded.displayName, "Option+Command")
+    }
+
+    func testModifierChordEventFlags() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        let expected: UInt64 = 0x00100000 | 0x00080000
+
+        XCTAssertEqual(trigger.modifierChordEventFlags, expected)
+    }
+
+    func testModifierChordRequiresAtLeastTwoModifiers() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command"])
+
+        if case .blocked(let message) = trigger.validation {
+            XCTAssertTrue(message.contains("at least two"))
+        } else {
+            XCTFail("Single modifier chord should be blocked")
+        }
+    }
+
+    func testModifierChordOverlapsGenericSingleModifier() {
+        let trigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+
+        XCTAssertTrue(trigger.overlaps(with: .option))
+        XCTAssertTrue(HotkeyTrigger.command.overlaps(with: trigger))
+        XCTAssertFalse(trigger.overlaps(with: .shift))
+    }
+
+    func testSideSpecificModifierChordOverlapsCompatibleGenericChord() {
+        let sideSpecific = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "command", keyCode: 54),
+                .init(modifierName: "option", keyCode: 61),
+            ]
+        )
+        let generic = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+
+        XCTAssertTrue(sideSpecific.overlaps(with: generic))
+        XCTAssertTrue(generic.overlaps(with: sideSpecific))
+    }
+
+    func testModifierChordOverlapsModifierChordSuperset() {
+        let double = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        let triple = HotkeyTrigger.modifierChord(modifiers: ["command", "option", "shift"])
+
+        XCTAssertTrue(double.overlaps(with: triple))
+        XCTAssertTrue(triple.overlaps(with: double))
+    }
+
+    func testSideSpecificModifierChordDoesNotOverlapOppositeSides() {
+        let right = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "command", keyCode: 54),
+                .init(modifierName: "option", keyCode: 61),
+            ]
+        )
+        let left = HotkeyTrigger.modifierChord(
+            components: [
+                .init(modifierName: "command", keyCode: 55),
+                .init(modifierName: "option", keyCode: 58),
+            ]
+        )
+
+        XCTAssertFalse(right.overlaps(with: left))
+    }
+
+    func testModifierChordOverlapsModifierPlusKeyChordWithSameModifiers() {
+        let modifierOnly = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        let keyChord = HotkeyTrigger.chord(modifiers: ["command", "option"], keyCode: 46)
+
+        XCTAssertTrue(modifierOnly.overlaps(with: keyChord))
+        XCTAssertTrue(keyChord.overlaps(with: modifierOnly))
+    }
+
+    func testKeyCodeOverlapsModifierPlusSameKeyChord() {
+        let bareM = HotkeyTrigger.fromKeyCode(46)
+        let commandM = HotkeyTrigger.chord(modifiers: ["command"], keyCode: 46)
+
+        XCTAssertTrue(bareM.overlaps(with: commandM))
+        XCTAssertTrue(commandM.overlaps(with: bareM))
+    }
 }
