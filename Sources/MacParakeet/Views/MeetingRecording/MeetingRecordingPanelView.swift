@@ -472,6 +472,12 @@ struct BreathingSeedOfLifeView: View {
                 pauseStartDate = nil
             }
         }
+        .onAppear {
+            startDate = Date()
+            if freeze {
+                pauseStartDate = startDate
+            }
+        }
     }
 
     /// Triangle-wave eased between 0 and 1 over a full breathing cycle.
