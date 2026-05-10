@@ -431,7 +431,18 @@ struct BreathingSeedOfLifeView: View {
         // Vestibular-sensitive users get a still seed-of-life — same shape,
         // color, and brand vocabulary, just no rotation or pulse.
         TimelineView(.animation(paused: freeze || reduceMotion)) { context in
-            let elapsed = context.date.timeIntervalSince(startDate) - accumulatedPause
+            // Live pause adjustment: SwiftUI's `.onChange(of: freeze)` fires
+            // AFTER `body`, which would otherwise leave one transitional frame
+            // on resume where `accumulatedPause` is stale and the rotation
+            // snap-jumps forward by the full pause duration. Reading
+            // `pauseStartDate` here folds the in-flight pause window into
+            // `elapsed` so the math is correct even before onChange runs.
+            let activePauseAdjustment: TimeInterval = pauseStartDate.map {
+                context.date.timeIntervalSince($0)
+            } ?? 0
+            let elapsed = context.date.timeIntervalSince(startDate)
+                - accumulatedPause
+                - activePauseAdjustment
 
             let rotationProgress = elapsed
                 .truncatingRemainder(dividingBy: rotationPeriod) / rotationPeriod
