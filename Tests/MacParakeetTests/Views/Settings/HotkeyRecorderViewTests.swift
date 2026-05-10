@@ -67,6 +67,26 @@ final class HotkeyRecorderViewTests: XCTestCase {
         )
     }
 
+    func testSideSpecificRecordingRejectsModifierKeyChords() {
+        let candidate = HotkeyRecorderView.keyChordTrigger(
+            modifiers: ["option"],
+            keyCode: 8,
+            captureMode: .sideSpecific
+        )
+
+        XCTAssertNil(candidate)
+    }
+
+    func testGenericRecordingAllowsModifierKeyChords() {
+        let candidate = HotkeyRecorderView.keyChordTrigger(
+            modifiers: ["option"],
+            keyCode: 8,
+            captureMode: .generic
+        )
+
+        XCTAssertEqual(candidate, .chord(modifiers: ["option"], keyCode: 8))
+    }
+
     func testSingleModifierDoesNotBecomeModifierChord() {
         let candidate = HotkeyRecorderView.modifierChordTrigger(
             components: [.init(modifierName: "option", keyCode: 61)],

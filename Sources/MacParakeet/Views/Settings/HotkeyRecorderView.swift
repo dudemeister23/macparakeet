@@ -170,7 +170,16 @@ struct HotkeyRecorderView: View {
 
                 if !heldModifiers.isEmpty {
                     // Chord: modifier(s) + key
-                    let candidate = HotkeyTrigger.chord(modifiers: heldModifiers, keyCode: keyCode)
+                    guard let candidate = Self.keyChordTrigger(
+                        modifiers: heldModifiers,
+                        keyCode: keyCode,
+                        captureMode: modifierCaptureMode
+                    ) else {
+                        stopRecording()
+                        validationMessage = Self.sideSpecificKeyChordMessage
+                        validationIsBlocked = true
+                        return nil
+                    }
                     switch combinedValidation(for: candidate) {
                     case .blocked(let msg):
                         pendingModifierComponents = []
@@ -383,6 +392,18 @@ struct HotkeyRecorderView: View {
 
         guard trigger.normalizedModifierChordComponents.count >= 2 else { return nil }
         return trigger
+    }
+
+    static let sideSpecificKeyChordMessage =
+        "Specific-side recording only supports modifier-only shortcuts. Use Change... for modifier+key shortcuts."
+
+    static func keyChordTrigger(
+        modifiers: [String],
+        keyCode: UInt16,
+        captureMode: ModifierCaptureMode
+    ) -> HotkeyTrigger? {
+        guard captureMode == .generic else { return nil }
+        return HotkeyTrigger.chord(modifiers: modifiers, keyCode: keyCode)
     }
 
     static func mergedModifierComponents(

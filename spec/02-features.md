@@ -314,7 +314,7 @@ Space is always reserved for the tooltip (opacity toggle, not conditional render
 **Acceptance criteria:**
 - [x] Double-tap hotkey activates persistent recording from any app
 - [x] Hold hotkey (> 400ms) activates hold-mode, release auto-stops and pastes
-- [x] Hotkey trigger configurable to any single key (modifiers, function keys, navigation keys, etc.) via record-a-shortcut UI
+- [x] Hotkey trigger configurable to bare modifiers, standalone keys, modifier+key chords, and modifier-only chords via record-a-shortcut UI; Fn remains bare-modifier-only and Escape remains reserved
 - [x] Overlay appears at bottom-center with waveform animation
 - [x] Hover tooltips display correctly on non-activating panel
 - [ ] Parakeet transcribes with <500ms end-to-end latency for short dictations
@@ -648,7 +648,7 @@ Audio path is computed from ID by default. Files stored as WAV (16kHz mono). Use
 | Setting | Options | Default |
 |---------|---------|---------|
 | Launch at login | On / Off | Off |
-| Dictation hotkey | Any single key (record-a-shortcut UI) | Fn (double-tap / hold) |
+| Dictation hotkey | Bare modifiers, standalone keys, modifier+key chords, and modifier-only chords with overlap checks | Fn (double-tap / hold) |
 | Stop mode | Auto-stop after silence / Manual | Manual |
 | Silence delay | 1s, 1.5s, 2s, 3s, 5s | 2s |
 | Save audio recordings | On / Off | On |
@@ -659,7 +659,7 @@ Audio path is computed from ID by default. Files stored as WAV (16kHz mono). Use
 
 **Acceptance criteria:**
 - [x] All settings persist across app restarts (UserDefaults or GRDB)
-- [x] Hotkey can be changed to any single key (modifiers, function keys, navigation keys, etc.) via record-a-shortcut UI
+- [x] Hotkey can be changed to bare modifiers, standalone keys, modifier+key chords, and modifier-only chords via record-a-shortcut UI; Command chords warn on common system conflicts
 - [x] Stop mode switch works correctly for both modes
 - [x] Storage toggle controls whether audio files are saved
 - [x] YouTube storage toggle controls whether downloaded URL audio is kept after transcription
