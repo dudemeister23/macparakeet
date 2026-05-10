@@ -89,6 +89,8 @@ public enum TelemetryEventName: String, Sendable, CaseIterable {
     case calendarAutoStartFailed = "calendar_auto_start_failed"
     case calendarAutoStopShown = "calendar_auto_stop_shown"
     case calendarAutoStopCancelled = "calendar_auto_stop_cancelled"
+    // STT runtime observability
+    case sttRuntimeUnhealthy = "stt_runtime_unhealthy"
     // Errors
     case errorOccurred = "error_occurred"
     // Crashes
@@ -495,6 +497,10 @@ public enum TelemetryEventSpec: Sendable {
     /// User extended past the calendar event's end time (suppressed
     /// auto-stop). Tells us how often the 30s lead is wrong.
     case calendarAutoStopCancelled
+    // STT runtime observability. Fires when an STT runtime call (cancel-drain,
+    // model-cache clear, shutdown, engine swap) exceeds the watchdog timeout.
+    // Detection-only; the caller continues to await as today.
+    case sttRuntimeUnhealthy(reason: String)
     // Errors
     case errorOccurred(domain: String, code: String, description: String)
     // Crashes
@@ -614,6 +620,7 @@ extension TelemetryEventSpec {
         case .calendarAutoStartFailed: return .calendarAutoStartFailed
         case .calendarAutoStopShown: return .calendarAutoStopShown
         case .calendarAutoStopCancelled: return .calendarAutoStopCancelled
+        case .sttRuntimeUnhealthy: return .sttRuntimeUnhealthy
         case .errorOccurred: return .errorOccurred
         case .crashOccurred: return .crashOccurred
         case .cliOperation: return .cliOperation
@@ -1079,6 +1086,8 @@ extension TelemetryEventSpec {
             return ["event_duration_seconds": Self.format(eventDurationSeconds)]
         case .calendarAutoStopCancelled:
             return nil
+        case .sttRuntimeUnhealthy(let reason):
+            return ["reason": reason]
         case .errorOccurred(let domain, let code, let description):
             // Defense in depth: sanitize() at the boundary so any caller route
             // (including future call sites that forget to run
@@ -1285,6 +1294,7 @@ public enum TelemetryImplementedContract {
         .calendarAutoStartFailed: ["reason"],
         .calendarAutoStopShown: ["event_duration_seconds"],
         .calendarAutoStopCancelled: [],
+        .sttRuntimeUnhealthy: ["reason"],
         .errorOccurred: ["domain", "code", "description"],
         .crashOccurred: ["crash_type", "signal", "name", "crash_ts", "crash_app_ver"],
         .cliOperation: ["operation_id", "command", "outcome", "duration_seconds"],

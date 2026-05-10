@@ -497,6 +497,124 @@ final class STTSchedulerTests: XCTestCase {
             return try await group.next()!
         }
     }
+
+    // MARK: - Watchdog probe (stt_runtime_unhealthy telemetry)
+
+    func testWatchdogFiresWhenCancelDrainExceedsTimeout() async throws {
+        let runtime = MockSTTRuntime()
+        await runtime.setIgnoreCancellation(true)
+        await runtime.block(path: "wedge")
+
+        let spy = STTRuntimeUnhealthySpy()
+        Telemetry.configure(spy)
+        defer { Telemetry.configure(NoOpTelemetryService()) }
+
+        let scheduler = STTScheduler(
+            runtimeProvider: runtime,
+            meetingLiveChunkBacklogLimit: 8,
+            runtimeOperationWatchdogTimeout: .milliseconds(50)
+        )
+
+        let wedgedTask = Task {
+            try await scheduler.transcribe(audioPath: "wedge", job: .fileTranscription)
+        }
+        try await waitForStartedPaths(runtime: runtime, count: 1)
+
+        // clearModelCache calls quiesce → cancelAndDrainRunningJobs. The runtime
+        // ignores cancellation, so the drain blocks past the watchdog timeout
+        // and we expect a `cancel_drain` telemetry event.
+        let clearTask = Task { await scheduler.clearModelCache() }
+
+        try await waitForUnhealthyEvent(
+            spy: spy,
+            reason: "cancel_drain",
+            timeout: .seconds(2)
+        )
+
+        // Cleanup: unwedge the runtime so the in-flight call completes and the
+        // scheduler-level Task can return.
+        await runtime.forceReleaseAll()
+        await runtime.setIgnoreCancellation(false)
+        _ = try? await wedgedTask.value
+        _ = await clearTask.value
+    }
+
+    func testWatchdogStaysSilentOnHappyPath() async throws {
+        let runtime = MockSTTRuntime()
+
+        let spy = STTRuntimeUnhealthySpy()
+        Telemetry.configure(spy)
+        defer { Telemetry.configure(NoOpTelemetryService()) }
+
+        let scheduler = STTScheduler(
+            runtimeProvider: runtime,
+            meetingLiveChunkBacklogLimit: 8,
+            runtimeOperationWatchdogTimeout: .seconds(5)
+        )
+
+        // Normal lifecycle: idle scheduler, no in-flight jobs. clearModelCache
+        // and shutdown should both return well under the timeout, so the
+        // watchdog must not fire.
+        await scheduler.clearModelCache()
+        await scheduler.shutdown()
+
+        // Give any latent watchdog Task time to (incorrectly) fire — it
+        // shouldn't, but we want a positive assertion of silence.
+        try await Task.sleep(for: .milliseconds(100))
+
+        let unhealthyEvents = spy.unhealthyEvents()
+        XCTAssertTrue(
+            unhealthyEvents.isEmpty,
+            "Watchdog fired spuriously on happy path: \(unhealthyEvents)"
+        )
+    }
+
+    private func waitForUnhealthyEvent(
+        spy: STTRuntimeUnhealthySpy,
+        reason: String,
+        timeout: Duration
+    ) async throws {
+        let start = ContinuousClock.now
+        while !spy.unhealthyEvents().contains(where: { $0 == reason }) {
+            if start.duration(to: .now) > timeout {
+                XCTFail("Timed out waiting for stt_runtime_unhealthy reason=\(reason); saw=\(spy.unhealthyEvents())")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+}
+
+private final class STTRuntimeUnhealthySpy: TelemetryServiceProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var reasons: [String] = []
+
+    func send(_ event: TelemetryEventSpec) {
+        if case .sttRuntimeUnhealthy(let reason) = event {
+            lock.lock()
+            reasons.append(reason)
+            lock.unlock()
+        }
+    }
+
+    func sendAndFlush(_ event: TelemetryEventSpec) async -> Bool {
+        send(event)
+        return true
+    }
+
+    func flush() async {}
+    func clearQueue() {
+        lock.lock()
+        reasons.removeAll()
+        lock.unlock()
+    }
+    func flushForTermination() {}
+
+    func unhealthyEvents() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return reasons
+    }
 }
 
 private enum STTSchedulerTestError: Error {
@@ -518,6 +636,7 @@ private actor MockSTTRuntime: STTRuntimeProtocol {
     private var selection = SpeechEngineSelection(engine: .parakeet)
     private var ready = false
     private var shouldBlockNextSpeechEngineSwitch = false
+    private var ignoreCancellation = false
     private var speechEngineSwitchContinuation: CheckedContinuation<Void, Never>?
 
     func transcribe(
@@ -634,7 +753,25 @@ private actor MockSTTRuntime: STTRuntimeProtocol {
         waitingContinuations.removeValue(forKey: path)?.resume(returning: ())
     }
 
+    /// When true, `cancelBlocked` becomes a no-op so a cancelled blocked
+    /// transcribe stays wedged. Lets us simulate a runtime that ignores
+    /// `Task.cancel()` for watchdog tests.
+    func setIgnoreCancellation(_ value: Bool) {
+        ignoreCancellation = value
+    }
+
+    /// Force-resume any held continuations regardless of `ignoreCancellation`.
+    /// Used by tests to clean up after a deliberately-wedged path.
+    func forceReleaseAll() {
+        for (path, continuation) in waitingContinuations {
+            blockedPaths.remove(path)
+            continuation.resume(throwing: CancellationError())
+        }
+        waitingContinuations.removeAll()
+    }
+
     private func cancelBlocked(path: String) {
+        guard !ignoreCancellation else { return }
         waitingContinuations.removeValue(forKey: path)?.resume(throwing: CancellationError())
     }
 

@@ -43,6 +43,7 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, SpeechEn
     private let logger = Logger(subsystem: "com.macparakeet.core", category: "STTScheduler")
     private let runtime: STTRuntimeProtocol
     private let meetingLiveChunkBacklogLimit: Int
+    private let runtimeOperationWatchdogTimeout: Duration
 
     private var enqueueCounter: UInt64 = 0
     private var continuations: [UUID: CheckedContinuation<STTResult, Error>] = [:]
@@ -57,20 +58,29 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, SpeechEn
     /// - Parameter meetingLiveChunkBacklogLimit: Maximum pending live-preview chunks before the
     ///   oldest is dropped. 120 ≈ 4 minutes of dual-source 5-second chunks emitted every ~4
     ///   seconds, enough to absorb a prolonged dictation burst before preview starts dropping.
+    /// - Parameter runtimeOperationWatchdogTimeout: How long an STT runtime call (cancel-drain,
+    ///   model-cache clear, shutdown, engine swap) may take before we emit
+    ///   `stt_runtime_unhealthy` telemetry. Detection-only — no behavior changes; the caller
+    ///   continues to await regardless. 30 s is generous enough that legitimate slow operations
+    ///   on thermally throttled hardware should not trip it.
     public init(
         runtime: STTRuntime = STTRuntime(),
-        meetingLiveChunkBacklogLimit: Int = 120
+        meetingLiveChunkBacklogLimit: Int = 120,
+        runtimeOperationWatchdogTimeout: Duration = .seconds(30)
     ) {
         self.runtime = runtime as STTRuntimeProtocol
         self.meetingLiveChunkBacklogLimit = max(1, meetingLiveChunkBacklogLimit)
+        self.runtimeOperationWatchdogTimeout = runtimeOperationWatchdogTimeout
     }
 
     init(
         runtimeProvider: STTRuntimeProtocol,
-        meetingLiveChunkBacklogLimit: Int = 120
+        meetingLiveChunkBacklogLimit: Int = 120,
+        runtimeOperationWatchdogTimeout: Duration = .seconds(30)
     ) {
         self.runtime = runtimeProvider
         self.meetingLiveChunkBacklogLimit = max(1, meetingLiveChunkBacklogLimit)
+        self.runtimeOperationWatchdogTimeout = runtimeOperationWatchdogTimeout
     }
 
     public func transcribe(
@@ -152,12 +162,16 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, SpeechEn
 
     public func clearModelCache() async {
         await quiesce(restoreAcceptsNewJobs: true)
-        await runtime.clearModelCache()
+        await observingRuntimeTimeout(reason: "clear_model_cache") {
+            await runtime.clearModelCache()
+        }
     }
 
     public func shutdown() async {
         await quiesce(restoreAcceptsNewJobs: false)
-        await runtime.shutdown()
+        await observingRuntimeTimeout(reason: "shutdown") {
+            await runtime.shutdown()
+        }
     }
 
     public func setSpeechEngine(_ preference: SpeechEnginePreference) async throws {
@@ -177,10 +191,12 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, SpeechEn
             speechEngineSwitchTask = nil
             acceptsNewJobs = true
         }
-        try await withTaskCancellationHandler {
-            try await switchTask.value
-        } onCancel: {
-            switchTask.cancel()
+        try await observingRuntimeTimeoutThrowing(reason: "set_speech_engine") {
+            try await withTaskCancellationHandler {
+                try await switchTask.value
+            } onCancel: {
+                switchTask.cancel()
+            }
         }
     }
 
@@ -395,8 +411,51 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, SpeechEn
             slotState.currentExecutionTask?.cancel()
             return slotState.currentWaitTask
         }
-        for task in waitTasks {
-            await task.value
+        guard !waitTasks.isEmpty else { return }
+        await observingRuntimeTimeout(reason: "cancel_drain") {
+            for task in waitTasks {
+                await task.value
+            }
+        }
+    }
+
+    /// Watchdog probe for an STT runtime call that may hang if the underlying
+    /// runtime (FluidAudio / WhisperKit) ignores cancellation. If `operation`
+    /// exceeds `runtimeOperationWatchdogTimeout`, emits
+    /// `stt_runtime_unhealthy` telemetry. The caller continues to await; this
+    /// is observability-only.
+    private func observingRuntimeTimeout<T>(
+        reason: String,
+        operation: () async -> T
+    ) async -> T {
+        let watchdog = Self.makeRuntimeWatchdog(
+            reason: reason,
+            timeout: runtimeOperationWatchdogTimeout
+        )
+        defer { watchdog.cancel() }
+        return await operation()
+    }
+
+    private func observingRuntimeTimeoutThrowing<T>(
+        reason: String,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let watchdog = Self.makeRuntimeWatchdog(
+            reason: reason,
+            timeout: runtimeOperationWatchdogTimeout
+        )
+        defer { watchdog.cancel() }
+        return try await operation()
+    }
+
+    private nonisolated static func makeRuntimeWatchdog(
+        reason: String,
+        timeout: Duration
+    ) -> Task<Void, Never> {
+        Task.detached(priority: .background) {
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            Telemetry.send(.sttRuntimeUnhealthy(reason: reason))
         }
     }
 }
