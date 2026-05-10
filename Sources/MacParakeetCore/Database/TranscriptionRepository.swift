@@ -49,12 +49,9 @@ extension TranscriptionRepositoryProtocol {
         }
         if let searchText = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines),
            !searchText.isEmpty {
-            let lowered = searchText.lowercased()
+            let normalizedQuery = UnicodeSearch.makeKey(searchText)
             results = results.filter { transcription in
-                transcription.fileName.lowercased().contains(lowered)
-                    || (transcription.rawTranscript?.lowercased().contains(lowered) ?? false)
-                    || (transcription.cleanTranscript?.lowercased().contains(lowered) ?? false)
-                    || (transcription.channelName?.lowercased().contains(lowered) ?? false)
+                transcriptionMatchesLibrarySearch(transcription, normalizedQuery: normalizedQuery)
             }
         }
 
@@ -139,16 +136,15 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol {
             }
             if let searchText = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines),
                !searchText.isEmpty {
-                let pattern = "%\(escapedLikePattern(searchText))%"
-                whereClauses.append("""
-                    (
-                        fileName LIKE ? ESCAPE '\\'
-                        OR rawTranscript LIKE ? ESCAPE '\\'
-                        OR cleanTranscript LIKE ? ESCAPE '\\'
-                        OR channelName LIKE ? ESCAPE '\\'
-                    )
-                    """)
-                arguments.append(contentsOf: [pattern, pattern, pattern, pattern])
+                return try Self.fetchUnicodeSearchLibraryPage(
+                    db: db,
+                    whereClauses: whereClauses,
+                    arguments: arguments,
+                    normalizedQuery: UnicodeSearch.makeKey(searchText),
+                    sortOrder: query.sortOrder,
+                    limit: limit,
+                    offset: offset
+                )
             }
 
             var sql = "SELECT * FROM transcriptions"
@@ -170,6 +166,44 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol {
                 hasMore: fetched.count > limit
             )
         }
+    }
+
+    private static func fetchUnicodeSearchLibraryPage(
+        db: Database,
+        whereClauses: [String],
+        arguments: [any DatabaseValueConvertible],
+        normalizedQuery: String,
+        sortOrder: TranscriptionLibrarySortOrder,
+        limit: Int,
+        offset: Int
+    ) throws -> TranscriptionLibraryPage {
+        var sql = "SELECT * FROM transcriptions"
+        if !whereClauses.isEmpty {
+            sql += " WHERE " + whereClauses.joined(separator: " AND ")
+        }
+        sql += " ORDER BY \(Self.libraryOrderClause(for: sortOrder))"
+
+        let cursor = try Transcription.fetchCursor(
+            db,
+            sql: sql,
+            arguments: StatementArguments(arguments)
+        )
+        var skipped = 0
+        var items: [Transcription] = []
+        while let transcription = try cursor.next() {
+            guard transcriptionMatchesLibrarySearch(transcription, normalizedQuery: normalizedQuery) else {
+                continue
+            }
+            if skipped < offset {
+                skipped += 1
+                continue
+            }
+            guard items.count < limit else {
+                return TranscriptionLibraryPage(items: items, hasMore: true)
+            }
+            items.append(transcription)
+        }
+        return TranscriptionLibraryPage(items: items, hasMore: false)
     }
 
     public func fetchBySourceType(_ sourceType: Transcription.SourceType, limit: Int? = nil) throws -> [Transcription] {
@@ -283,10 +317,7 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol {
 
             var results: [Transcription] = []
             while let transcription = try cursor.next() {
-                guard UnicodeSearch.contains(transcription.fileName, normalizedQuery: normalizedQuery)
-                    || (transcription.rawTranscript.map { UnicodeSearch.contains($0, normalizedQuery: normalizedQuery) } ?? false)
-                    || (transcription.cleanTranscript.map { UnicodeSearch.contains($0, normalizedQuery: normalizedQuery) } ?? false)
-                else { continue }
+                guard transcriptionMatchesLibrarySearch(transcription, normalizedQuery: normalizedQuery) else { continue }
 
                 results.append(transcription)
                 if let limit, results.count >= limit {
@@ -427,4 +458,14 @@ private func escapedLikePattern(_ value: String) -> String {
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "%", with: "\\%")
         .replacingOccurrences(of: "_", with: "\\_")
+}
+
+private func transcriptionMatchesLibrarySearch(
+    _ transcription: Transcription,
+    normalizedQuery: String
+) -> Bool {
+    UnicodeSearch.contains(transcription.fileName, normalizedQuery: normalizedQuery)
+        || (transcription.rawTranscript.map { UnicodeSearch.contains($0, normalizedQuery: normalizedQuery) } ?? false)
+        || (transcription.cleanTranscript.map { UnicodeSearch.contains($0, normalizedQuery: normalizedQuery) } ?? false)
+        || (transcription.channelName.map { UnicodeSearch.contains($0, normalizedQuery: normalizedQuery) } ?? false)
 }

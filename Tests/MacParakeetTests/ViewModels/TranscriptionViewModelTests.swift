@@ -454,9 +454,8 @@ final class TranscriptionViewModelTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
     }
 
-    func testDeleteFailureKeepsStoredAudioFile() throws {
-        try AppPaths.ensureDirectories()
-        let audioURL = URL(fileURLWithPath: AppPaths.youtubeDownloadsDir, isDirectory: true)
+    func testRepositoryDeleteFailureKeepsExternalAudioFile() throws {
+        let audioURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("yt-audio-\(UUID().uuidString).m4a")
         let created = FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8))
         XCTAssertTrue(created)
@@ -468,7 +467,7 @@ final class TranscriptionViewModelTests: XCTestCase {
             rawTranscript: "Hello",
             status: .completed,
             sourceURL: "https://youtu.be/dQw4w9WgXcQ",
-            sourceType: .youtube
+            sourceType: .file
         )
         mockRepo.transcriptions = [t]
         mockRepo.deleteError = NSError(domain: "repo", code: 1)
@@ -478,6 +477,41 @@ final class TranscriptionViewModelTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
         XCTAssertEqual(viewModel.transcriptions.count, 1)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
+    func testAssetCleanupFailureDoesNotDeleteTranscription() throws {
+        try AppPaths.ensureDirectories()
+        let protectedDir = URL(fileURLWithPath: AppPaths.youtubeDownloadsDir, isDirectory: true)
+            .appendingPathComponent("viewmodel-protected-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: protectedDir, withIntermediateDirectories: true)
+        let audioURL = protectedDir.appendingPathComponent("asset.m4a")
+        let created = FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8))
+        XCTAssertTrue(created)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: protectedDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: protectedDir.path)
+            try? FileManager.default.removeItem(at: protectedDir)
+        }
+
+        let t = Transcription(
+            fileName: "yt",
+            filePath: audioURL.path,
+            rawTranscript: "Hello",
+            status: .completed,
+            sourceURL: "https://youtu.be/dQw4w9WgXcQ",
+            sourceType: .youtube
+        )
+        mockRepo.transcriptions = [t]
+
+        viewModel.configure(transcriptionService: mockService, transcriptionRepo: mockRepo)
+        viewModel.currentTranscription = t
+        viewModel.deleteTranscription(t)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        XCTAssertFalse(mockRepo.deleteCalledWith.contains(t.id))
+        XCTAssertEqual(viewModel.transcriptions.map(\.id), [t.id])
+        XCTAssertEqual(viewModel.currentTranscription?.id, t.id)
         XCTAssertNotNil(viewModel.errorMessage)
     }
 

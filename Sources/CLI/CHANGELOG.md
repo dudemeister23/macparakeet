@@ -80,6 +80,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [2.1.0] -- 2026-05-10
+
 ### Added
 
 - `transcribe --youtube-audio-quality app-default|m4a|best-available`

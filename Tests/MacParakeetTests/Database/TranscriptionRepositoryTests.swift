@@ -394,6 +394,36 @@ final class TranscriptionRepositoryTests: XCTestCase {
         )
     }
 
+    func testFetchLibraryPageSearchMatchesUnicodeCaseInsensitively() throws {
+        let match = Transcription(
+            fileName: "CAFÉ-notes.m4a",
+            rawTranscript: "Travel guide for İSTANBUL",
+            cleanTranscript: "Résumé follow-up",
+            status: .completed,
+            channelName: "CRÈME Channel"
+        )
+        let other = Transcription(fileName: "other.mp3", rawTranscript: "Unrelated", status: .completed)
+        try repo.save(match)
+        try repo.save(other)
+
+        XCTAssertEqual(
+            try repo.fetchLibraryPage(query: TranscriptionLibraryQuery(searchText: "café", limit: 10)).items.map(\.id),
+            [match.id]
+        )
+        XCTAssertEqual(
+            try repo.fetchLibraryPage(query: TranscriptionLibraryQuery(searchText: "istanbul", limit: 10)).items.map(\.id),
+            [match.id]
+        )
+        XCTAssertEqual(
+            try repo.fetchLibraryPage(query: TranscriptionLibraryQuery(searchText: "resume", limit: 10)).items.map(\.id),
+            [match.id]
+        )
+        XCTAssertEqual(
+            try repo.fetchLibraryPage(query: TranscriptionLibraryQuery(searchText: "creme", limit: 10)).items.map(\.id),
+            [match.id]
+        )
+    }
+
     func testFetchLibraryPageSortsByDateAndTitle() throws {
         let older = Transcription(
             createdAt: Date(timeIntervalSinceReferenceDate: 100),

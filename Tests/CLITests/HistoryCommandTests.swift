@@ -115,6 +115,45 @@ final class HistoryCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
     }
 
+    func testDeleteTranscriptionCommandKeepsRecordWhenOwnedAudioCleanupFails() throws {
+        let dbURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try DatabaseManager(path: dbURL.path)
+        let repo = TranscriptionRepository(dbQueue: db.dbQueue)
+
+        try AppPaths.ensureDirectories()
+        let protectedDir = URL(fileURLWithPath: AppPaths.youtubeDownloadsDir, isDirectory: true)
+            .appendingPathComponent("macparakeet-cli-protected-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: protectedDir, withIntermediateDirectories: true)
+        let audioURL = protectedDir.appendingPathComponent("asset.m4a")
+        _ = FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: protectedDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: protectedDir.path)
+            try? FileManager.default.removeItem(at: protectedDir)
+        }
+
+        let transcription = Transcription(
+            fileName: "delete-me.m4a",
+            filePath: audioURL.path,
+            rawTranscript: "Goodbye",
+            status: .completed,
+            sourceType: .youtube
+        )
+        try repo.save(transcription)
+
+        let command = try DeleteTranscriptionSubcommand.parse([
+            transcription.id.uuidString,
+            "--database", dbURL.path,
+        ])
+        XCTAssertThrowsError(try captureStandardOutput {
+            try command.run()
+        })
+
+        XCTAssertNotNil(try repo.fetch(id: transcription.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+    }
+
     // MARK: - Favorites
 
     func testFavoriteAndUnfavoriteTranscription() throws {
@@ -211,6 +250,34 @@ final class HistoryCommandTests: XCTestCase {
         }
 
         XCTAssertTrue(output.contains("video.mp3"))
+        XCTAssertFalse(output.contains("other.mp3"))
+    }
+
+    func testSearchTranscriptionsCommandMatchesUnicodeCaseInsensitively() throws {
+        let dbURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try DatabaseManager(path: dbURL.path)
+        let repo = TranscriptionRepository(dbQueue: db.dbQueue)
+
+        let match = Transcription(
+            fileName: "CAFÉ-notes.m4a",
+            rawTranscript: "Travel guide for İSTANBUL",
+            cleanTranscript: "Résumé follow-up",
+            status: .completed
+        )
+        let other = Transcription(fileName: "other.mp3", rawTranscript: "Unrelated", status: .completed)
+        try repo.save(match)
+        try repo.save(other)
+
+        let command = try SearchTranscriptionsSubcommand.parse([
+            "istanbul",
+            "--database", dbURL.path,
+        ])
+        let output = try captureStandardOutput {
+            try command.run()
+        }
+
+        XCTAssertTrue(output.contains("CAFÉ-notes.m4a"))
         XCTAssertFalse(output.contains("other.mp3"))
     }
 

@@ -249,4 +249,34 @@ final class TranscriptionLibraryViewModelTests: XCTestCase {
         let fetched = try repo.fetch(id: t.id)
         XCTAssertNil(fetched)
     }
+
+    func testDeleteCleanupFailureKeepsTranscriptionRowAndListItem() async throws {
+        try AppPaths.ensureDirectories()
+        let protectedDir = URL(fileURLWithPath: AppPaths.youtubeDownloadsDir, isDirectory: true)
+            .appendingPathComponent("library-protected-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: protectedDir, withIntermediateDirectories: true)
+        let audioURL = protectedDir.appendingPathComponent("asset.m4a")
+        _ = FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: protectedDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: protectedDir.path)
+            try? FileManager.default.removeItem(at: protectedDir)
+        }
+
+        let t = Transcription(
+            fileName: "yt",
+            filePath: audioURL.path,
+            status: .completed,
+            sourceType: .youtube
+        )
+        try repo.save(t)
+        await load()
+
+        vm.deleteTranscription(t)
+
+        XCTAssertNotNil(try repo.fetch(id: t.id))
+        XCTAssertEqual(vm.transcriptions.map(\.id), [t.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        XCTAssertNotNil(vm.errorMessage)
+    }
 }
