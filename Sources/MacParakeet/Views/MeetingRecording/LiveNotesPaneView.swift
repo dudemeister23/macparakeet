@@ -21,6 +21,10 @@ struct LiveNotesPaneView: View {
     /// `/now` slash command to format the inserted timestamp. Defaults to
     /// 0 so previews and unit tests don't need to plumb it.
     var elapsedSeconds: Int = 0
+    /// Mirrors the parent panel's paused state. Forwarded to the
+    /// background watermark rosette so the seed-of-life freezes
+    /// alongside the pill rosette while the meeting is paused.
+    var isPaused: Bool = false
 
     @FocusState private var editorFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -49,7 +53,7 @@ struct LiveNotesPaneView: View {
             // breathing seed-of-life centered behind the editor, fading to
             // a watermark the moment the user starts typing. Purely
             // decorative — never intercepts clicks or assistive focus.
-            BreathingSeedOfLifeView()
+            BreathingSeedOfLifeView(freeze: isPaused)
                 .opacity(viewModel.notesText.isEmpty ? 1.0 : 0.15)
                 .animation(.easeInOut(duration: 0.8), value: viewModel.notesText.isEmpty)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

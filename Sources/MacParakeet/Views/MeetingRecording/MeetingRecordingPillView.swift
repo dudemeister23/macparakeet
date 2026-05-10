@@ -211,9 +211,14 @@ struct MeetingRecordingPillView: View {
             if isHovered && viewModel.elapsedSeconds > 0 {
                 HStack(spacing: 5) {
                     if isPaused {
+                        // Amber pause glyph — same color the panel status
+                        // dot, pause button hover, and tile hover all use,
+                        // so paused state reads as one consistent signal
+                        // across every meeting surface.
                         Image(systemName: "pause.fill")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.85))
+                            .foregroundStyle(DesignSystem.Colors.warningAmber)
+                            .shadow(color: DesignSystem.Colors.warningAmber.opacity(0.5), radius: 3)
                     } else {
                         Circle()
                             .fill(DesignSystem.Colors.recordingRed)

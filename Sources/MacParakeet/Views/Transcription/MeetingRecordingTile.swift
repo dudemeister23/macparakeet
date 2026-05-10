@@ -377,11 +377,25 @@ struct MeetingRecordingTile: View {
 /// is recoverable). Sits to the left of the red Stop pill so the row reads
 /// "pause | stop" — the recoverable action first, the destructive action
 /// last. Outline-style (not filled) to keep stop the visual emphasis.
+///
+/// Hover lights up `warningAmber` (glyph + label + capsule tint + stroke) so
+/// the tile button speaks the same color language as the panel header
+/// `PauseResumeButton`. Idle stays neutral so the row doesn't shout while at
+/// rest; the amber only declares intent on cursor approach.
 private struct TilePauseResumeButton: View {
     var isPaused: Bool
     var onToggle: () -> Void
 
     @State private var isHovered = false
+
+    private var idleForeground: Color {
+        // Resume affordance is one notch brighter than pause to pull the eye
+        // back once the user has paused — same rationale as the panel
+        // PauseResumeButton.
+        isPaused
+            ? DesignSystem.Colors.textPrimary.opacity(0.9)
+            : DesignSystem.Colors.textSecondary
+    }
 
     var body: some View {
         Button(action: onToggle) {
@@ -393,19 +407,24 @@ private struct TilePauseResumeButton: View {
             }
             .foregroundStyle(
                 isHovered
-                    ? DesignSystem.Colors.textPrimary
-                    : DesignSystem.Colors.textSecondary
+                    ? DesignSystem.Colors.warningAmber
+                    : idleForeground
             )
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(
                 Capsule()
                     .fill(isHovered
-                        ? DesignSystem.Colors.surfaceElevated
+                        ? DesignSystem.Colors.warningAmber.opacity(0.12)
                         : DesignSystem.Colors.surfaceElevated.opacity(0.7))
                     .overlay(
                         Capsule()
-                            .stroke(DesignSystem.Colors.border.opacity(isHovered ? 1.0 : 0.7), lineWidth: 0.6)
+                            .stroke(
+                                isHovered
+                                    ? DesignSystem.Colors.warningAmber.opacity(0.45)
+                                    : DesignSystem.Colors.border.opacity(0.7),
+                                lineWidth: 0.6
+                            )
                     )
             )
             .scaleEffect(isHovered ? 1.03 : 1.0)
@@ -414,7 +433,11 @@ private struct TilePauseResumeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(isPaused ? "Resume recording" : "Pause recording")
+        .help(
+            isPaused
+                ? "Resume recording"
+                : "Pause recording — audio resumes when you click play"
+        )
         .accessibilityLabel(isPaused ? "Resume recording" : "Pause recording")
     }
 }

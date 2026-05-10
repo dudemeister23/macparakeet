@@ -37,7 +37,8 @@ struct MeetingRecordingPanelView: View {
         case .notes:
             LiveNotesPaneView(
                 viewModel: viewModel.notesViewModel,
-                elapsedSeconds: viewModel.elapsedSeconds
+                elapsedSeconds: viewModel.elapsedSeconds,
+                isPaused: viewModel.isPaused
             )
         case .transcript:
             transcriptContent
@@ -262,7 +263,7 @@ struct MeetingRecordingPanelView: View {
             // Flower of life — always present, fades to watermark when text appears
             VStack(spacing: DesignSystem.Spacing.md) {
                 if viewModel.canStop {
-                    BreathingSeedOfLifeView()
+                    BreathingSeedOfLifeView(freeze: viewModel.isPaused)
                         .opacity(hasContent ? 0.15 : 1.0)
                         .animation(.easeInOut(duration: 0.8), value: hasContent)
                 } else {
@@ -344,12 +345,19 @@ struct MeetingRecordingPanelView: View {
     private var statusDot: some View {
         switch viewModel.state {
         case .hidden, .recording:
-            // Paused dot uses dimmed success-green rather than tertiary
-            // text so it reads "active but quiet" (matches pill dimming),
-            // not "disabled". Same hue as recording, lower opacity.
+            // Recording: vivid success green. Paused: shifts to warning
+            // amber — the same color language used by the pause button on
+            // hover, the pill's hover-badge pause glyph, and universal
+            // "paused / hold" signals (broadcast indicators, traffic
+            // lights). 0.85 opacity keeps it slightly quieter than the
+            // recording dot — paused is a held-breath, not a shout.
             Circle()
-                .fill(DesignSystem.Colors.successGreen.opacity(viewModel.isPaused ? 0.35 : 1.0))
+                .fill(viewModel.isPaused
+                    ? DesignSystem.Colors.warningAmber.opacity(0.85)
+                    : DesignSystem.Colors.successGreen
+                )
                 .frame(width: 8, height: 8)
+                .animation(.easeInOut(duration: 0.2), value: viewModel.isPaused)
         case .transcribing:
             ProgressView()
                 .controlSize(.small)
@@ -386,54 +394,101 @@ private struct AskStreamingDot: View {
 /// A slowly rotating seed-of-life (1 center + 6 outer circles) for the
 /// empty listening state. Matches the flower head from the recording pill,
 /// without the stem. Also reused as the summary-generation loading indicator.
+///
+/// `freeze`: when `true`, the rotation and glow-breathing animations halt
+/// at their current frame. Used by meeting surfaces while a recording is
+/// paused so the panel rosette stops spinning to match the dimmed,
+/// non-animating pill rosette. Defaults to `false` so non-meeting consumers
+/// (AI streaming indicator, summary generation) are unaffected.
+///
+/// Implementation note: driven by `TimelineView(.animation(paused:))` rather
+/// than `withAnimation(.linear.repeatForever)` because freezing a
+/// `repeatForever` mid-cycle isn't reliably cancellable from outside the
+/// withAnimation scope. `TimelineView`'s `paused:` parameter halts frame
+/// requests cleanly; `accumulatedPause` is subtracted from elapsed time so
+/// the rotation continues smoothly from where it stopped instead of
+/// snapping forward by the pause duration.
 struct BreathingSeedOfLifeView: View {
+    var freeze: Bool = false
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var rotation: Double = 0
-    @State private var glowBreathing = false
+    @State private var startDate = Date()
+    @State private var pauseStartDate: Date?
+    @State private var accumulatedPause: TimeInterval = 0
 
     private let size: CGFloat = 140
     private let circleRadius: CGFloat = 28
     private let strokeColor = DesignSystem.Colors.accent
+    private let rotationPeriod: TimeInterval = 18
+    /// Half-cycle of the breathing pulse — full ease-in-out up takes
+    /// `breathingHalfPeriod` seconds, the same back down. Matches the
+    /// 3s-up / 3s-down feel of the original `easeInOut(duration: 3)
+    /// .repeatForever(autoreverses: true)` shape.
+    private let breathingHalfPeriod: TimeInterval = 3
 
     var body: some View {
-        ZStack {
-            // Center glow
-            Circle()
-                .fill(strokeColor.opacity(glowBreathing ? 0.5 : 0.2))
-                .frame(width: circleRadius * 2, height: circleRadius * 2)
-                .shadow(color: strokeColor.opacity(glowBreathing ? 0.4 : 0.15), radius: 12)
-                .scaleEffect(glowBreathing ? 1.2 : 0.9)
+        // Honor System Settings → Accessibility → Display → Reduce Motion.
+        // Vestibular-sensitive users get a still seed-of-life — same shape,
+        // color, and brand vocabulary, just no rotation or pulse.
+        TimelineView(.animation(paused: freeze || reduceMotion)) { context in
+            let elapsed = context.date.timeIntervalSince(startDate) - accumulatedPause
 
-            // Center circle
-            Circle()
-                .stroke(strokeColor.opacity(0.7), lineWidth: 1.2)
-                .frame(width: circleRadius * 2, height: circleRadius * 2)
+            let rotationProgress = elapsed
+                .truncatingRemainder(dividingBy: rotationPeriod) / rotationPeriod
+            let rotation = rotationProgress * 360
 
-            // 6 outer circles (seed of life)
-            ForEach(0..<6, id: \.self) { i in
+            let breathFactor = breathFactor(for: elapsed)
+            let glowOpacity = 0.2 + 0.3 * breathFactor          // 0.2 → 0.5
+            let glowShadowOpacity = 0.15 + 0.25 * breathFactor   // 0.15 → 0.4
+            let glowScale = 0.9 + 0.3 * breathFactor             // 0.9 → 1.2
+
+            ZStack {
                 Circle()
-                    .stroke(strokeColor.opacity(0.5), lineWidth: 1.2)
+                    .fill(strokeColor.opacity(glowOpacity))
                     .frame(width: circleRadius * 2, height: circleRadius * 2)
-                    .offset(x: circleRadius * CGFloat(cos(Double(i) * .pi / 3)),
-                            y: circleRadius * CGFloat(sin(Double(i) * .pi / 3)))
+                    .shadow(color: strokeColor.opacity(glowShadowOpacity), radius: 12)
+                    .scaleEffect(glowScale)
+
+                Circle()
+                    .stroke(strokeColor.opacity(0.7), lineWidth: 1.2)
+                    .frame(width: circleRadius * 2, height: circleRadius * 2)
+
+                ForEach(0..<6, id: \.self) { i in
+                    Circle()
+                        .stroke(strokeColor.opacity(0.5), lineWidth: 1.2)
+                        .frame(width: circleRadius * 2, height: circleRadius * 2)
+                        .offset(x: circleRadius * CGFloat(cos(Double(i) * .pi / 3)),
+                                y: circleRadius * CGFloat(sin(Double(i) * .pi / 3)))
+                }
+            }
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(reduceMotion ? 0 : rotation))
+        }
+        .onChange(of: freeze) { _, isFrozen in
+            if isFrozen {
+                pauseStartDate = Date()
+            } else if let pauseStart = pauseStartDate {
+                accumulatedPause += Date().timeIntervalSince(pauseStart)
+                pauseStartDate = nil
             }
         }
-        .frame(width: size, height: size)
-        .rotationEffect(.degrees(rotation))
-        .onAppear {
-            // Honor System Settings → Accessibility → Display → Reduce
-            // Motion. Vestibular-sensitive users get a still seed-of-life
-            // mark — same shape, color, and brand vocabulary, just no
-            // rotation or glow pulse. Matches the accommodation already
-            // applied to the slash-menu transition in LiveNotesPaneView.
-            guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 18).repeatForever(autoreverses: false)) {
-                rotation = 360
-            }
-            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
-                glowBreathing = true
-            }
+    }
+
+    /// Triangle-wave eased between 0 and 1 over a full breathing cycle.
+    /// `0` collapses to the rest values (low opacity, 0.9 scale); `1` blooms
+    /// to the peak (higher opacity, 1.2 scale). Ease-in-out shape matches
+    /// the feel of SwiftUI's `easeInOut` curve.
+    private func breathFactor(for elapsed: TimeInterval) -> Double {
+        let cycle = breathingHalfPeriod * 2
+        let phase = elapsed.truncatingRemainder(dividingBy: cycle)
+        let t: Double
+        if phase < breathingHalfPeriod {
+            t = phase / breathingHalfPeriod
+        } else {
+            t = 1 - (phase - breathingHalfPeriod) / breathingHalfPeriod
         }
+        // Smoothstep: 3t² − 2t³ — ease-in-out.
+        return t * t * (3 - 2 * t)
     }
 }
 

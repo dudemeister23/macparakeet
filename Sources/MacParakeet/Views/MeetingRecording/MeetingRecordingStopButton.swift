@@ -112,6 +112,17 @@ struct StopRecordingButton: View {
 /// Same vertical footprint as `StopRecordingButton` so pause + stop sit side
 /// by side without reflowing the row. Single-click toggle (no countdown
 /// confirmation — pausing is recoverable, unlike stop).
+///
+/// Color semantic: hover lights up `warningAmber` for the glyph, ring tint,
+/// and shadow glow. Amber reads universally as "hold / paused" (traffic
+/// lights, broadcast indicators, voice-memo paused state) — distinct from
+/// the stop button's `errorRed` (destructive) and the recording orb's
+/// `successGreen` (alive). Idle uses `textSecondary` so pause sits one
+/// notch louder than the destructive stop's `textTertiary.opacity(0.6)`,
+/// reflecting that pause is the recoverable action of the pair. When
+/// already paused, the resume affordance bumps to `textPrimary.opacity(0.85)`
+/// so the "click to come back" cue is more prominent than the pause cue
+/// — paused is a held-breath state; resume is the exhale.
 struct PauseResumeButton: View {
     var isPaused: Bool
     var onToggle: () -> Void
@@ -120,27 +131,46 @@ struct PauseResumeButton: View {
 
     private static let trackHeight: CGFloat = 31
 
+    private var idleGlyphColor: Color {
+        // Resume affordance reads louder than pause affordance — once you've
+        // pressed pause, the next-step action should pull the eye back.
+        isPaused
+            ? DesignSystem.Colors.textPrimary.opacity(0.85)
+            : DesignSystem.Colors.textSecondary
+    }
+
     var body: some View {
         Button(action: onToggle) {
             Image(systemName: isPaused ? "play.fill" : "pause.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(
                     isHovered
-                        ? DesignSystem.Colors.textPrimary
-                        : DesignSystem.Colors.textTertiary
+                        ? DesignSystem.Colors.warningAmber
+                        : idleGlyphColor
                 )
                 .frame(width: 13, height: 13)
                 .padding(9)
                 .background(
                     Circle()
-                        .fill(isHovered ? DesignSystem.Colors.surfaceElevated : DesignSystem.Colors.surfaceElevated.opacity(0.6))
+                        .fill(isHovered
+                            ? DesignSystem.Colors.warningAmber.opacity(0.15)
+                            : DesignSystem.Colors.surfaceElevated.opacity(0.6)
+                        )
                         .overlay(
                             Circle()
                                 .stroke(
-                                    isHovered ? DesignSystem.Colors.border.opacity(0.7) : .clear,
+                                    isHovered
+                                        ? DesignSystem.Colors.warningAmber.opacity(0.3)
+                                        : .clear,
                                     lineWidth: 0.5
                                 )
                         )
+                )
+                .shadow(
+                    color: isHovered
+                        ? DesignSystem.Colors.warningAmber.opacity(0.25)
+                        : .clear,
+                    radius: 6
                 )
                 .scaleEffect(isHovered ? 1.08 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isHovered)
@@ -149,7 +179,11 @@ struct PauseResumeButton: View {
         .buttonStyle(.plain)
         .frame(height: Self.trackHeight)
         .accessibilityLabel(isPaused ? "Resume recording" : "Pause recording")
-        .help(isPaused ? "Resume recording" : "Pause recording")
+        .help(
+            isPaused
+                ? "Resume recording"
+                : "Pause recording — audio resumes when you click play"
+        )
         .onHover { hovering in
             isHovered = hovering
         }
