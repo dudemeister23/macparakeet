@@ -14,13 +14,10 @@ public struct MeetingAudioLevels: Sendable, Equatable {
 
 public enum CaptureMode: Sendable, Equatable {
     case full
-    /// Recording is active but capture is intentionally paused (issue #235).
-    /// Audio buffers continue to be captured by the OS but the meeting
-    /// service discards them — the audio file does not advance, the elapsed
-    /// timer freezes, and live transcription stops accumulating new lines.
-    /// On resume, the storage writer's PTS counter continues from where it
-    /// left off so the final `.m4a` is gap-free in playback (the user's
-    /// stated use case is re-transcribing the audio file with another model).
+    /// Recording is active but capture is intentionally paused. Buffers
+    /// from the OS streams are discarded by the service; the storage
+    /// writer's PTS counter is preserved so resumed audio appends gap-free
+    /// in playback.
     case paused
     case stopped
 }
@@ -103,17 +100,9 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     private let speechEngineSessionManager: (any SpeechEngineSessionManaging)?
 
     private var currentSession: Session?
-    /// True while the user has paused capture (issue #235). Buffers received
-    /// from `audioCaptureService` are discarded until resume. The storage
-    /// writer's PTS counter is untouched, so resumed audio appends gap-free.
+    /// Buffer-discard flag for pause/resume. Reset in `cleanupState`.
     private var paused = false
-    /// Wallclock timestamp when the current pause began. Combined with
-    /// `accumulatedPausedDuration` to produce a pause-aware elapsed timer.
-    /// `nil` when not paused.
     private var pausedAt: Date?
-    /// Sum of all completed pause intervals for the current session. Cleared
-    /// in `cleanupState`. Subtracted from wallclock-based `elapsedSeconds`
-    /// and `MeetingRecordingOutput.durationSeconds`.
     private var accumulatedPausedDuration: TimeInterval = 0
     /// In-flight notes text for the current session. Mutated by `updateNotes`
     /// on each VM debounce; read at finalize time and surfaced via
@@ -487,7 +476,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
 
         // Stop while paused: settle the in-flight pause interval into the
         // accumulated total so the persisted duration only reflects time
-        // actually recording (issue #235).
+        // actually recording.
         let now = Date()
         if let pausedAtSnapshot = pausedAt {
             accumulatedPausedDuration += now.timeIntervalSince(pausedAtSnapshot)
@@ -572,28 +561,34 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         guard currentSession != nil, !paused, !captureFailed else { return }
         paused = true
         pausedAt = Date()
-        // Zero levels so live UI (orb, pill rosette pulse, panel header dot)
-        // reads "no signal" the moment the user pauses, instead of decaying
-        // from the EMA over the next few hundred ms. Same reasoning as the
-        // `failCapture` path.
+        // Zero levels so live UI reads "no signal" the moment the user
+        // pauses, instead of decaying from the EMA over the next few
+        // hundred ms. Same reasoning as the `failCapture` path.
         latestLevels = MeetingAudioLevels()
         recentSystemRms = 0
         recentProcessedMicRms = 0
         latestSystemSignalAt = nil
-        // Clear any pre-pause partial state in the joiner / chunkers so the
-        // first chunk after resume isn't a frankenchunk that bridges minutes
-        // of real time. The audio file is unaffected — `MeetingAudioStorageWriter`
-        // is independent of the chunker, and its PTS counter is preserved so
-        // the resumed audio appends gap-free in playback (the user's stated
-        // use case is re-transcribing the file later — see issue #235).
-        await captureOrchestrator.reset()
+        // NOTE: Do NOT reset `captureOrchestrator` here. AudioChunker uses a
+        // monotonic `totalSamplesProcessed` counter to derive chunk
+        // timestamps, and `MeetingTranscriptAssembler.apply` dedupes new
+        // words against `lastCommittedEndMs[source]`. Resetting the chunker
+        // would zero its counter; post-resume chunks would emit at startMs
+        // near 0; the assembler would silently drop every post-resume word
+        // because `endMs <= cutoff`. The audio file is independent of the
+        // chunker (the storage writer's PTS counter is preserved either
+        // way), so a gap-free playback timeline is guaranteed without the
+        // reset. The cost of leaving the chunker alone is that the first
+        // chunk straddling the pause boundary may concatenate pre-pause
+        // and post-resume samples (an at-most-5s artifact in the LIVE
+        // transcript only — the post-stop final transcription re-runs the
+        // audio file end-to-end and is unaffected).
         AudioCaptureDiagnostics.append(
             "meeting_recording_paused session=\(currentSession?.id.uuidString ?? "nil")"
         )
     }
 
     public func resumeRecording() async {
-        guard let _ = currentSession, paused, !captureFailed else { return }
+        guard currentSession != nil, paused, !captureFailed else { return }
         if let pausedAt {
             accumulatedPausedDuration += Date().timeIntervalSince(pausedAt)
         }
@@ -656,14 +651,10 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         switch event {
         case .microphoneBuffer(let buffer, let time):
             guard !captureFailed else { return }
-            // Pause-aware: drop audio buffers while the user has paused
-            // capture (issue #235). The OS-level capture stays running so
-            // pause/resume is instant; we just don't write to the audio file
-            // or feed the live transcriber. The storage writer's PTS is
-            // preserved so the next post-resume buffer appends gap-free.
-            // Source-interrupted / error events still flow through so the
-            // pill polling / failure handling stays consistent if a mic is
-            // unplugged mid-pause.
+            // Drop buffers while paused — the OS streams stay subscribed
+            // (resume is instant) but the writer / chunker / level meters
+            // see nothing. `sourceInterrupted` and `.error` are NOT gated
+            // on `paused` so a mic unplug mid-pause still surfaces.
             guard !paused else { return }
             do {
                 recordCaptureMetrics(for: .microphone, time: time)

@@ -142,7 +142,7 @@ struct PauseResumeButton: View {
                                 )
                         )
                 )
-                .scaleEffect(isHovered ? 1.06 : 1.0)
+                .scaleEffect(isHovered ? 1.08 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isHovered)
                 .contentTransition(.symbolEffect(.replace))
         }

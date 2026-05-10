@@ -165,11 +165,13 @@ final class MeetingRecordingPillController {
 
         // Listening / Paused header — organic language matching the flower
         // metaphor; reflects the live state so the menu reads honestly when
-        // opened mid-pause (issue #235).
+        // opened mid-pause. Keeping the leaf symbol across both states
+        // preserves the brand vocabulary (`leaf` / `leaf.fill` for active /
+        // completing); a paused recording is still "the leaf, dormant".
         let isPaused = pillViewModel.isPaused
         let elapsed = pillViewModel.formattedElapsed
         let headerTitle = isPaused ? "Paused — \(elapsed)" : "Listening — \(elapsed)"
-        let headerSymbol = isPaused ? "pause.circle" : "leaf"
+        let headerSymbol = "leaf"
         let headerItem = NSMenuItem(title: headerTitle, action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
         if let headerImage = NSImage(systemSymbolName: headerSymbol, accessibilityDescription: nil) {

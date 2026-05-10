@@ -1371,6 +1371,103 @@ final class MeetingRecordingServiceTests: XCTestCase {
         let micLevel = await service.micLevel
         XCTAssertEqual(micLevel, 0, "Pause must zero levels and discard incoming mic buffers")
     }
+
+    func testCancelWhilePausedClearsAllPauseStateAndRecordingState() async throws {
+        let captureService = MockMeetingAudioCaptureService()
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: CountingMeetingSTTClient(),
+            lockFileStore: RecordingLockFileStore()
+        )
+
+        try await service.startRecording()
+        await service.pauseRecording()
+        let pausedBeforeCancel = await service.isPaused
+        XCTAssertTrue(pausedBeforeCancel)
+
+        await service.cancelRecording()
+
+        let isPaused = await service.isPaused
+        let isRecording = await service.isRecording
+        let captureMode = await service.captureMode
+        XCTAssertFalse(isPaused, "cancelRecording must clear paused via cleanupState")
+        XCTAssertFalse(isRecording)
+        XCTAssertEqual(captureMode, .stopped)
+    }
+
+    func testRapidPauseResumeStormSettlesInLastUserIntent() async throws {
+        // Codex test-coverage agent flagged this as missing. Alternating
+        // pause/resume rapidly should not double-count `accumulatedPausedDuration`
+        // (resumeRecording's `guard … paused` clause is the safety net),
+        // and the final state must match the last call.
+        let captureService = MockMeetingAudioCaptureService()
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: CountingMeetingSTTClient(),
+            lockFileStore: RecordingLockFileStore()
+        )
+
+        try await service.startRecording()
+        defer {
+            Task { await service.cancelRecording() }
+        }
+
+        // Ten alternating toggles, last is `resume` so we expect isPaused=false.
+        for _ in 0..<5 {
+            await service.pauseRecording()
+            await service.resumeRecording()
+        }
+
+        let isPaused = await service.isPaused
+        let captureMode = await service.captureMode
+        XCTAssertFalse(isPaused)
+        XCTAssertEqual(captureMode, .full)
+    }
+
+    func testLiveTranscriptDoesNotDieAfterPauseResume() async throws {
+        // Direct assembler test that defends the captureOrchestrator-reset
+        // bug fix (Codex audio P0 + my fresh-eye review). Before the fix,
+        // pauseRecording called captureOrchestrator.reset() which zeroed
+        // AudioChunker.totalSamplesProcessed; post-resume chunks emitted at
+        // startMs near 0; MeetingTranscriptAssembler.apply dedupe filter
+        // (`endMs > cutoff`) silently dropped every post-resume word.
+        //
+        // We simulate the assembler's own flow: pre-pause chunk @ 5s commits
+        // `lastCommittedEndMs = 5500`. After pause/resume, the chunker
+        // should NOT reset, so the next chunk emits at startMs=10s (not 0).
+        // Assembler must accept those words.
+        var assembler = MeetingTranscriptAssembler()
+
+        let prePauseChunk = AudioChunker.AudioChunk(samples: [], startMs: 5000, endMs: 10_000)
+        let prePauseResult = STTResult(
+            text: "before pause",
+            words: [
+                TimestampedWord(word: "before", startMs: 0, endMs: 200, confidence: 0.9),
+                TimestampedWord(word: "pause", startMs: 250, endMs: 500, confidence: 0.9),
+            ]
+        )
+        let prePauseUpdate = assembler.apply(result: prePauseResult, chunk: prePauseChunk, source: .microphone)
+        XCTAssertEqual(prePauseUpdate.words.count, 2)
+
+        // After fix: chunker NOT reset on pause, so post-resume chunks
+        // continue at higher startMs. Simulate post-resume chunk @ 10s.
+        let postResumeChunk = AudioChunker.AudioChunk(samples: [], startMs: 10_000, endMs: 15_000)
+        let postResumeResult = STTResult(
+            text: "after resume",
+            words: [
+                TimestampedWord(word: "after", startMs: 0, endMs: 200, confidence: 0.9),
+                TimestampedWord(word: "resume", startMs: 250, endMs: 500, confidence: 0.9),
+            ]
+        )
+        let postResumeUpdate = assembler.apply(result: postResumeResult, chunk: postResumeChunk, source: .microphone)
+        XCTAssertEqual(
+            postResumeUpdate.words.count,
+            4,
+            "Post-resume words must be retained — regression guard against captureOrchestrator.reset()"
+        )
+    }
 }
 
 private actor BlockingEventsMeetingAudioCaptureService: MeetingAudioCapturing {

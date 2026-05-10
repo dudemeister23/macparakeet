@@ -40,11 +40,8 @@ public final class MeetingRecordingPanelViewModel {
     public var elapsedSeconds: Int = 0
     public var micLevel: Float = 0
     public var systemLevel: Float = 0
-    /// Mirrors `MeetingRecordingService.isPaused` (issue #235). Toggled by
-    /// the flow coordinator's pill polling task. Drives the header status
-    /// label ("Recording" → "Paused"), the Pause/Resume button label, and
-    /// the audio-level orb (which hides while paused since both levels are
-    /// zeroed by the service).
+    /// Mirrors `MeetingRecordingService.isPaused`, set by the flow
+    /// coordinator's polling task.
     public var isPaused: Bool = false
     public var previewLines: [MeetingRecordingPreviewLine] = []
     public var isTranscriptionLagging: Bool = false

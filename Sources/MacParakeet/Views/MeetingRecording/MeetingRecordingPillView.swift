@@ -56,6 +56,7 @@ private struct CheckmarkShape: Shape {
 struct MeetingRecordingPillView: View {
     @Bindable var viewModel: MeetingRecordingPillViewModel
     var onTap: (() -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
     @State private var stemCollapsed = false
 
@@ -159,7 +160,7 @@ struct MeetingRecordingPillView: View {
         return VStack(spacing: 0) {
             ZStack {
                 MerkabaPillIcon(
-                    isAnimating: !isPaused,
+                    isAnimating: !isPaused && !reduceMotion,
                     audioLevel: isPaused ? 0 : max(viewModel.micLevel, viewModel.systemLevel)
                 )
                 .opacity(isPaused ? 0.45 : 1.0)

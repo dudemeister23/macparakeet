@@ -5,9 +5,8 @@ public final class MeetingRecordingPillViewModel {
     public enum PillState: Equatable {
         case idle
         case recording
-        /// User has paused capture (issue #235). Distinct from `.recording`
-        /// so the pill rosette stops animating, the menu/tile show "Resume",
-        /// and audio levels render as silent. Stop / discard remain available.
+        /// Capture intentionally paused. The pill rosette dims and freezes;
+        /// stop / discard remain available.
         case paused
         case completing
         case transcribing
@@ -20,9 +19,6 @@ public final class MeetingRecordingPillViewModel {
     public var micLevel: Float = 0
     public var systemLevel: Float = 0
     public var onStop: (() -> Void)?
-    /// Toggles between pause and resume based on the current `state`. Wired
-    /// by `MeetingRecordingFlowCoordinator`; the pill, panel, and Transcribe
-    /// tile all share this VM so they all drive the same toggle.
     public var onPauseToggle: (() -> Void)?
     public var onCompletionAnimationFinished: (() -> Void)?
 
@@ -34,9 +30,6 @@ public final class MeetingRecordingPillViewModel {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    /// True while the pill is in a state where the user can toggle pause /
-    /// resume. Used by the floating pill, the meeting panel header, and the
-    /// Transcribe-tab tile to gate the Pause/Resume button.
     public var canTogglePause: Bool {
         switch state {
         case .recording, .paused:

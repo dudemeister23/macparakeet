@@ -68,11 +68,10 @@ struct MeetingRecordingTile: View {
     @Bindable var viewModel: MeetingRecordingPillViewModel
     var permissionState: PermissionState = .ready(capturesMicrophone: true)
     var onTap: () -> Void
-    /// Optional pause/resume handler (issue #235). When `nil` the tile
-    /// renders no pause control — keeps existing call sites that don't
-    /// support pause working unchanged. The Transcribe-tab call site wires
-    /// this through to `MeetingRecordingFlowCoordinator.togglePause()`.
-    var onPauseToggle: (() -> Void)? = nil
+    /// Optional pause/resume handler. When `nil` the tile renders no pause
+    /// control — keeps existing call sites unchanged.
+    var onPauseToggle: (() -> Void)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         tileSurface
@@ -163,12 +162,28 @@ struct MeetingRecordingTile: View {
     private var recordingContent: some View {
         let isPaused = viewModel.isPaused
         return HStack(spacing: DesignSystem.Spacing.md) {
-            SacredFlowerTile(
-                isAnimating: !isPaused,
-                audioLevel: isPaused ? 0 : max(viewModel.micLevel, viewModel.systemLevel)
-            )
-            .opacity(isPaused ? 0.55 : 1.0)
-            .animation(.easeInOut(duration: 0.25), value: isPaused)
+            ZStack {
+                SacredFlowerTile(
+                    isAnimating: !isPaused && !reduceMotion,
+                    audioLevel: isPaused ? 0 : max(viewModel.micLevel, viewModel.systemLevel)
+                )
+                .opacity(isPaused ? 0.45 : 1.0)
+                .animation(.easeInOut(duration: 0.25), value: isPaused)
+
+                if isPaused {
+                    // Match the pill's pause-bars overlay so the two
+                    // surfaces communicate the paused state at a glance.
+                    HStack(spacing: 4) {
+                        Capsule()
+                            .fill(DesignSystem.Colors.textSecondary)
+                            .frame(width: 4, height: 14)
+                        Capsule()
+                            .fill(DesignSystem.Colors.textSecondary)
+                            .frame(width: 4, height: 14)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

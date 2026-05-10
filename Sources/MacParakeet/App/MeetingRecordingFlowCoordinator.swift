@@ -57,6 +57,7 @@ final class MeetingRecordingFlowCoordinator {
     private var panelController: MeetingRecordingPanelController?
     private var panelViewModel: MeetingRecordingPanelViewModel?
     private var actionTask: Task<Void, Never>?
+    private var pauseToggleTask: Task<Void, Never>?
     private var autoDismissTask: Task<Void, Never>?
     private var pillPollingTask: Task<Void, Never>?
     private var transcriptObservationTask: Task<Void, Never>?
@@ -131,29 +132,32 @@ final class MeetingRecordingFlowCoordinator {
     /// doesn't suppress the *next* meeting's auto-stop.
     var onAutoStartFailed: (() -> Void)?
 
-    /// Pause / resume the in-flight recording (issue #235). Routed through
-    /// the flow coordinator (not directly from the UI to the service) so the
-    /// pillViewModel state flips immediately — the polling task reconciles
-    /// from the service the next tick, but a 150ms wait would feel laggy on
-    /// a button press. No-op when the pill VM is not in a state where
-    /// pause/resume is meaningful.
+    /// Pause / resume the in-flight recording. The state flip happens AFTER
+    /// the service confirms — an optimistic flip before the await would race
+    /// with the 150ms polling reconciler (which reads `captureMode` from the
+    /// actor and could see `.full` while the spawned pause Task is still
+    /// queued, then flip the pill back to `.recording`).
+    ///
+    /// Stale toggles are cancelled so a rapid pause/resume/pause sequence
+    /// settles in the latest user intent rather than the order Tasks happen
+    /// to be scheduled.
     func togglePause() {
         guard pillViewModel.canTogglePause else { return }
         let wantPause = !pillViewModel.isPaused
-        // Optimistic UI update so the button label flips on click; the
-        // polling task reconciles next tick if the service rejects (e.g.,
-        // capture failed mid-tap).
-        pillViewModel.state = wantPause ? .paused : .recording
-        panelViewModel?.isPaused = wantPause
-        // Don't reuse `actionTask` — that's owned by start / stop / cancel.
-        // Pause/resume are fast, idempotent, and shouldn't be cancellable
-        // by an in-flight stop.
-        Task { @MainActor [meetingRecordingService] in
+        pauseToggleTask?.cancel()
+        pauseToggleTask = Task { @MainActor [meetingRecordingService, weak self] in
             if wantPause {
                 await meetingRecordingService.pauseRecording()
             } else {
                 await meetingRecordingService.resumeRecording()
             }
+            guard !Task.isCancelled, let self else { return }
+            // Only flip if the pill is still in a togglable state. A stop or
+            // capture-failure that landed during the await may have moved
+            // the pill to `.transcribing` / `.error`; we must not stomp it.
+            guard self.pillViewModel.canTogglePause else { return }
+            self.pillViewModel.state = wantPause ? .paused : .recording
+            self.panelViewModel?.isPaused = wantPause
         }
     }
 
@@ -591,6 +595,8 @@ final class MeetingRecordingFlowCoordinator {
             stopPillPolling()
             stopTranscriptObservation()
             stopSpeechWarmUpObservation()
+            pauseToggleTask?.cancel()
+            pauseToggleTask = nil
             pillController?.hide()
             pillController = nil
             // Pill view model is long-lived (also drives the Transcribe-tab
