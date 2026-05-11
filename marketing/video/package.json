@@ -12,6 +12,8 @@
     "render:hero-4k": "remotion render src/index.ts HeroLoop30 out/hero-loop-30-4k.mp4 --scale=2",
     "render:demo": "remotion render src/index.ts Demo60 out/demo-60.mp4",
     "render:demo-4k": "remotion render src/index.ts Demo60 out/demo-60-4k.mp4 --scale=2",
+    "render:brand": "remotion render src/index.ts BrandShow30 out/brand-show-30.mp4",
+    "render:brand-4k": "remotion render src/index.ts BrandShow30 out/brand-show-30-4k.mp4 --scale=2",
     "voice": "tsx scripts/generate-voice.ts",
     "voice:hq": "tsx scripts/dump-script.ts && uv run python scripts/generate-voice-hq.py",
     "audition": "tsx scripts/audition-voices.ts",
