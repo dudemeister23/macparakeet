@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, staticFile, Video } from 'remotion';
+import { AbsoluteFill, OffthreadVideo, staticFile } from 'remotion';
 import { palette, typography } from '../theme/tokens';
 
 interface ScreencastSlotProps {
@@ -9,42 +9,40 @@ interface ScreencastSlotProps {
   label: string;
   /** Short description shown under the label. */
   hint?: string;
-  /** Force placeholder even if the file exists. Useful while iterating. */
-  forcePlaceholder?: boolean;
+  /**
+   * Once you've dropped the actual screencast into `public/screencasts/`,
+   * flip this to `true` to play it instead of the placeholder.
+   */
+  ready?: boolean;
 }
 
 /**
- * Slot for a screencast clip captured from MacParakeet itself.
+ * Slot for a screencast clip captured from MacParakeet.
  *
- * Renders the actual video when the file is present in
- * `public/screencasts/`. Falls back to a branded placeholder card while
- * the screencast hasn't been captured yet — so Demo60 / HeroLoop30 stay
- * renderable end-to-end even before raw clips exist.
+ * Renders a branded placeholder by default. When you've recorded the
+ * actual screencast (via Screen Studio) and dropped it into
+ * `public/screencasts/`, pass `ready` and the slot upgrades to the
+ * real <OffthreadVideo>.
  *
- * The "file exists" check happens at render time via a try/catch around
- * <Video>. If staticFile resolves to a missing path, Remotion throws
- * during render — but in Studio preview we want a graceful card, so this
- * component intentionally renders the placeholder by default and only
- * upgrades to <Video> when the caller is confident the file is in place.
+ * Two-state design (placeholder vs ready) is deliberate: Remotion's
+ * media components throw at playback time on missing files — they
+ * cannot be caught by React error boundaries — so the safest pattern
+ * is to gate them explicitly rather than try/catch.
  */
 export const ScreencastSlot: React.FC<ScreencastSlotProps> = ({
   src,
   label,
   hint,
-  forcePlaceholder = false,
+  ready = false,
 }) => {
-  if (forcePlaceholder) {
+  if (!ready) {
     return <Placeholder label={label} hint={hint} />;
   }
 
-  // <Video> errors at render time if the file doesn't exist. The boundary
-  // below catches that and shows the placeholder instead, so Demo60 still
-  // renders cleanly before screencasts are captured.
-  return (
-    <ErrorBoundary fallback={<Placeholder label={label} hint={hint} />}>
-      <Video src={staticFile(`screencasts/${src}`)} />
-    </ErrorBoundary>
-  );
+  // OffthreadVideo is preferred for renders — runs in a worker thread,
+  // doesn't block the main compositor. Drops back to <Video> in studio
+  // preview automatically.
+  return <OffthreadVideo src={staticFile(`screencasts/${src}`)} />;
 };
 
 const Placeholder: React.FC<{ label: string; hint?: string }> = ({
@@ -113,23 +111,3 @@ const Placeholder: React.FC<{ label: string; hint?: string }> = ({
     </AbsoluteFill>
   );
 };
-
-interface ErrorBoundaryProps {
-  fallback: React.ReactNode;
-  children: React.ReactNode;
-}
-
-class ErrorBoundary extends React.Component<
-  ErrorBoundaryProps,
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-
-  static getDerivedStateFromError(): { hasError: boolean } {
-    return { hasError: true };
-  }
-
-  render(): React.ReactNode {
-    return this.state.hasError ? this.props.fallback : this.props.children;
-  }
-}
