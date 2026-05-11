@@ -36,6 +36,7 @@ public final class HotkeyGestureController {
     private let mode: Mode
     private let stateMachine: FnKeyStateMachine
     private var holdOnlyState: HoldOnlyState = .idle
+    private var suppressedUntilReset = false
 
     public init(
         mode: Mode = .doubleTapAndHold,
@@ -50,6 +51,8 @@ public final class HotkeyGestureController {
     }
 
     public func triggerPressed(timestampMs: UInt64) -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         if mode == .holdOnly {
             switch holdOnlyState {
             case .idle:
@@ -73,6 +76,8 @@ public final class HotkeyGestureController {
     }
 
     public func triggerReleased(timestampMs: UInt64) -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         var results: [Output] = [.cancelStartupDebounce, .cancelHoldWindow]
         if mode == .holdOnly {
             switch holdOnlyState {
@@ -98,6 +103,8 @@ public final class HotkeyGestureController {
     }
 
     public func nonBareTriggerReleased() -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         var results: [Output] = [.cancelStartupDebounce, .cancelHoldWindow]
 
         if mode == .holdOnly {
@@ -131,6 +138,8 @@ public final class HotkeyGestureController {
     }
 
     public func interrupted() -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         if mode == .holdOnly {
             return nonBareTriggerReleased()
         }
@@ -150,6 +159,8 @@ public final class HotkeyGestureController {
     }
 
     public func escapePressed() -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         if mode == .holdOnly {
             var results: [Output] = [.cancelStartupDebounce, .cancelHoldWindow]
             switch holdOnlyState {
@@ -184,6 +195,8 @@ public final class HotkeyGestureController {
     }
 
     public func startupDebounceElapsed() -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         if mode == .doubleTapOnly { return [] }
         if mode == .holdOnly {
             guard holdOnlyState == .pressed else { return [] }
@@ -194,15 +207,24 @@ public final class HotkeyGestureController {
     }
 
     public func holdWindowElapsed() -> [Output] {
+        guard !suppressedUntilReset else { return [] }
+
         if mode == .doubleTapOnly { return [] }
         if mode == .holdOnly { return [] }
         return outputs(for: stateMachine.holdTimerFired())
+    }
+
+    public func suppressUntilReset() {
+        suppressedUntilReset = true
+        holdOnlyState = .idle
+        stateMachine.reset()
     }
 
     public func notifyCancelledByUI() {
         // The dictation flow resets all managers when the cancel window exits.
         // Until then, every dictation trigger stays blocked, even if it did not
         // start the recording that was cancelled.
+        suppressedUntilReset = false
         if mode == .holdOnly {
             holdOnlyState = .cancelWindow
             return
@@ -211,6 +233,7 @@ public final class HotkeyGestureController {
     }
 
     public func resumeRecording(mode: FnKeyStateMachine.RecordingMode) {
+        suppressedUntilReset = false
         if self.mode == .holdOnly {
             holdOnlyState = mode == .holdToTalk ? .active : .idle
             return
@@ -219,6 +242,7 @@ public final class HotkeyGestureController {
     }
 
     public func reset() {
+        suppressedUntilReset = false
         holdOnlyState = .idle
         stateMachine.reset()
     }

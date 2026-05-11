@@ -664,6 +664,13 @@ public final class HotkeyManager {
         activeRecordingMode = nil
     }
 
+    public func suppressUntilReset() {
+        cancelStartupTimer()
+        cancelHoldTimer()
+        gestureController.suppressUntilReset()
+        activeRecordingMode = nil
+    }
+
     /// Resume recording mode after undo, so hotkey stops the recording correctly.
     public func resumeRecording(mode: FnKeyStateMachine.RecordingMode) {
         gestureController.resumeRecording(mode: mode)

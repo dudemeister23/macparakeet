@@ -187,10 +187,14 @@ final class AppHotkeyCoordinator {
         guard !trigger.isDisabled else { return nil }
 
         let manager = HotkeyManager(trigger: trigger, gestureMode: gestureMode)
-        manager.onStartRecording = { [weak self] mode in
+        manager.onStartRecording = { [weak self, weak manager] mode in
+            if let manager {
+                self?.suppressOtherDictationHotkeys(activeManager: manager)
+            }
             self?.onStartDictation(mode)
         }
         manager.onStopRecording = { [weak self] in
+            self?.resetDictationHotkeyGestures()
             self?.onStopDictation()
         }
         manager.onCancelRecording = { [weak self] in
@@ -213,6 +217,16 @@ final class AppHotkeyCoordinator {
             onHotkeyUnavailable()
             return nil
         }
+    }
+
+    private func suppressOtherDictationHotkeys(activeManager: HotkeyManager) {
+        for manager in dictationHotkeyManagers where manager !== activeManager {
+            manager.suppressUntilReset()
+        }
+    }
+
+    private func resetDictationHotkeyGestures() {
+        dictationHotkeyManagers.forEach { $0.resetToIdle() }
     }
 
     func setupMeetingHotkey() {

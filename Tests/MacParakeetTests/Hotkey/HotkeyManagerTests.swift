@@ -73,6 +73,38 @@ final class HotkeyManagerTests: XCTestCase {
         )
     }
 
+    func testSuppressedHoldOnlyManagerDoesNotStartUntilReset() {
+        let manager = HotkeyManager(trigger: .fn, gestureMode: .holdOnly)
+
+        manager.suppressUntilReset()
+
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskSecondaryFn],
+                timestampMs: 1_000
+            ),
+            []
+        )
+        XCTAssertEqual(manager.startupDebounceElapsedForTesting(), [])
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [],
+                timestampMs: 1_100
+            ),
+            []
+        )
+
+        manager.resetToIdle(flags: [])
+
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskSecondaryFn],
+                timestampMs: 1_200
+            ),
+            [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
+        )
+    }
+
     func testDoubleTapOnlyGestureModeWorksForKeyCodeTriggers() {
         let trigger = HotkeyTrigger.fromKeyCode(119)
         let manager = HotkeyManager(trigger: trigger, gestureMode: .doubleTapOnly)

@@ -306,4 +306,38 @@ final class HotkeyGestureControllerTests: XCTestCase {
             [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
         )
     }
+
+    func testSuppressedControllerIgnoresGesturesUntilReset() {
+        let controller = HotkeyGestureController(mode: .holdOnly)
+
+        controller.suppressUntilReset()
+
+        XCTAssertEqual(controller.triggerPressed(timestampMs: 1_000), [])
+        XCTAssertEqual(controller.startupDebounceElapsed(), [])
+        XCTAssertEqual(controller.escapePressed(), [])
+        XCTAssertEqual(controller.triggerReleased(timestampMs: 1_200), [])
+
+        controller.reset()
+
+        XCTAssertEqual(
+            controller.triggerPressed(timestampMs: 1_300),
+            [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
+        )
+    }
+
+    func testCancelWindowNotificationOverridesSuppression() {
+        let controller = HotkeyGestureController(mode: .holdOnly)
+
+        controller.suppressUntilReset()
+        controller.notifyCancelledByUI()
+
+        XCTAssertEqual(
+            controller.escapePressed(),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+                .cancelRecording,
+            ]
+        )
+    }
 }
