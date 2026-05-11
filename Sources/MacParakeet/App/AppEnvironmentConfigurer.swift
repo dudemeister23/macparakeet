@@ -27,6 +27,7 @@ final class AppEnvironmentConfigurer {
         let onHotkeyUnavailable: () -> Void
         let onHotkeyConflict: (HotkeyTrigger, [HotkeyTrigger]) -> Void
         let onRecoverPendingMeetingRecordings: () -> Void
+        let isHotkeyRecordingActive: () -> Bool
     }
 
     private let transcriptionViewModel: TranscriptionViewModel
@@ -277,13 +278,16 @@ final class AppEnvironmentConfigurer {
             },
             onAnyHotkeyEnabled: callbacks.onHotkeyBecameAvailable,
             onHotkeyUnavailable: callbacks.onHotkeyUnavailable,
-            onHotkeyConflict: callbacks.onHotkeyConflict
+            onHotkeyConflict: callbacks.onHotkeyConflict,
+            dictationRecordingModeProvider: {
+                coordinatorRefs.dictation?.hotkeyRecordingMode
+            }
         )
 
-        hotkeyCoordinator.setupDictationHotkeys()
-        hotkeyCoordinator.setupMeetingHotkey()
-        hotkeyCoordinator.setupFileTranscriptionHotkey()
-        hotkeyCoordinator.setupYouTubeTranscriptionHotkey()
+        if callbacks.isHotkeyRecordingActive() {
+            hotkeyCoordinator.suspend()
+        }
+        hotkeyCoordinator.setupAllHotkeys()
         dictationCoordinator.showIdlePill()
 
         // Calendar auto-start (ADR-017 Phases 1 + 2 — reminders +

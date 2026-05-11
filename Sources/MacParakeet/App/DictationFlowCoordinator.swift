@@ -74,6 +74,17 @@ final class DictationFlowCoordinator {
         Self.isCapturingAudio(for: stateMachine.state)
     }
 
+    /// Mode that an active dictation hotkey manager must preserve if global
+    /// taps are rebuilt while dictation is starting or recording.
+    var hotkeyRecordingMode: FnKeyStateMachine.RecordingMode? {
+        switch stateMachine.state {
+        case .checkingEntitlements(let mode), .startingService(let mode), .recording(let mode):
+            return mode
+        case .idle, .ready, .pendingStop, .processing, .cancelCountdown, .finishing:
+            return nil
+        }
+    }
+
     static func menuBarPreference(for state: DictationFlowState) -> BreathWaveIcon.MenuBarState? {
         switch state {
         case .startingService, .recording, .pendingStop:

@@ -18,6 +18,7 @@ final class AppHotkeyCoordinator {
     private let onAnyHotkeyEnabled: () -> Void
     private let onHotkeyUnavailable: () -> Void
     private let onHotkeyConflict: (HotkeyTrigger, [HotkeyTrigger]) -> Void
+    private let dictationRecordingModeProvider: () -> FnKeyStateMachine.RecordingMode?
 
     private var dictationHotkeyManagers: [HotkeyManager] = []
     private var meetingHotkeyManager: GlobalShortcutManager?
@@ -44,7 +45,8 @@ final class AppHotkeyCoordinator {
         onDictationHotkeyManagersChanged: @escaping ([HotkeyManager]) -> Void,
         onAnyHotkeyEnabled: @escaping () -> Void,
         onHotkeyUnavailable: @escaping () -> Void,
-        onHotkeyConflict: @escaping (HotkeyTrigger, [HotkeyTrigger]) -> Void
+        onHotkeyConflict: @escaping (HotkeyTrigger, [HotkeyTrigger]) -> Void,
+        dictationRecordingModeProvider: @escaping () -> FnKeyStateMachine.RecordingMode? = { nil }
     ) {
         self.settingsViewModel = settingsViewModel
         self.onStartDictation = onStartDictation
@@ -60,6 +62,7 @@ final class AppHotkeyCoordinator {
         self.onAnyHotkeyEnabled = onAnyHotkeyEnabled
         self.onHotkeyUnavailable = onHotkeyUnavailable
         self.onHotkeyConflict = onHotkeyConflict
+        self.dictationRecordingModeProvider = dictationRecordingModeProvider
     }
 
     var hotkeyMenuTitle: String {
@@ -170,10 +173,13 @@ final class AppHotkeyCoordinator {
             onHotkeyConflict(conflict.trigger, conflict.conflicts)
         }
 
+        let activeRecordingMode = dictationRecordingModeProvider()
         let managers = plan.specs.compactMap { spec in
             startDictationHotkey(
                 trigger: spec.trigger,
-                gestureMode: spec.gestureMode
+                gestureMode: spec.gestureMode,
+                resumeMode: Self.resumeMode(activeRecordingMode, for: spec.gestureMode),
+                suppressUntilReset: Self.shouldSuppressPeer(activeRecordingMode, for: spec.gestureMode)
             )
         }
         dictationHotkeyManagers = managers
@@ -188,7 +194,9 @@ final class AppHotkeyCoordinator {
 
     private func startDictationHotkey(
         trigger: HotkeyTrigger,
-        gestureMode: HotkeyGestureController.Mode
+        gestureMode: HotkeyGestureController.Mode,
+        resumeMode: FnKeyStateMachine.RecordingMode? = nil,
+        suppressUntilReset: Bool = false
     ) -> HotkeyManager? {
         guard !trigger.isDisabled else { return nil }
 
@@ -215,8 +223,14 @@ final class AppHotkeyCoordinator {
         manager.onEscapeWhileIdle = { [weak self] in
             self?.onEscapeWhileIdle()
         }
+        if let resumeMode {
+            manager.resumeRecording(mode: resumeMode)
+        }
 
         if manager.start() {
+            if suppressUntilReset {
+                manager.suppressUntilReset()
+            }
             onAnyHotkeyEnabled()
             return manager
         } else {
@@ -325,6 +339,31 @@ final class AppHotkeyCoordinator {
         return unique
     }
 
+    static func resumeMode(
+        _ activeMode: FnKeyStateMachine.RecordingMode?,
+        for gestureMode: HotkeyGestureController.Mode
+    ) -> FnKeyStateMachine.RecordingMode? {
+        guard let activeMode else { return nil }
+        switch (activeMode, gestureMode) {
+        case (.persistent, .doubleTapOnly),
+             (.persistent, .doubleTapAndHold),
+             (.holdToTalk, .holdOnly),
+             (.holdToTalk, .doubleTapAndHold):
+            return activeMode
+        case (.persistent, .holdOnly),
+             (.holdToTalk, .doubleTapOnly):
+            return nil
+        }
+    }
+
+    static func shouldSuppressPeer(
+        _ activeMode: FnKeyStateMachine.RecordingMode?,
+        for gestureMode: HotkeyGestureController.Mode
+    ) -> Bool {
+        guard activeMode != nil else { return false }
+        return resumeMode(activeMode, for: gestureMode) == nil
+    }
+
     func refreshAllHotkeys() {
         // While a recorder is active, the SettingsViewModel observer can race
         // us — skip and rely on `resume()` to rebuild from current settings.
@@ -380,7 +419,8 @@ final class AppHotkeyCoordinator {
         }
     }
 
-    private func setupAllHotkeys() {
+    func setupAllHotkeys() {
+        guard suspendCount == 0 else { return }
         setupDictationHotkeys()
         setupMeetingHotkey()
         setupFileTranscriptionHotkey()

@@ -236,4 +236,56 @@ final class AppHotkeyCoordinatorTests: XCTestCase {
         coordinator.resume()
         XCTAssertEqual(conflictReports, 1, "resume() must rebuild taps from current settings")
     }
+
+    func testSetupAllHotkeysIsDeferredWhileSuspended() {
+        let viewModel = makeViewModel()
+        let conflictingTrigger = HotkeyTrigger.modifierChord(modifiers: ["command", "option"])
+        viewModel.hotkeyTrigger = .disabled
+        viewModel.pushToTalkHotkeyTrigger = .disabled
+        viewModel.meetingHotkeyTrigger = .disabled
+        viewModel.fileTranscriptionHotkeyTrigger = conflictingTrigger
+        viewModel.youtubeTranscriptionHotkeyTrigger = conflictingTrigger
+        var conflictReports = 0
+        let coordinator = makeCoordinator(
+            settingsViewModel: viewModel,
+            onHotkeyConflict: { _, _ in conflictReports += 1 }
+        )
+
+        coordinator.suspend()
+        coordinator.setupAllHotkeys()
+        XCTAssertEqual(conflictReports, 0)
+
+        coordinator.resume()
+        XCTAssertEqual(conflictReports, 2)
+    }
+
+    func testResumeModeMatchesActiveDictationRole() {
+        XCTAssertEqual(
+            AppHotkeyCoordinator.resumeMode(.persistent, for: .doubleTapOnly),
+            .persistent
+        )
+        XCTAssertFalse(AppHotkeyCoordinator.shouldSuppressPeer(.persistent, for: .doubleTapOnly))
+        XCTAssertEqual(
+            AppHotkeyCoordinator.resumeMode(.persistent, for: .doubleTapAndHold),
+            .persistent
+        )
+        XCTAssertFalse(AppHotkeyCoordinator.shouldSuppressPeer(.persistent, for: .doubleTapAndHold))
+        XCTAssertNil(AppHotkeyCoordinator.resumeMode(.persistent, for: .holdOnly))
+        XCTAssertTrue(AppHotkeyCoordinator.shouldSuppressPeer(.persistent, for: .holdOnly))
+
+        XCTAssertEqual(
+            AppHotkeyCoordinator.resumeMode(.holdToTalk, for: .holdOnly),
+            .holdToTalk
+        )
+        XCTAssertFalse(AppHotkeyCoordinator.shouldSuppressPeer(.holdToTalk, for: .holdOnly))
+        XCTAssertEqual(
+            AppHotkeyCoordinator.resumeMode(.holdToTalk, for: .doubleTapAndHold),
+            .holdToTalk
+        )
+        XCTAssertFalse(AppHotkeyCoordinator.shouldSuppressPeer(.holdToTalk, for: .doubleTapAndHold))
+        XCTAssertNil(AppHotkeyCoordinator.resumeMode(.holdToTalk, for: .doubleTapOnly))
+        XCTAssertTrue(AppHotkeyCoordinator.shouldSuppressPeer(.holdToTalk, for: .doubleTapOnly))
+        XCTAssertNil(AppHotkeyCoordinator.resumeMode(nil, for: .doubleTapAndHold))
+        XCTAssertFalse(AppHotkeyCoordinator.shouldSuppressPeer(nil, for: .doubleTapAndHold))
+    }
 }
