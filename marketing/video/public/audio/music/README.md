@@ -4,6 +4,12 @@ The brand film picks up audio from this directory at render time. The
 files are **not tracked** (gitignored) — they come from royalty-free
 libraries and are sourced once per project.
 
+> **Current status:** procedural placeholder tracks have been synthesized
+> via ffmpeg sines + envelopes. They're brand-tonal (A-minor pad, 120 BPM
+> sparkle pulse, soft reverb) and prove the audio pipeline works end-to-end,
+> but they're *not* premium-produced. Replace with sourced or AI-generated
+> tracks when you want to ship for real. See "Regenerate placeholder" below.
+
 ## Required files
 
 | File | Used by | What it is | Length |
@@ -98,3 +104,64 @@ For the sting, target 2–3 s with a long natural decay tail:
 ```sh
 ffmpeg -i raw-chime.mp3 -t 3 -af "afade=t=out:st=2.0:d=1.0" -c:a pcm_s16le logo-sting.wav
 ```
+
+## Regenerate the procedural placeholder
+
+If you've deleted the placeholder tracks and want them back without
+sourcing a new track, the synthesis is reproducible:
+
+```sh
+# Bass layer — A2 (110Hz), present throughout
+ffmpeg -y -f lavfi -i "sine=frequency=110:duration=30:sample_rate=44100" \
+  -af "volume=0.18,afade=t=in:st=0:d=1.5,afade=t=out:st=27:d=3" \
+  /tmp/mp-bass.wav
+
+# Mid chord — A minor (A3+C4+E4), enters at 2s, exits at 23s
+ffmpeg -y \
+  -f lavfi -i "sine=frequency=220:duration=30:sample_rate=44100" \
+  -f lavfi -i "sine=frequency=261.63:duration=30:sample_rate=44100" \
+  -f lavfi -i "sine=frequency=329.63:duration=30:sample_rate=44100" \
+  -filter_complex "[0:a][1:a][2:a]amix=inputs=3,volume=0.22,afade=t=in:st=2:d=1.5,afade=t=out:st=23:d=2.5" \
+  /tmp/mp-chord.wav
+
+# Sparkle — E5 with 2Hz tremolo (= 120 BPM pulse), 4-20s
+ffmpeg -y -f lavfi -i "sine=frequency=659.25:duration=30:sample_rate=44100" \
+  -af "tremolo=f=2:d=0.5,volume=0.06,afade=t=in:st=4:d=2.5,afade=t=out:st=19:d=2" \
+  /tmp/mp-sparkle.wav
+
+# Mix with subtle echo
+ffmpeg -y \
+  -i /tmp/mp-bass.wav -i /tmp/mp-chord.wav -i /tmp/mp-sparkle.wav \
+  -filter_complex "[0:a][1:a][2:a]amix=inputs=3:duration=longest:normalize=0,aecho=0.5:0.5:80:0.3" \
+  -ar 44100 -ac 2 public/audio/music/brand-track.wav
+
+# Logo sting — A major chord (440/554.37/659.25) with 2s reverb tail
+ffmpeg -y \
+  -f lavfi -i "sine=frequency=440:duration=3.5:sample_rate=44100" \
+  -f lavfi -i "sine=frequency=554.37:duration=3.5:sample_rate=44100" \
+  -f lavfi -i "sine=frequency=659.25:duration=3.5:sample_rate=44100" \
+  -filter_complex "[0:a][1:a][2:a]amix=inputs=3,volume=0.32,afade=t=in:st=0:d=0.08,afade=t=out:st=1.2:d=2.0,aecho=0.6:0.5:600:0.4" \
+  -ar 44100 -ac 2 public/audio/music/logo-sting.wav
+
+# Portrait 15s edit (trim + refade)
+ffmpeg -y -i public/audio/music/brand-track.wav -t 15 \
+  -af "afade=t=in:st=0:d=1,afade=t=out:st=12:d=3" \
+  -ar 44100 -ac 2 public/audio/music/brand-track-15s.wav
+```
+
+## Honest assessment of the placeholder
+
+What it does well:
+- ✓ Brand-tonal (calm, no vocals, no theatrics)
+- ✓ Has tempo (120 BPM pulse via sparkle tremolo)
+- ✓ Has arc (bass-only intro → chord enters → sparkle pulses → resolution)
+- ✓ Loops cleanly if needed
+- ✓ Original (no IP, no attribution required)
+
+What it doesn't do:
+- ✗ Sound expensive. Pure sines are sterile compared to real synth patches.
+- ✗ Have real drums / percussion. The "beat" is a tremolo, not a kick.
+- ✗ Feel "indie electronic" the way Tycho / Bonobo / Nils Frahm would.
+
+For a launch with budget: replace with a sourced track. For a quick
+internal preview or a "soft launch" placeholder: this works.
