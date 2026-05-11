@@ -92,7 +92,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 - `config get|set|list` now covers the shared app/CLI transcription defaults
   agents need for deterministic setup: `processing-mode`, `speech-engine`,
   `whisper-language`, `speaker-detection`, `save-transcription-audio`, and
-  `youtube-audio-quality`.
+  `youtube-audio-quality`. Config keys accept underscore aliases on input and
+  JSON output uses the canonical hyphenated key names.
 
 ## [2.1.0] -- 2026-05-10
 

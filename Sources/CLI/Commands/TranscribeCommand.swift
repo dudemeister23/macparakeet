@@ -63,7 +63,7 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(help: "Processing mode: raw, clean, app-default.")
     var mode: TranscribeMode = .appDefault
 
-    @Option(help: "Speech engine: app-default, parakeet, whisper.")
+    @Option(help: "Speech engine: app-default, parakeet, whisper. Default: parakeet; app-default follows the saved GUI preference.")
     var engine: TranscribeSpeechEngine = .parakeet
 
     @Option(help: "Language hint for Whisper, as a Whisper code such as ko or en. Parakeet ignores this flag.")
@@ -78,10 +78,10 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(help: "Path to SQLite database file (defaults to the app database).")
     var database: String?
 
-    @Option(name: .long, help: "Speaker detection: app-default, on, off.")
+    @Option(name: .long, help: "Speaker detection: app-default, on, off. Default: on; app-default follows the saved GUI preference.")
     var speakerDetection: SpeakerDetectionOption = .on
 
-    @Flag(help: "Deprecated alias for --speaker-detection off.")
+    @Flag(help: "Compatibility alias for --speaker-detection off.")
     var noDiarize: Bool = false
 
     @Flag(help: "Run retained entitlement checks before transcribing. Current free builds remain unlocked.")
@@ -182,7 +182,7 @@ struct TranscribeCommand: AsyncParsableCommand {
                 let speechEngine = Self.resolveSpeechEngine(
                     self.engine,
                     storedEngine: defaults.string(forKey: SpeechEnginePreference.defaultsKey),
-                    storedLanguage: defaults.string(forKey: SpeechEnginePreference.whisperDefaultLanguageKey),
+                    storedLanguage: SpeechEnginePreference.whisperDefaultLanguage(defaults: defaults),
                     explicitLanguage: self.language
                 )
                 let speakerDetectionEnabled = Self.resolveSpeakerDetection(

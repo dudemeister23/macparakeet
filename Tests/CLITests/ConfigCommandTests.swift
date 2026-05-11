@@ -67,6 +67,11 @@ final class ConfigCommandTests: XCTestCase {
         XCTAssertEqual(try ConfigCommand.read(key: "youtube_audio_quality", defaults: defaults), "best-available")
     }
 
+    func testCanonicalKeyNormalizesUnderscoreAliases() throws {
+        XCTAssertEqual(try ConfigCommand.canonicalKey(" youtube_audio_quality "), "youtube-audio-quality")
+        XCTAssertEqual(try ConfigCommand.canonicalKey("SPEAKER_DETECTION"), "speaker-detection")
+    }
+
     func testReadUnknownKeyThrowsValidationError() {
         // Maps to errorType="validation" / exit code 2 in --json failure envelope.
         XCTAssertThrowsError(try ConfigCommand.read(key: "bogus", defaults: defaults)) { error in
@@ -114,6 +119,11 @@ final class ConfigCommandTests: XCTestCase {
             defaults.string(forKey: UserDefaultsAppRuntimePreferences.youtubeAudioQualityKey),
             YouTubeAudioQuality.bestAvailable.rawValue
         )
+    }
+
+    func testWriteCanonicalizesUnderscoreKeys() throws {
+        XCTAssertEqual(try ConfigCommand.write(key: "speaker_detection", value: "on", defaults: defaults), "on")
+        XCTAssertEqual(defaults.object(forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey) as? Bool, true)
     }
 
     func testWriteWhisperLanguageAutoClearsStoredDefault() throws {

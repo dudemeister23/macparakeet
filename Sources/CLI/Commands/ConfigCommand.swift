@@ -8,25 +8,26 @@ import MacParakeetCore
 /// (`com.macparakeet.MacParakeet`). This lets users who only install the CLI
 /// (no GUI) persist preferences like opting out of telemetry — and a later GUI
 /// install picks the same values up automatically. Without this, CLI-only
-/// users would have no way to opt out of telemetry or set GUI-parity
-/// transcription defaults for agent-driven smoke tests.
+/// users would have no way to opt out of telemetry or set app-default
+/// transcription state for agent-driven smoke tests.
 struct ConfigCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "config",
         abstract: "Read or write CLI/app configuration values.",
         discussion: """
         Configuration is stored in the shared MacParakeet UserDefaults suite \
-        (com.macparakeet.MacParakeet). The GUI reads the same suite, so values \
-        set here apply to both surfaces.
+        (com.macparakeet.MacParakeet). The GUI and CLI read the same suite, so \
+        values set here apply to later app-default reads. A running GUI may \
+        cache some settings until relaunch or an in-app change.
 
         Supported keys:
-          telemetry                 on|off
-          processing-mode           raw|clean
-          speech-engine             parakeet|whisper
-          whisper-language          auto|<Whisper language code>
-          speaker-detection         on|off
-          save-transcription-audio  on|off
-          youtube-audio-quality     m4a|best-available
+          telemetry                 on|off                         default: on
+          processing-mode           raw|clean                       default: raw
+          speech-engine             parakeet|whisper                default: parakeet
+          whisper-language          auto|<Whisper language code>    default: auto
+          speaker-detection         on|off                          default: off
+          save-transcription-audio  on|off                          default: on
+          youtube-audio-quality     m4a|best-available              default: m4a
 
         Full event catalog:
           https://github.com/moona3k/macparakeet/blob/main/docs/telemetry.md
@@ -67,8 +68,9 @@ struct ConfigCommand: ParsableCommand {
 
         func run() throws {
             try emitJSONOrRethrow(json: json) {
-                let value = try ConfigCommand.read(key: key)
-                try printResult(key: key, value: value, json: json)
+                let canonicalKey = try ConfigCommand.canonicalKey(key)
+                let value = try ConfigCommand.read(key: canonicalKey)
+                try printResult(key: canonicalKey, value: value, json: json)
             }
         }
     }
@@ -90,8 +92,9 @@ struct ConfigCommand: ParsableCommand {
 
         func run() throws {
             try emitJSONOrRethrow(json: json) {
-                let written = try ConfigCommand.write(key: key, value: value)
-                try printResult(key: key, value: written, json: json)
+                let canonicalKey = try ConfigCommand.canonicalKey(key)
+                let written = try ConfigCommand.write(key: canonicalKey, value: value)
+                try printResult(key: canonicalKey, value: written, json: json)
             }
         }
     }
@@ -138,7 +141,7 @@ struct ConfigCommand: ParsableCommand {
             return on ? "on" : "off"
         case "processing-mode":
             let raw = store.string(forKey: UserDefaultsAppRuntimePreferences.processingModeKey)
-            return (Dictation.ProcessingMode(rawValue: raw ?? "raw") ?? .raw).rawValue
+            return (Dictation.ProcessingMode(rawValue: raw ?? Dictation.ProcessingMode.raw.rawValue) ?? .raw).rawValue
         case "speech-engine":
             return SpeechEnginePreference.current(defaults: store).rawValue
         case "whisper-language":
@@ -199,18 +202,10 @@ struct ConfigCommand: ParsableCommand {
         let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
-        switch normalized {
-        case "telemetry",
-             "processing-mode",
-             "speech-engine",
-             "whisper-language",
-             "speaker-detection",
-             "save-transcription-audio",
-             "youtube-audio-quality":
+        if supportedKeys.contains(normalized) {
             return normalized
-        default:
-            throw unknownKeyError(key)
         }
+        throw unknownKeyError(key)
     }
 
     static func parseBool(_ value: String, key: String) throws -> Bool {

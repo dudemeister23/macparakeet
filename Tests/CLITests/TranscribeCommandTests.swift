@@ -86,6 +86,45 @@ final class TranscribeCommandTests: XCTestCase {
         XCTAssertNil(selection.language)
     }
 
+    func testResolveSpeechEngineFallsBackToParakeetWhenStoredEngineUnset() {
+        // Fresh-install case: CLI-only user with no .app present, no key ever
+        // written to the shared UserDefaults suite. Agents should be able to
+        // install the CLI without the .app and still call `--engine app-default`.
+        let selection = TranscribeCommand.resolveSpeechEngine(
+            .appDefault,
+            storedEngine: nil,
+            storedLanguage: nil,
+            explicitLanguage: nil
+        )
+
+        XCTAssertEqual(selection.engine, .parakeet)
+        XCTAssertNil(selection.language)
+    }
+
+    func testResolveSpeechEngineExplicitWhisperUsesExplicitLanguageOnly() {
+        let selection = TranscribeCommand.resolveSpeechEngine(
+            .whisper,
+            storedEngine: SpeechEnginePreference.parakeet.rawValue,
+            storedLanguage: "ko",
+            explicitLanguage: nil
+        )
+
+        XCTAssertEqual(selection.engine, .whisper)
+        XCTAssertNil(selection.language)
+    }
+
+    func testResolveSpeechEngineExplicitParakeetDropsLanguage() {
+        let selection = TranscribeCommand.resolveSpeechEngine(
+            .parakeet,
+            storedEngine: SpeechEnginePreference.whisper.rawValue,
+            storedLanguage: "ko",
+            explicitLanguage: "ja"
+        )
+
+        XCTAssertEqual(selection.engine, .parakeet)
+        XCTAssertNil(selection.language)
+    }
+
     func testResolveSpeakerDetectionUsesStoredDefaultWhenRequested() {
         XCTAssertTrue(TranscribeCommand.resolveSpeakerDetection(.appDefault, storedEnabled: true, noDiarize: false))
         XCTAssertFalse(TranscribeCommand.resolveSpeakerDetection(.appDefault, storedEnabled: nil, noDiarize: false))
