@@ -660,6 +660,41 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertEqual(manager.holdWindowElapsedForTesting(), [])
     }
 
+    func testRegularKeyInterruptsConfirmedFnHoldAndCancelsImmediately() {
+        let manager = HotkeyManager(trigger: .fn)
+
+        _ = manager.modifierFlagsChangedOutputsForTesting(
+            flags: [.maskSecondaryFn],
+            timestampMs: 1_000
+        )
+        XCTAssertEqual(
+            manager.holdWindowElapsedForTesting(),
+            [.startRecording(mode: .holdToTalk)]
+        )
+
+        XCTAssertEqual(
+            manager.modifierKeyDownOutputsForTesting(
+                keyCode: 0,
+                timestampMs: 1_450
+            ),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+                .cancelRecording,
+            ]
+        )
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [],
+                timestampMs: 1_500
+            ),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+            ]
+        )
+    }
+
     func testAdditionalModifierSilentlyDiscardsAfterProvisionalStartup() {
         let manager = HotkeyManager(trigger: .fn)
 

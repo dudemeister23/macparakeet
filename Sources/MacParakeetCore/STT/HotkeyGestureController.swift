@@ -135,10 +135,18 @@ public final class HotkeyGestureController {
             return nonBareTriggerReleased()
         }
 
-        guard stateMachine.state == .waitingForSecondTap else { return [] }
         var results: [Output] = [.cancelStartupDebounce, .cancelHoldWindow]
-        results.append(contentsOf: outputs(for: stateMachine.interruptWaitingForSecondTap()))
-        return results
+        switch stateMachine.state {
+        case .waitingForSecondTap:
+            results.append(contentsOf: outputs(for: stateMachine.interruptWaitingForSecondTap()))
+            return results
+        case .holdToTalk:
+            stateMachine.reset()
+            results.append(.cancelRecording)
+            return results
+        default:
+            return []
+        }
     }
 
     public func escapePressed() -> [Output] {

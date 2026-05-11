@@ -88,6 +88,30 @@ final class HotkeyGestureControllerTests: XCTestCase {
         )
     }
 
+    func testInterruptionDuringConfirmedHoldCancelsRecordingImmediately() {
+        let controller = HotkeyGestureController()
+        _ = controller.triggerPressed(timestampMs: 1_000)
+        _ = controller.holdWindowElapsed()
+
+        let outputs = controller.interrupted()
+
+        XCTAssertEqual(
+            outputs,
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+                .cancelRecording,
+            ]
+        )
+        XCTAssertEqual(
+            controller.triggerReleased(timestampMs: 1_500),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+            ]
+        )
+    }
+
     func testEscapeWhileIdleDelegatesToIdleHandler() {
         let controller = HotkeyGestureController()
 
@@ -252,6 +276,33 @@ final class HotkeyGestureControllerTests: XCTestCase {
 
         XCTAssertEqual(
             controller.triggerPressed(timestampMs: 1_100),
+            [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
+        )
+    }
+
+    func testHoldOnlyEscapeDuringCancelWindowConfirmsAndUnblocks() {
+        let controller = HotkeyGestureController(mode: .holdOnly)
+        _ = controller.triggerPressed(timestampMs: 1_000)
+        _ = controller.startupDebounceElapsed()
+
+        XCTAssertEqual(
+            controller.escapePressed(),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+                .cancelRecording,
+            ]
+        )
+        XCTAssertEqual(
+            controller.escapePressed(),
+            [
+                .cancelStartupDebounce,
+                .cancelHoldWindow,
+                .cancelRecording,
+            ]
+        )
+        XCTAssertEqual(
+            controller.triggerPressed(timestampMs: 1_200),
             [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
         )
     }
