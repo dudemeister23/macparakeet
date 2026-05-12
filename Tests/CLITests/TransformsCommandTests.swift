@@ -101,6 +101,39 @@ final class TransformsCommandTests: XCTestCase {
         XCTAssertEqual(del.idOrName, "Sharpen")
     }
 
+    // MARK: - JSON contract
+
+    func testTransformDTOJSONUsesDocumentedSnakeCaseKeys() throws {
+        let shortcut = KeyboardShortcut(
+            modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
+            keyCode: 0x12,
+            keyLabel: "1"
+        )
+        let prompt = Prompt(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            name: "Sharpen",
+            content: "Make it crisp.",
+            category: .transform,
+            isBuiltIn: true,
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 1),
+            keyboardShortcut: shortcut.encodedString(),
+            runningLabel: "Sharpening..."
+        )
+
+        let data = try cliJSONEncoder.encode(TransformDTO(prompt: prompt))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["running_label"] as? String, "Sharpening...")
+        XCTAssertEqual(object["is_built_in"] as? Bool, true)
+        XCTAssertNotNil(object["created_at"])
+        XCTAssertNotNil(object["updated_at"])
+        XCTAssertNil(object["runningLabel"])
+        XCTAssertNil(object["isBuiltIn"])
+        XCTAssertNil(object["createdAt"])
+        XCTAssertNil(object["updatedAt"])
+    }
+
     // MARK: - End-to-end: create + list + show + delete against a real DB
 
     func testCreateListShowDeleteRoundTrip() throws {
@@ -110,10 +143,9 @@ final class TransformsCommandTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let dbPath = tmp.appendingPathComponent("test.db").path
 
-        var create = try TransformsCommand.CreateSubcommand.parse([
+        let create = try TransformsCommand.CreateSubcommand.parse([
             "--name", "Sharpen",
             "--prompt", "Make it crisp.",
-            "--shortcut", "opt+5",
             "--database", dbPath,
         ])
         try create.validate()
@@ -126,11 +158,10 @@ final class TransformsCommandTests: XCTestCase {
         XCTAssertEqual(all.count, 4)
         let sharpen = try XCTUnwrap(all.first(where: { $0.name == "Sharpen" }))
         XCTAssertFalse(sharpen.isBuiltIn)
-        XCTAssertEqual(sharpen.shortcut?.keyLabel, "5")
-        XCTAssertEqual(sharpen.shortcut?.modifierFlags, [.option])
+        XCTAssertNil(sharpen.shortcut)
 
         // Delete by name.
-        var del = try TransformsCommand.DeleteSubcommand.parse([
+        let del = try TransformsCommand.DeleteSubcommand.parse([
             "Sharpen",
             "--database", dbPath,
         ])
@@ -151,7 +182,7 @@ final class TransformsCommandTests: XCTestCase {
         // First seed the built-ins so the DB exists.
         _ = try DatabaseManager(path: dbPath)
 
-        var create = try TransformsCommand.CreateSubcommand.parse([
+        let create = try TransformsCommand.CreateSubcommand.parse([
             "--name", "Bare",
             "--prompt", "Body",
             "--shortcut", "5",  // no modifier
@@ -169,6 +200,51 @@ final class TransformsCommandTests: XCTestCase {
         }
     }
 
+    func testCreateRejectsDuplicateShortcut() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let create = try TransformsCommand.CreateSubcommand.parse([
+            "--name", "Duplicate Hotkey",
+            "--prompt", "Body",
+            "--shortcut", "opt+1",
+            "--database", dbPath,
+        ])
+        try create.validate()
+        XCTAssertThrowsError(try create.run()) { error in
+            let message = String(describing: error)
+            XCTAssertTrue(message.contains("already used"), "Expected duplicate-shortcut error, got: \(message)")
+            XCTAssertTrue(message.contains("Polish"), "Expected duplicate owner name, got: \(message)")
+        }
+    }
+
+    func testCreateRejectsMacOSDeadKeyShortcut() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let create = try TransformsCommand.CreateSubcommand.parse([
+            "--name", "Accent Breaker",
+            "--prompt", "Body",
+            "--shortcut", "opt+e",
+            "--database", dbPath,
+        ])
+        try create.validate()
+        XCTAssertThrowsError(try create.run()) { error in
+            let message = String(describing: error)
+            XCTAssertTrue(message.contains("special character"), "Expected dead-key error, got: \(message)")
+        }
+    }
+
     func testCreateRejectsDuplicateName() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("transforms-cli-\(UUID().uuidString)")
@@ -178,7 +254,7 @@ final class TransformsCommandTests: XCTestCase {
 
         // Polish is a built-in — try to create a custom Transform with the
         // same name.
-        var create = try TransformsCommand.CreateSubcommand.parse([
+        let create = try TransformsCommand.CreateSubcommand.parse([
             "--name", "Polish",
             "--prompt", "Body",
             "--database", dbPath,
@@ -198,7 +274,7 @@ final class TransformsCommandTests: XCTestCase {
         let dbPath = tmp.appendingPathComponent("test.db").path
         _ = try DatabaseManager(path: dbPath)
 
-        var del = try TransformsCommand.DeleteSubcommand.parse([
+        let del = try TransformsCommand.DeleteSubcommand.parse([
             "Polish",
             "--database", dbPath,
         ])

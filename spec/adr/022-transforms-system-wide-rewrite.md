@@ -71,7 +71,7 @@ Collision rules (rejected at bind time in `TransformEditorViewModel`):
 - **No collision with the meeting-toggle hotkey.**
 - **No duplicate Transform binding.**
 - **macOS Opt+letter dead-key combos blocked** (`Opt+e`, `Opt+u`, `Opt+i`, `Opt+n`, ``Opt+` `` — these produce alt-characters and stealing them is hostile).
-- **Reserved space:** `Opt+digit` (1–9) is the recommended default range. The Phase 2 built-ins use `⌥+1` (Polish), `⌥+2` (Distill), `⌥+3` (Decide). The lineup was synthesized from independent creative-director and staff-PM reviews (2026-05-12); the *Improve → Re-shape → Re-direct* pedagogy is intentional, and replaces the WisprFlow-inherited *Polish + Prompt Engineer* placeholders. "Prompt Engineer" was rejected as too AI-insider; *Distill* and *Decide* generalize better across the user's full surface (Slack, Linear, email, design docs, tickets).
+- **Reserved space:** `Opt+digit` (1–9) is the recommended default range. The Phase 2 built-ins use `⌥+1` (Polish), `⌥+2` (Distill), `⌥+3` (Decide). The lineup was synthesized from independent creative-director and staff-PM reviews (2026-05-12); the *Improve → Re-shape → Re-direct* pedagogy is intentional, and the shipped set avoids AI-insider naming in favor of verbs that generalize across the user's full surface (Slack, Linear, email, design docs, tickets).
 
 ### 5. No global "Opt in" toggle
 
@@ -87,13 +87,13 @@ The product-level feature flag `AppFeatures.transformsEnabled` exists for staged
 
 Transforms use the user's configured LLM provider (cloud API key, local Ollama / LM Studio, local Apple Foundation Models when available). The product ships with **no** first-party LLM — every transform call is on the user's dime against their configured provider. Matches the AI Formatter (PR #100) precedent.
 
-`Polish` and `Prompt Engineer` are not gated behind paid tiers. The public build is free / GPL-3.0; Transforms is free.
+`Polish`, `Distill`, and `Decide` are not gated behind paid tiers. The public build is free / GPL-3.0; Transforms is free.
 
 ### 7. CLI parity via `macparakeet-cli transforms` subcommand tree
 
 The CLI is a public, semver-tracked contract (`Sources/CLI/CHANGELOG.md`). Coding agents (OpenClaw / Hermes path per `plans/active/cli-as-canonical-parakeet-surface.md`) need to drive Transforms headlessly for testing and provisioning.
 
-```
+```text
 transforms list [--json]
 transforms show <name|id> [--json]
 transforms run <name|id> [--input FILE | --stdin] [--stream] [--json]
@@ -123,7 +123,7 @@ Replaces the spike flag `transformsSpikeEnabled`. Default `false` at merge; flip
 When `false`:
 - Transforms tab is hidden from the sidebar.
 - `TransformsHotkeyRegistry` is not initialized — no event tap registered, no key dispatch.
-- Existing data (Polish + Prompt Engineer built-in rows) remain in the DB; reconciler still seeds them so flipping the flag is a no-data-migration operation.
+- Existing data (Polish / Distill / Decide built-in rows) remain in the DB; reconciler still seeds them so flipping the flag is a no-data-migration operation.
 - CLI `transforms` subcommands still work (the CLI doesn't gate on the GUI flag).
 
 ## Consequences

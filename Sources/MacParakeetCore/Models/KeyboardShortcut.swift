@@ -53,6 +53,15 @@ public struct KeyboardShortcut: Codable, Equatable, Hashable, Sendable {
             case .shift:   return "Shift"
             }
         }
+
+        fileprivate var hotkeyTriggerModifierName: String {
+            switch self {
+            case .command: return "command"
+            case .option:  return "option"
+            case .control: return "control"
+            case .shift:   return "shift"
+            }
+        }
     }
 
     public var modifierFlags: Set<ModifierFlag> {
@@ -174,6 +183,15 @@ public struct KeyboardShortcut: Codable, Equatable, Hashable, Sendable {
     public var isMacOSDeadKey: Bool {
         let onlyOption = (modifiers == ModifierFlag.option.rawValue)
         return onlyOption && Self.optionDeadKeyLabels.contains(keyLabel.uppercased())
+    }
+
+    /// Equivalent `HotkeyTrigger` used for overlap checks against the app's
+    /// existing dictation / meeting hotkey model.
+    public var hotkeyTrigger: HotkeyTrigger {
+        HotkeyTrigger.chord(
+            modifiers: modifierFlags.map(\.hotkeyTriggerModifierName),
+            keyCode: keyCode
+        )
     }
 }
 

@@ -101,6 +101,21 @@ final class TransformsCoordinator {
         }
     }
 
+    func suspendHotkeys() {
+        registry?.stop()
+    }
+
+    func resumeHotkeys() {
+        guard AppFeatures.transformsEnabled else { return }
+        if let registry {
+            if registry.start() {
+                reloadBindings()
+            }
+        } else {
+            start()
+        }
+    }
+
     /// Re-read `.transform` prompts from the repository and rebuild the
     /// registry's dispatch table. Call after any save/delete/import.
     func reloadBindings() {

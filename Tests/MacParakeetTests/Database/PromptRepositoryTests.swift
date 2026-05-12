@@ -76,13 +76,40 @@ final class PromptRepositoryTests: XCTestCase {
         XCTAssertEqual(decideShortcut.keyLabel, "3")
     }
 
-    func testReconcilerPreservesUserCustomizedShortcutOnBuiltInTransform() throws {
-        // User customizes Polish's hotkey to Opt+Shift+P. A subsequent app
+    func testFetchAutoRunPromptsIgnoresTransformPrompts() throws {
+        var polish = try XCTUnwrap(
+            (try repo.fetchVisible(category: .transform))
+                .first(where: { $0.name == "Polish" })
+        )
+        polish.isAutoRun = true
+        polish.updatedAt = Date()
+        try repo.save(polish)
+
+        let autoRun = try repo.fetchAutoRunPrompts()
+
+        XCTAssertTrue(autoRun.allSatisfy { $0.category == .result })
+        XCTAssertFalse(autoRun.contains(where: { $0.id == polish.id }))
+    }
+
+    func testToggleAutoRunIgnoresTransformPrompts() throws {
+        let polish = try XCTUnwrap(
+            (try repo.fetchVisible(category: .transform))
+                .first(where: { $0.name == "Polish" })
+        )
+
+        try repo.toggleAutoRun(id: polish.id)
+
+        let reloaded = try XCTUnwrap(try repo.fetch(id: polish.id))
+        XCTAssertFalse(reloaded.isAutoRun)
+    }
+
+    func testReconcilerPreservesUserCustomizedBuiltInTransformFields() throws {
+        // User customizes Polish. A subsequent app
         // launch (simulated by re-running the reconciler via a fresh
         // DatabaseManager on the same file-backed DB) must NOT overwrite
-        // the user's binding back to the default Opt+1.
+        // the user's fields back to the shipped defaults.
         let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("reconciler-shortcut-\(UUID().uuidString)")
+            .appendingPathComponent("reconciler-transform-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
         let dbPath = tmpDir.appendingPathComponent("macparakeet.db").path
@@ -100,20 +127,25 @@ final class PromptRepositoryTests: XCTestCase {
             keyCode: 0x23, // kVK_ANSI_P
             keyLabel: "P"
         )
+        polish.name = "Personal Polish"
+        polish.content = "Rewrite this in my house style."
+        polish.isAutoRun = true
+        let editDate = Date(timeIntervalSince1970: 1_234_567)
         polish.keyboardShortcut = customShortcut.encodedString()
         polish.runningLabel = "Refining…"
-        polish.updatedAt = Date()
+        polish.updatedAt = editDate
         try firstRepo.save(polish)
 
         // Simulate a fresh boot — reconciler runs again. The user's
         // customizations must survive.
         let second = try DatabaseManager(path: dbPath)
         let secondRepo = PromptRepository(dbQueue: second.dbQueue)
-        let reloaded = try XCTUnwrap(
-            (try secondRepo.fetchVisible(category: .transform))
-                .first(where: { $0.name == "Polish" })
-        )
+        let reloaded = try XCTUnwrap(try secondRepo.fetch(id: polish.id))
 
+        XCTAssertEqual(reloaded.name, "Personal Polish", "Reconciler must not overwrite user-set Transform names.")
+        XCTAssertEqual(reloaded.content, "Rewrite this in my house style.", "Reconciler must not overwrite user-set Transform prompt bodies.")
+        XCTAssertEqual(reloaded.updatedAt.timeIntervalSince1970, editDate.timeIntervalSince1970, accuracy: 0.001, "Reconciler must not overwrite the user's Transform edit timestamp.")
+        XCTAssertFalse(reloaded.isAutoRun, "Built-in Transforms must not keep leaked auto-run state.")
         XCTAssertEqual(reloaded.shortcut?.keyLabel, "P", "Reconciler must not overwrite user-set Transform shortcuts.")
         XCTAssertEqual(reloaded.shortcut?.modifierFlags, [.option, .shift])
         XCTAssertEqual(reloaded.runningLabel, "Refining…", "Reconciler must not overwrite user-set running labels.")

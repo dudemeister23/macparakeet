@@ -96,15 +96,15 @@ public final class TransformEditorViewModel {
     /// editor's awareness.
     public func validate(
         existingTransforms: [Prompt],
-        dictationHotkey: KeyboardShortcut?,
-        meetingHotkey: KeyboardShortcut?,
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?,
         collisionChecker: TransformShortcutCollisionChecking
     ) {
         validateName(against: existingTransforms)
         validateContent()
         validateShortcut(
             existingTransforms: existingTransforms,
-            dictationHotkey: dictationHotkey,
+            dictationHotkeys: dictationHotkeys,
             meetingHotkey: meetingHotkey,
             collisionChecker: collisionChecker
         )
@@ -131,8 +131,8 @@ public final class TransformEditorViewModel {
 
     private func validateShortcut(
         existingTransforms: [Prompt],
-        dictationHotkey: KeyboardShortcut?,
-        meetingHotkey: KeyboardShortcut?,
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?,
         collisionChecker: TransformShortcutCollisionChecking
     ) {
         guard let candidate = shortcut else {
@@ -153,7 +153,7 @@ public final class TransformEditorViewModel {
             candidate: candidate,
             existing: bindings,
             excludingPromptID: editingID,
-            dictationHotkey: dictationHotkey,
+            dictationHotkeys: dictationHotkeys,
             meetingHotkey: meetingHotkey
         )
         shortcutError = collision?.message
@@ -221,8 +221,8 @@ public protocol TransformShortcutCollisionChecking {
         candidate: KeyboardShortcut,
         existing: [UUID: KeyboardShortcut],
         excludingPromptID: UUID?,
-        dictationHotkey: KeyboardShortcut?,
-        meetingHotkey: KeyboardShortcut?
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?
     ) -> TransformShortcutCollision?
 }
 

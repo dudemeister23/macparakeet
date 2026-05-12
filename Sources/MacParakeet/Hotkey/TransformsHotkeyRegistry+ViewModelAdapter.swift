@@ -12,14 +12,14 @@ extension TransformsHotkeyCollisionChecker: TransformShortcutCollisionChecking {
         candidate: KeyboardShortcut,
         existing: [UUID: KeyboardShortcut],
         excludingPromptID: UUID?,
-        dictationHotkey: KeyboardShortcut?,
-        meetingHotkey: KeyboardShortcut?
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?
     ) -> TransformShortcutCollision? {
         let result: TransformsHotkeyCollision? = self.check(
             candidate: candidate,
             existing: existing,
             excludingPromptID: excludingPromptID,
-            dictationHotkey: dictationHotkey,
+            dictationHotkeys: dictationHotkeys,
             meetingHotkey: meetingHotkey
         )
         switch result {

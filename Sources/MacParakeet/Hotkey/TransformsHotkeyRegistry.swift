@@ -153,7 +153,7 @@ public final class TransformsHotkeyRegistry {
 
     // MARK: - Event handling
 
-    private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -177,10 +177,9 @@ public final class TransformsHotkeyRegistry {
             return nil
 
         case .keyUp:
-            pressedKeys.remove(keyCode)
             // Only swallow the keyUp if its keyDown had been ours.
-            let match = KeyMatch(keyCode: keyCode, modifierBits: modifierBits)
-            return dispatchTable[match] != nil ? nil : Unmanaged.passUnretained(event)
+            let wasPressedByTransform = pressedKeys.remove(keyCode) != nil
+            return wasPressedByTransform ? nil : Unmanaged.passUnretained(event)
 
         default:
             return Unmanaged.passUnretained(event)
@@ -249,8 +248,8 @@ public struct TransformsHotkeyCollisionChecker {
         candidate: KeyboardShortcut,
         existing: [UUID: KeyboardShortcut],
         excludingPromptID: UUID?,
-        dictationHotkey: KeyboardShortcut?,
-        meetingHotkey: KeyboardShortcut?
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?
     ) -> TransformsHotkeyCollision? {
         guard candidate.hasModifier else { return .missingModifier }
         if candidate.isMacOSDeadKey { return .macOSDeadKey }
@@ -262,10 +261,11 @@ public struct TransformsHotkeyCollisionChecker {
             }
         }
 
-        if let dictation = dictationHotkey, matches(candidate, dictation) {
+        let candidateTrigger = candidate.hotkeyTrigger
+        for dictation in dictationHotkeys where candidateTrigger.overlaps(with: dictation) {
             return .dictationHotkey
         }
-        if let meeting = meetingHotkey, matches(candidate, meeting) {
+        if let meeting = meetingHotkey, candidateTrigger.overlaps(with: meeting) {
             return .meetingHotkey
         }
         return nil

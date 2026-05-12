@@ -169,8 +169,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // recording from inside Settings).
             if isRecording {
                 self?.hotkeyCoordinator?.suspend()
+                self?.transformsCoordinator?.suspendHotkeys()
             } else {
                 self?.hotkeyCoordinator?.resume()
+                self?.transformsCoordinator?.resumeHotkeys()
             }
         },
         onQuit: { [weak self] in

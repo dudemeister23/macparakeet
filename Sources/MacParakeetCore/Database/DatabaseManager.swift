@@ -726,21 +726,36 @@ public final class DatabaseManager: Sendable {
 
             for prompt in builtInPrompts {
                 if let existing = try Prompt.fetchOne(db, key: prompt.id) {
-                    try db.execute(
-                        sql: """
-                            UPDATE prompts
-                            SET name = ?, content = ?, category = ?, isBuiltIn = 1, sortOrder = ?, updatedAt = ?
-                            WHERE id = ?
-                            """,
-                        arguments: [
-                            prompt.name,
-                            prompt.content,
-                            prompt.category.rawValue,
-                            prompt.sortOrder,
-                            prompt.updatedAt,
-                            existing.id,
-                        ]
-                    )
+                    if prompt.category == .transform {
+                        try db.execute(
+                            sql: """
+                                UPDATE prompts
+                                SET category = ?, isBuiltIn = 1, isVisible = 1, isAutoRun = 0, sortOrder = ?
+                                WHERE id = ?
+                                """,
+                            arguments: [
+                                prompt.category.rawValue,
+                                prompt.sortOrder,
+                                existing.id,
+                            ]
+                        )
+                    } else {
+                        try db.execute(
+                            sql: """
+                                UPDATE prompts
+                                SET name = ?, content = ?, category = ?, isBuiltIn = 1, sortOrder = ?, updatedAt = ?
+                                WHERE id = ?
+                                """,
+                            arguments: [
+                                prompt.name,
+                                prompt.content,
+                                prompt.category.rawValue,
+                                prompt.sortOrder,
+                                prompt.updatedAt,
+                                existing.id,
+                            ]
+                        )
+                    }
                     continue
                 }
 

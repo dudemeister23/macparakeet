@@ -14,16 +14,21 @@ final class PromptsViewModelTests: XCTestCase {
         viewModel.configure(repo: repo)
     }
 
+    func testLoadPromptsFiltersOutTransformCategory() {
+        XCTAssertEqual(viewModel.prompts.count, 6)
+        XCTAssertTrue(viewModel.prompts.allSatisfy { $0.category == .result })
+        XCTAssertFalse(viewModel.prompts.contains(where: { $0.name == "Polish" }))
+    }
+
     func testAddPromptCreatesCustomSummaryPrompt() {
         viewModel.newName = "Standup Notes"
         viewModel.newContent = "Summarize as a daily standup."
 
         viewModel.addPrompt()
 
-        // 6 `.result` built-ins (after ADR-020's 2026-05-02 Memo-Steered Notes
-        // revert) + 3 `.transform` built-ins (ADR-022 Phase 2: Polish, Distill,
-        // Decide) + 1 custom = 10.
-        XCTAssertEqual(viewModel.prompts.count, 10)
+        // 6 `.result` built-ins + 1 custom. Transform built-ins live in the
+        // same table but are intentionally not part of the summary library.
+        XCTAssertEqual(viewModel.prompts.count, 7)
         XCTAssertTrue(viewModel.prompts.contains(where: { $0.name == "Standup Notes" && !$0.isBuiltIn }))
     }
 
@@ -33,9 +38,31 @@ final class PromptsViewModelTests: XCTestCase {
 
         viewModel.addPrompt()
 
-        // Rejected; the 6 `.result` + 3 `.transform` built-ins remain (no add).
-        XCTAssertEqual(viewModel.prompts.count, 9)
+        // Rejected; the 6 summary built-ins remain (no add).
+        XCTAssertEqual(viewModel.prompts.count, 6)
         XCTAssertEqual(viewModel.errorMessage, "'summary' already exists")
+    }
+
+    func testAddPromptRejectsDuplicateTransformNameHiddenFromLibrary() {
+        viewModel.newName = "Polish"
+        viewModel.newContent = "Duplicate transform name"
+
+        viewModel.addPrompt()
+
+        XCTAssertEqual(viewModel.prompts.count, 6)
+        XCTAssertEqual(viewModel.errorMessage, "'Polish' already exists")
+    }
+
+    func testUpdatePromptRejectsDuplicateTransformNameHiddenFromLibrary() {
+        let custom = Prompt(name: "Old", content: "Old content", isBuiltIn: false, sortOrder: 99)
+        repo.prompts.append(custom)
+        viewModel.loadPrompts()
+
+        viewModel.updatePrompt(custom, name: "Polish", content: "New content")
+
+        let unchanged = repo.prompts.first(where: { $0.id == custom.id })
+        XCTAssertEqual(unchanged?.name, "Old")
+        XCTAssertEqual(viewModel.errorMessage, "'Polish' already exists")
     }
 
     func testAddPromptValidationClearsWhenFieldsChange() {

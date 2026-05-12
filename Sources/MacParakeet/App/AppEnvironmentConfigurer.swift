@@ -343,6 +343,7 @@ final class AppEnvironmentConfigurer {
         transcriptionViewModel.updateLLMAvailability(hasConfig, llmService: service)
         chatViewModel.updateLLMService(service)
         promptResultsViewModel.updateLLMService(service)
+        transformsViewModel.setHasLLMProvider(hasConfig)
         liveMeetingCoordinator?.updateLLMService(service)
     }
 }

@@ -162,8 +162,12 @@ struct MainWindowView: View {
                             TransformEditorSheet(
                                 viewModel: TransformEditorViewModel(mode: .create),
                                 existingTransforms: transformsViewModel.transforms,
-                                dictationHotkey: nil,
-                                meetingHotkey: nil,
+                                dictationHotkeys: [
+                                    settingsViewModel.hotkeyTrigger,
+                                    settingsViewModel.pushToTalkHotkeyTrigger,
+                                ],
+                                meetingHotkey: settingsViewModel.meetingHotkeyTrigger,
+                                onShortcutRecordingStateChanged: onHotkeyRecordingStateChanged,
                                 onSave: { prompt in
                                     if transformsViewModel.save(prompt) {
                                         state.isCreatingTransform = false
@@ -178,8 +182,12 @@ struct MainWindowView: View {
                             TransformEditorSheet(
                                 viewModel: TransformEditorViewModel(mode: .edit(transform)),
                                 existingTransforms: transformsViewModel.transforms,
-                                dictationHotkey: nil,
-                                meetingHotkey: nil,
+                                dictationHotkeys: [
+                                    settingsViewModel.hotkeyTrigger,
+                                    settingsViewModel.pushToTalkHotkeyTrigger,
+                                ],
+                                meetingHotkey: settingsViewModel.meetingHotkeyTrigger,
+                                onShortcutRecordingStateChanged: onHotkeyRecordingStateChanged,
                                 onSave: { prompt in
                                     if transformsViewModel.save(prompt) {
                                         state.editingTransform = nil

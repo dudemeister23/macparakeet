@@ -252,6 +252,24 @@ extension TransformsCommand {
                     guard parsed.hasModifier else {
                         throw CLITransformsError.shortcutMissingModifier
                     }
+                    guard !parsed.isMacOSDeadKey else {
+                        throw CLITransformsError.shortcutMacOSDeadKey
+                    }
+                    if let duplicate = existing.first(where: { prompt in
+                        guard prompt.category == .transform,
+                              let shortcut = prompt.shortcut
+                        else { return false }
+                        return shortcutsMatch(shortcut, parsed)
+                    }) {
+                        throw CLITransformsError.duplicateShortcut(
+                            parsed.displayString,
+                            duplicate.name
+                        )
+                    }
+                    let appHotkeyCollision = appHotkeyCollision(for: parsed)
+                    if let appHotkeyCollision {
+                        throw appHotkeyCollision
+                    }
                     shortcutValue = parsed
                 } else {
                     shortcutValue = nil
@@ -373,6 +391,17 @@ struct TransformDTO: Encodable {
     let createdAt: Date
     let updatedAt: Date
 
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case shortcut
+        case runningLabel = "running_label"
+        case isBuiltIn = "is_built_in"
+        case prompt
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
     init(prompt: Prompt) {
         self.id = prompt.id.uuidString
         self.name = prompt.name
@@ -391,6 +420,10 @@ enum CLITransformsError: Error, CustomStringConvertible {
     case duplicateName(String)
     case invalidShortcut(String)
     case shortcutMissingModifier
+    case shortcutMacOSDeadKey
+    case duplicateShortcut(String, String)
+    case shortcutConflictsWithDictation(String)
+    case shortcutConflictsWithMeeting(String)
     case deleteBuiltIn(String)
 
     var description: String {
@@ -405,8 +438,47 @@ enum CLITransformsError: Error, CustomStringConvertible {
             return "Couldn't parse shortcut “\(s)”. Try forms like 'opt+1', 'cmd+shift+P', 'ctrl+opt+space'."
         case .shortcutMissingModifier:
             return "Shortcut must include a modifier key (cmd, opt, ctrl, or shift)."
+        case .shortcutMacOSDeadKey:
+            return "This shortcut produces a special character on Mac. Pick another combo."
+        case .duplicateShortcut(let shortcut, let name):
+            return "Shortcut “\(shortcut)” is already used by Transform “\(name)”."
+        case .shortcutConflictsWithDictation(let shortcut):
+            return "Shortcut “\(shortcut)” conflicts with your dictation hotkey."
+        case .shortcutConflictsWithMeeting(let shortcut):
+            return "Shortcut “\(shortcut)” conflicts with your meeting recording hotkey."
         case .deleteBuiltIn(let n):
             return "Cannot delete the built-in Transform “\(n)”. Reset it via the GUI or override its prompt body with `transforms create --name ...`."
         }
     }
+}
+
+private func shortcutsMatch(_ lhs: KeyboardShortcut, _ rhs: KeyboardShortcut) -> Bool {
+    lhs.keyCode == rhs.keyCode && lhs.modifiers == rhs.modifiers
+}
+
+private func appHotkeyCollision(for shortcut: KeyboardShortcut) -> CLITransformsError? {
+    let defaults = macParakeetAppDefaults()
+    let candidate = shortcut.hotkeyTrigger
+    let dictationHotkeys = [
+        HotkeyTrigger.current(defaults: defaults),
+        HotkeyTrigger.current(
+            defaults: defaults,
+            defaultsKey: HotkeyTrigger.pushToTalkDefaultsKey,
+            fallback: .defaultPushToTalk
+        ),
+    ]
+    if dictationHotkeys.contains(where: { candidate.overlaps(with: $0) }) {
+        return .shortcutConflictsWithDictation(shortcut.displayString)
+    }
+
+    let meetingHotkey = HotkeyTrigger.current(
+        defaults: defaults,
+        defaultsKey: HotkeyTrigger.meetingDefaultsKey,
+        fallback: .defaultMeetingRecording
+    )
+    if candidate.overlaps(with: meetingHotkey) {
+        return .shortcutConflictsWithMeeting(shortcut.displayString)
+    }
+
+    return nil
 }

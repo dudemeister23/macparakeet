@@ -17,7 +17,7 @@
 
 The Transforms spike (PR #278) validated the AX-capture → LLM → in-place-replace primitive end-to-end against a hardcoded Polish prompt on Opt+Ctrl+1, with all the hard-won correctness work already landed: clipboard backup/restore, AX-write with paste-back fallback, layout-aware Cmd+C/V resolution, stale-progress guarding by run-ID, premium "rose loader" pill with patience-threshold label reveal.
 
-**Phase 2 is now: productize the surface.** Wire `Prompt.category == .transform` rows to the executor through a new `TransformsHotkeyRegistry` (single event tap, dispatch by combo), ship Polish + Prompt Engineer as built-in transforms on Opt+1 / Opt+2, build a new top-level **Transforms** tab with a premium *Create your own* editor, expose the feature through a new `macparakeet-cli transforms` subcommand tree so coding agents can drive and test it headlessly, gate it behind a single `AppFeatures.transformsEnabled` flag, instrument per-name telemetry.
+**Phase 2 is now: productize the surface.** Wire `Prompt.category == .transform` rows to the executor through a new `TransformsHotkeyRegistry` (single event tap, dispatch by combo), ship Polish / Distill / Decide as built-in transforms on Opt+1 / Opt+2 / Opt+3, build a new top-level **Transforms** tab with a premium *Create your own* editor, expose the feature through a new `macparakeet-cli transforms` subcommand tree so coding agents can drive and test it headlessly, gate it behind a single `AppFeatures.transformsEnabled` flag, instrument per-name telemetry.
 
 Three deliberate cuts up front:
 1. **No global "Opt in" toggle** (rejected by user 2026-05-12). Always-on; gating happens through whether a user has bound a hotkey to a Transform — same mental model as the dictation hotkey itself.
@@ -76,7 +76,7 @@ A new top-level sidebar item (sibling of Vocabulary, Library, Settings — IA co
    - The card itself is the click target for Edit
    - Plus a **Create your own** tile (plus glyph + label) as the final cell
 
-3. **Secondary actions** in the header — *Reset to defaults* (regenerates the two built-in transforms if user deleted/edited them), and *Create New* primary action button.
+3. **Secondary actions** in the header — *Reset to defaults* (re-seeds any missing built-in transforms), and *Create New* primary action button.
 
 4. **No-provider banner** — when no LLM provider is configured, replace the hero with a calmer inline state: *"Transforms need an LLM provider — configure in Settings."* + `[Open Settings]` button. Doesn't yank the user away; just states the dependency. Disappears once a provider is configured.
 
@@ -96,7 +96,7 @@ Modal sheet. Two-column layout matching the reference shape but earning its own 
 
 ### Floating progress pill (already shipped from the spike)
 
-The pill already exists from the spike — bottom-anchored Capsule, rhodonea loader, brand checkmark, patience-threshold label. **Phase 2 changes nothing in its visual design.** The only wiring change is that the label now derives from the bound Transform's name (e.g., *Polishing…*, *Engineering prompt…*) instead of being hardcoded — Phase 2 adds an optional `runningLabel` field on the Prompt model with the existing `{Name}ing…` heuristic as fallback.
+The pill already exists from the spike — bottom-anchored Capsule, rhodonea loader, brand checkmark, patience-threshold label. **Phase 2 changes nothing in its visual design.** The only wiring change is that the label now derives from the bound Transform's name (e.g., *Polishing…*, *Distilling…*, *Deciding…*) instead of being hardcoded — Phase 2 adds an optional `runningLabel` field on the Prompt model with the existing `{Name}ing…` heuristic as fallback.
 
 ### Premium-finish bar
 
@@ -135,16 +135,17 @@ public struct KeyboardShortcut: Codable, Equatable, Hashable, Sendable {
 
 ### Built-in transforms
 
-Two seeded rows, `isBuiltIn=true`, `category=.transform`. Stable UUIDs (reserved and documented inline next to `1C5A1B4A-7E2C-4D38-B3EF-5C0F8A7E3E1A`, the "Memo-Steered Notes" reserved sentinel):
+Three seeded rows, `isBuiltIn=true`, `category=.transform`. Stable UUIDs (reserved and documented inline next to `1C5A1B4A-7E2C-4D38-B3EF-5C0F8A7E3E1A`, the "Memo-Steered Notes" reserved sentinel):
 
 | Name | UUID (reserved) | Default shortcut | Default prompt |
 |---|---|---|---|
 | Polish | `0FCE9DDB-7E2D-4B1A-AE3E-6F7C9B2A4D11` | `⌥ Opt + 1` | Promotes tone-preserving clarity. Rewrites the input text to be cleaner, more concise, and grammatically correct without changing register or stylistic voice. Returns only the rewritten text. |
-| Prompt Engineer | `1AD7C2B0-9C6F-4F0E-9C39-5E4D1F1D2A55` | `⌥ Opt + 2` | Rewrites loose, conversational instructions as well-structured prompts suitable for an LLM. Adds explicit role framing, output constraints, and worked examples only when the input demands them. Returns only the rewritten prompt. |
+| Distill | `1AD7C2B0-9C6F-4F0E-9C39-5E4D1F1D2A55` | `⌥ Opt + 2` | Compresses rambling text to its signal while preserving actionable meaning, context, and the reasoning behind decisions. Returns only the distilled text. |
+| Decide | `2BE8D3C1-4A7F-4EBD-8F12-7C9A1E0B3D44` | `⌥ Opt + 3` | Rewrites discussion into a decision-ready note with the question, options, tradeoffs, recommendation, and any blocking uncertainty. Returns only the rewritten note. |
 
 The prompt bodies will land in the implementation commit with a deliberate, premium tone — these are user-facing built-ins.
 
-Reconciler updates: the existing prompt reconciler (`PromptRepository.reconcileBuiltIns`) gains awareness of `.transform` built-ins. It re-seeds missing rows but **never overwrites a user-edited built-in row** — same contract as `.result` built-ins today.
+Reconciler updates: the existing prompt reconciler gains awareness of `.transform` built-ins. It re-seeds missing rows and preserves user-editable fields on existing Transform built-ins (name, content, shortcut, running label, and edit timestamp), while still normalizing structural fields such as category, visibility, auto-run state, and sort order.
 
 ### TransformsHotkeyRegistry (single event tap, N transforms)
 
@@ -217,7 +218,7 @@ Single sprint, single branch, multiple logical commits.
 1. Migration: extend `prompts` table.
 2. `KeyboardShortcut` model + Codable.
 3. Update `Prompt.Columns` + Codable to round-trip new fields.
-4. Seed Polish + Prompt Engineer built-ins. Reserve UUIDs. Update reconciler.
+4. Seed Polish / Distill / Decide built-ins. Reserve UUIDs. Update reconciler.
 5. `TransformsHotkeyRegistry` actor + collision detection.
 6. `TransformsCoordinator` (replaces spike coordinator).
 7. Tests: migration, reconciler, registry collision rules, coordinator lifecycle.
@@ -297,8 +298,8 @@ All tests deterministic. No network. LLM mocked via `LLMServiceProtocol`.
 
 ## Open questions (very few — most settled by design doc)
 
-1. **Default shortcut for Prompt Engineer.** Design doc suggests `Opt+2`. Confirming that's fine vs. e.g. `Opt+P`.
-2. **Reset to defaults scope.** Does *Reset to defaults* on the Transforms tab header restore both built-ins to their defaults (overwriting user edits), or does it only re-seed missing built-ins? Recommend: only re-seed missing. A per-card *Reset* button on each built-in handles overwrite-with-confirmation. → **Locked: only re-seed missing; per-card reset for individual overwrite.**
+1. **Built-in lineup and shortcuts.** Locked 2026-05-12: Polish (`Opt+1`), Distill (`Opt+2`), Decide (`Opt+3`); `Opt+4` through `Opt+9` remain open for user customization.
+2. **Reset to defaults scope.** Does *Reset to defaults* on the Transforms tab header restore all built-ins to their defaults (overwriting user edits), or does it only re-seed missing built-ins? Recommend: only re-seed missing. A per-card *Reset* button on each built-in handles overwrite-with-confirmation. → **Locked: only re-seed missing; per-card reset for individual overwrite.**
 3. **Custom transform name in telemetry.** Currently planned to send `custom` for any non-built-in. Alternative is to send a hash of the name. Recommend: stick with `custom` for privacy.
 
 If anything else surfaces during implementation, this plan gets amended in place; the implementation commit references the amendment.

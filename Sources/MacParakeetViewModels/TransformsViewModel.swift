@@ -104,7 +104,7 @@ public final class TransformsViewModel {
     /// custom Transforms (they don't have a default to revert to).
     @discardableResult
     public func resetBuiltIn(_ prompt: Prompt) -> Bool {
-        guard let repo, prompt.isBuiltIn else { return false }
+        guard prompt.isBuiltIn, repo != nil else { return false }
         guard let canonical = Prompt.builtInPrompts().first(where: { $0.id == prompt.id }) else {
             return false
         }

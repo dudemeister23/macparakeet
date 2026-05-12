@@ -95,6 +95,36 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
         XCTAssertTrue(registry.isEmpty)
     }
 
+    func testHandleKeyUpSwallowsOwnedShortcutEvenAfterModifiersClear() throws {
+        let registry = TransformsHotkeyRegistry()
+        let id = UUID()
+        registry.register(
+            promptID: id,
+            shortcut: KeyboardShortcut(
+                modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
+                keyCode: 0x12,
+                keyLabel: "1"
+            )
+        )
+
+        var triggeredIDs: [UUID] = []
+        registry.onTrigger = { triggeredIDs.append($0) }
+
+        let keyDown = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0x12, keyDown: true))
+        keyDown.flags = .maskAlternate
+
+        XCTAssertNil(registry.handleEvent(type: .keyDown, event: keyDown))
+        XCTAssertEqual(triggeredIDs, [id])
+
+        let keyUp = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0x12, keyDown: false))
+        keyUp.flags = []
+
+        XCTAssertNil(registry.handleEvent(type: .keyUp, event: keyUp))
+
+        let unrelatedKeyUp = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0x13, keyDown: false))
+        XCTAssertNotNil(registry.handleEvent(type: .keyUp, event: unrelatedKeyUp))
+    }
+
     // MARK: - Collision detection
 
     private let checker = TransformsHotkeyCollisionChecker()
@@ -106,7 +136,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: bareKey,
                 existing: [:],
                 excludingPromptID: nil,
-                dictationHotkey: nil,
+                dictationHotkeys: [],
                 meetingHotkey: nil
             ),
             .missingModifier
@@ -124,7 +154,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: optE,
                 existing: [:],
                 excludingPromptID: nil,
-                dictationHotkey: nil,
+                dictationHotkeys: [],
                 meetingHotkey: nil
             ),
             .macOSDeadKey
@@ -142,7 +172,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
             candidate: opt1,
             existing: [otherID: opt1],
             excludingPromptID: nil,
-            dictationHotkey: nil,
+            dictationHotkeys: [],
             meetingHotkey: nil
         )
         XCTAssertEqual(result, .duplicateTransform(otherPromptID: otherID))
@@ -162,7 +192,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [selfID: opt1],
                 excludingPromptID: selfID,
-                dictationHotkey: nil,
+                dictationHotkeys: [],
                 meetingHotkey: nil
             )
         )
@@ -179,7 +209,25 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [:],
                 excludingPromptID: nil,
-                dictationHotkey: opt1,
+                dictationHotkeys: [opt1.hotkeyTrigger],
+                meetingHotkey: nil
+            ),
+            .dictationHotkey
+        )
+    }
+
+    func testCollisionModifierOnlyDictationHotkeyConflictsWithChordUsingThatModifier() {
+        let opt1 = KeyboardShortcut(
+            modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
+            keyCode: 0x12,
+            keyLabel: "1"
+        )
+        XCTAssertEqual(
+            checker.check(
+                candidate: opt1,
+                existing: [:],
+                excludingPromptID: nil,
+                dictationHotkeys: [.option],
                 meetingHotkey: nil
             ),
             .dictationHotkey
@@ -197,8 +245,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [:],
                 excludingPromptID: nil,
-                dictationHotkey: nil,
-                meetingHotkey: opt1
+                dictationHotkeys: [],
+                meetingHotkey: opt1.hotkeyTrigger
             ),
             .meetingHotkey
         )
@@ -220,7 +268,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt2,
                 existing: [UUID(): opt1],
                 excludingPromptID: nil,
-                dictationHotkey: nil,
+                dictationHotkeys: [],
                 meetingHotkey: nil
             )
         )
@@ -235,7 +283,7 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
             candidate: bare,
             existing: [UUID(): bare],
             excludingPromptID: nil,
-            dictationHotkey: nil,
+            dictationHotkeys: [],
             meetingHotkey: nil
         )
         XCTAssertEqual(result, .missingModifier)

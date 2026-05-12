@@ -15,8 +15,9 @@ import MacParakeetViewModels
 struct TransformEditorSheet: View {
     @Bindable var viewModel: TransformEditorViewModel
     let existingTransforms: [Prompt]
-    let dictationHotkey: TransformShortcut?
-    let meetingHotkey: TransformShortcut?
+    let dictationHotkeys: [HotkeyTrigger]
+    let meetingHotkey: HotkeyTrigger?
+    let onShortcutRecordingStateChanged: (Bool) -> Void
     let onSave: (Prompt) -> Void
     let onCancel: () -> Void
     let onReset: (() -> Void)?
@@ -107,7 +108,8 @@ struct TransformEditorSheet: View {
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
                 ShortcutRecorderField(
                     shortcut: $viewModel.shortcut,
-                    isRecording: $isRecordingShortcut
+                    isRecording: $isRecordingShortcut,
+                    onRecordingStateChanged: onShortcutRecordingStateChanged
                 )
                 .onChange(of: viewModel.shortcut) { _, _ in revalidate() }
 
@@ -204,7 +206,7 @@ struct TransformEditorSheet: View {
     private func revalidate() {
         viewModel.validate(
             existingTransforms: existingTransforms,
-            dictationHotkey: dictationHotkey,
+            dictationHotkeys: dictationHotkeys,
             meetingHotkey: meetingHotkey,
             collisionChecker: collisionChecker
         )
@@ -260,7 +262,9 @@ private struct ValidationRow: View {
 struct ShortcutRecorderField: View {
     @Binding var shortcut: TransformShortcut?
     @Binding var isRecording: Bool
+    let onRecordingStateChanged: (Bool) -> Void
     @State private var localMonitor: Any?
+    @State private var notifiedRecordingActive = false
 
     var body: some View {
         HStack {
@@ -311,12 +315,14 @@ struct ShortcutRecorderField: View {
         }
         .onChange(of: isRecording) { _, recording in
             if recording {
+                notifyRecordingState(true)
                 installMonitor()
             } else {
                 removeMonitor()
+                notifyRecordingState(false)
             }
         }
-        .onDisappear { removeMonitor() }
+        .onDisappear { stopRecordingIfNeeded() }
     }
 
     private func installMonitor() {
@@ -340,6 +346,20 @@ struct ShortcutRecorderField: View {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
         }
+    }
+
+    private func stopRecordingIfNeeded() {
+        if isRecording {
+            isRecording = false
+        }
+        removeMonitor()
+        notifyRecordingState(false)
+    }
+
+    private func notifyRecordingState(_ active: Bool) {
+        guard notifiedRecordingActive != active else { return }
+        notifiedRecordingActive = active
+        onRecordingStateChanged(active)
     }
 
     private func labelForKey(event: NSEvent) -> String {
