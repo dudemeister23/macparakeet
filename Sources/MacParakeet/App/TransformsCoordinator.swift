@@ -29,6 +29,7 @@ final class TransformsCoordinator {
     private var panelController: TransformSpikeProgressPanelController?
     private var executor: TransformExecutor?
     private var inFlightTask: Task<Void, Never>?
+    private var bindingsChangedObserver: NSObjectProtocol?
 
     /// Per-run identity for stale-event guarding. See the same pattern in
     /// the spike coordinator: if the user re-triggers a hotkey mid-flight,
@@ -70,6 +71,16 @@ final class TransformsCoordinator {
         if registry.start() {
             self.registry = registry
             reloadBindings()
+            // Save/delete/reset on the Transforms tab posts this notification.
+            bindingsChangedObserver = NotificationCenter.default.addObserver(
+                forName: .transformsBindingsChanged,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reloadBindings()
+                }
+            }
             logger.notice("transforms: registry started with \(self.promptIndex.count, privacy: .public) bindings")
         } else {
             logger.error("transforms: failed to install registry event tap")
@@ -84,6 +95,10 @@ final class TransformsCoordinator {
         registry = nil
         panelController?.close()
         panelController = nil
+        if let observer = bindingsChangedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            bindingsChangedObserver = nil
+        }
     }
 
     /// Re-read `.transform` prompts from the repository and rebuild the

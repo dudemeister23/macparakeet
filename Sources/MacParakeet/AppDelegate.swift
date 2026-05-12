@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let chatViewModel = TranscriptChatViewModel()
     private let promptResultsViewModel = PromptResultsViewModel()
     private let promptsViewModel = PromptsViewModel()
+    private let transformsViewModel = TransformsViewModel()
     private let mainWindowState = MainWindowState()
     /// Long-lived companion for the meeting recording pill + Transcribe-tab tile.
     /// `MeetingRecordingFlowCoordinator` writes state into it; both the floating
@@ -97,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         chatViewModel: chatViewModel,
         promptResultsViewModel: promptResultsViewModel,
         promptsViewModel: promptsViewModel,
+        transformsViewModel: transformsViewModel,
         mainWindowState: mainWindowState,
         meetingPillViewModel: meetingPillViewModel
     )
@@ -144,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         chatViewModel: chatViewModel,
         promptResultsViewModel: promptResultsViewModel,
         promptsViewModel: promptsViewModel,
+        transformsViewModel: transformsViewModel,
         customWordsViewModel: customWordsViewModel,
         textSnippetsViewModel: textSnippetsViewModel,
         vocabularyBackupViewModel: vocabularyBackupViewModel,
