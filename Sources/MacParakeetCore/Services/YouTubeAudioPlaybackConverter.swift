@@ -92,9 +92,7 @@ public final class YouTubeAudioPlaybackConverter: YouTubeAudioPlaybackConverting
         // deterministic identical bytes; the last move wins. AVPlayer
         // never observes a partial write because it isn't pointed at the
         // m4a path until conversion completes.
-        let tempOutputURL = URL(fileURLWithPath: outputURL.path)
-            .deletingLastPathComponent()
-            .appendingPathComponent("\(outputURL.lastPathComponent).tmp-\(UUID().uuidString)")
+        let tempOutputURL = Self.temporaryOutputURL(for: outputURL)
 
         try await runFFmpegWithDyldFallback(
             primaryPath: ffmpegPath,
@@ -146,6 +144,15 @@ public final class YouTubeAudioPlaybackConverter: YouTubeAudioPlaybackConverting
             "-y",
             outputPath
         ]
+    }
+
+    static func temporaryOutputURL(for outputURL: URL, uuid: UUID = UUID()) -> URL {
+        outputURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(outputURL.deletingPathExtension().lastPathComponent).tmp-\(uuid.uuidString)"
+            )
+            .appendingPathExtension(outputURL.pathExtension)
     }
 
     // MARK: - Private

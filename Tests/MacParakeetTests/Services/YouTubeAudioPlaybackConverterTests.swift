@@ -71,6 +71,19 @@ final class YouTubeAudioPlaybackConverterTests: XCTestCase {
         ])
     }
 
+    func testTemporaryOutputURLKeepsM4AExtensionForFFmpegFormatDetection() {
+        let uuid = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let outputURL = URL(fileURLWithPath: "/tmp/source.m4a")
+
+        let tempURL = YouTubeAudioPlaybackConverter.temporaryOutputURL(
+            for: outputURL,
+            uuid: uuid
+        )
+
+        XCTAssertEqual(tempURL.lastPathComponent, "source.tmp-\(uuid.uuidString).m4a")
+        XCTAssertEqual(tempURL.pathExtension, "m4a")
+    }
+
     // MARK: - convertToPlayableM4AIfNeeded passthrough
 
     func testConvertReturnsInputPathUnchangedForAlreadyPlayableFile() async throws {

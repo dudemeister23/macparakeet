@@ -87,7 +87,10 @@ extension TranscriptionRepositoryProtocol {
     public func fetchFavorites() throws -> [Transcription] { [] }
 }
 
-public final class TranscriptionRepository: TranscriptionRepositoryProtocol {
+// GRDB's DatabaseQueue serializes reads/writes internally, so sharing this
+// repository across tasks is intentional even though DatabaseQueue does not
+// advertise Swift Sendable conformance.
+public final class TranscriptionRepository: TranscriptionRepositoryProtocol, @unchecked Sendable {
     private let dbQueue: DatabaseQueue
 
     public init(dbQueue: DatabaseQueue) {

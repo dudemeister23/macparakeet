@@ -99,7 +99,7 @@ YouTube URL → yt-dlp (audio only) → downloaded audio file → FFmpeg → 16k
 - `yt-dlp` is used with `--no-playlist` for single-video processing
 - YouTube audio quality is configurable:
   - **M4A** (default): `bestaudio[ext=m4a]/bestaudio/best`, preferring Apple-friendly saved audio files while falling back when m4a is unavailable
-  - **Best available**: `bestaudio/best`, allowing higher-quality source streams such as Opus/WebM when YouTube offers them. Issue #237 measured ~10% lower Parakeet WER on Opus vs m4a for a Stanford speech. After STT completes, retained WebM/Opus/Ogg/MKV downloads are transcoded to `.m4a` (AAC 192k, faststart) in the background via bundled `ffmpeg` so AVPlayer can decode them for the in-app audio scrubber; conversion failures are non-fatal and the Show Video stream fallback remains available. Skipped entirely when retention is disabled.
+  - **Best available**: `bestaudio/best`, allowing higher-quality source streams such as Opus/WebM when YouTube offers them. Issue #237 measured ~10% lower Parakeet WER on Opus vs m4a for a Stanford speech. After STT completes, retained WebM/WebA/Opus/Ogg/MKV downloads are transcoded to `.m4a` (AAC 192k, faststart) in the background via bundled `ffmpeg` so AVPlayer can decode them for the in-app audio scrubber; conversion failures are non-fatal and the Show Video stream fallback remains available. Skipped entirely when retention is disabled.
 - Download progress is parsed from yt-dlp output and surfaced as percent updates
 - Downloaded files are written to:
 
@@ -124,7 +124,7 @@ User pastes YouTube URL
     → Send to selected local STT engine (emit "Transcribing... X%")
     → Save transcription (sourceURL set, filePath set only if retention enabled)
     → Clean up temp WAV (always)
-    → If retention enabled AND saved file is WebM/Opus/Ogg/MKV,
+    → If retention enabled AND saved file is WebM/WebA/Opus/Ogg/MKV,
         schedule a detached `ffmpeg` transcode to `.m4a` so the in-app
         audio scrubber can decode it. Update the row's `filePath` and
         delete the source on success. Non-fatal on failure.

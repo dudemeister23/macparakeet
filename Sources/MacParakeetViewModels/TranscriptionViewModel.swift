@@ -519,13 +519,13 @@ public final class TranscriptionViewModel {
         transcriptionID: UUID,
         newFilePath: String,
         sourceFileToCleanup: String? = nil
-    ) {
+    ) throws {
         guard let repo = transcriptionRepo else { return }
         do {
             try repo.updateFilePath(id: transcriptionID, filePath: newFilePath)
         } catch {
             logger.error("transcription_file_path_update_failed id=\(transcriptionID, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
-            return
+            throw error
         }
         if let sourceFileToCleanup, sourceFileToCleanup != newFilePath {
             try? FileManager.default.removeItem(atPath: sourceFileToCleanup)

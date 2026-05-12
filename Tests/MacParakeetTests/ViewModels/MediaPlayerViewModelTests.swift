@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import MacParakeetCore
 @testable import MacParakeetViewModels
@@ -188,7 +189,11 @@ final class MediaPlayerViewModelTests: XCTestCase {
         // Give the @MainActor task a couple of runloop hops to settle.
         try? await Task.sleep(nanoseconds: 50_000_000)
 
-        XCTAssertEqual(stubConverter.invocationCount, 0, "Converter must not run when callback is absent")
+        let invocationCount = await stubConverter.currentInvocationCount()
+        XCTAssertEqual(invocationCount, 0, "Converter must not run when callback is absent")
+        XCTAssertNil(vm.player)
+        XCTAssertEqual(vm.playerState, .idle)
+        XCTAssertTrue(vm.needsVideoStreamLoad, "Show Video fallback should remain available")
     }
 
     @MainActor
@@ -210,16 +215,26 @@ final class MediaPlayerViewModelTests: XCTestCase {
         let stubConverter = SuspendingStubPlaybackConverter()
         let vm = MediaPlayerViewModel(playbackConverter: stubConverter)
         vm.onPlaybackFilePathConverted = { _, _, _ in }
+        vm.player = AVPlayer()
+        vm.isPlaying = true
+        vm.currentTimeMs = 12_345
+        vm.durationMs = 67_890
+        vm.playerState = .ready
 
         let transcription = Transcription(
             fileName: "Talk",
             filePath: webm.path,
+            durationMs: 45_000,
             sourceURL: "https://www.youtube.com/watch?v=abc"
         )
         await vm.prepare(for: transcription)
 
         XCTAssertEqual(vm.playerState, .loading,
                        "Player should be `.loading` while the lazy m4a transcode is in flight")
+        XCTAssertNil(vm.player)
+        XCTAssertFalse(vm.isPlaying)
+        XCTAssertEqual(vm.currentTimeMs, 0)
+        XCTAssertEqual(vm.durationMs, 45_000)
 
         vm.cleanup()
     }
@@ -298,20 +313,21 @@ private final class InvocationCounter: @unchecked Sendable {
     }
 }
 
-private final class StubPlaybackConverter: YouTubeAudioPlaybackConverting, @unchecked Sendable {
+private actor StubPlaybackConverter: YouTubeAudioPlaybackConverting {
     private let transformedPath: String
     private(set) var invocationCount: Int = 0
-    private let lock = NSLock()
 
     init(transformedPath: String) {
         self.transformedPath = transformedPath
     }
 
     func convertToPlayableM4AIfNeeded(inputPath: String) async throws -> String {
-        lock.lock()
         invocationCount += 1
-        lock.unlock()
         return transformedPath
+    }
+
+    func currentInvocationCount() -> Int {
+        invocationCount
     }
 }
 

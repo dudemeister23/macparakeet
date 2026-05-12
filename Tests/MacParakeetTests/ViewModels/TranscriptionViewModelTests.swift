@@ -515,6 +515,87 @@ final class TranscriptionViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
     }
 
+    // MARK: - Playback Path Migration
+
+    func testApplyConvertedPlaybackPathDeletesSourceAfterDBUpdate() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macparakeet-playback-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let sourceURL = dir.appendingPathComponent("source.webm")
+        let convertedURL = dir.appendingPathComponent("source.m4a")
+        XCTAssertTrue(FileManager.default.createFile(atPath: sourceURL.path, contents: Data("webm".utf8)))
+        XCTAssertTrue(FileManager.default.createFile(atPath: convertedURL.path, contents: Data("m4a".utf8)))
+
+        let transcription = Transcription(
+            fileName: "Video",
+            filePath: sourceURL.path,
+            status: .completed,
+            sourceURL: "https://youtu.be/dQw4w9WgXcQ",
+            sourceType: .youtube
+        )
+        mockRepo.transcriptions = [transcription]
+
+        viewModel.configure(transcriptionService: mockService, transcriptionRepo: mockRepo)
+        viewModel.currentTranscription = transcription
+
+        try viewModel.applyConvertedPlaybackPath(
+            transcriptionID: transcription.id,
+            newFilePath: convertedURL.path,
+            sourceFileToCleanup: sourceURL.path
+        )
+
+        XCTAssertEqual(mockRepo.updateFilePathCalls.count, 1)
+        XCTAssertEqual(mockRepo.updateFilePathCalls.first?.id, transcription.id)
+        XCTAssertEqual(mockRepo.updateFilePathCalls.first?.filePath, convertedURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: convertedURL.path))
+        XCTAssertEqual(mockRepo.transcriptions.first?.filePath, convertedURL.path)
+        XCTAssertEqual(viewModel.currentTranscription?.filePath, convertedURL.path)
+        XCTAssertEqual(viewModel.transcriptions.first?.filePath, convertedURL.path)
+    }
+
+    func testApplyConvertedPlaybackPathKeepsSourceWhenDBUpdateFails() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macparakeet-playback-path-fail-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let sourceURL = dir.appendingPathComponent("source.webm")
+        let convertedURL = dir.appendingPathComponent("source.m4a")
+        XCTAssertTrue(FileManager.default.createFile(atPath: sourceURL.path, contents: Data("webm".utf8)))
+        XCTAssertTrue(FileManager.default.createFile(atPath: convertedURL.path, contents: Data("m4a".utf8)))
+
+        let transcription = Transcription(
+            fileName: "Video",
+            filePath: sourceURL.path,
+            status: .completed,
+            sourceURL: "https://youtu.be/dQw4w9WgXcQ",
+            sourceType: .youtube
+        )
+        mockRepo.transcriptions = [transcription]
+        mockRepo.updateFilePathError = NSError(domain: "repo", code: 1)
+
+        viewModel.configure(transcriptionService: mockService, transcriptionRepo: mockRepo)
+        viewModel.currentTranscription = transcription
+
+        XCTAssertThrowsError(try viewModel.applyConvertedPlaybackPath(
+            transcriptionID: transcription.id,
+            newFilePath: convertedURL.path,
+            sourceFileToCleanup: sourceURL.path
+        ))
+
+        XCTAssertEqual(mockRepo.updateFilePathCalls.count, 1)
+        XCTAssertEqual(mockRepo.updateFilePathCalls.first?.id, transcription.id)
+        XCTAssertEqual(mockRepo.updateFilePathCalls.first?.filePath, convertedURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: convertedURL.path))
+        XCTAssertEqual(mockRepo.transcriptions.first?.filePath, sourceURL.path)
+        XCTAssertEqual(viewModel.currentTranscription?.filePath, sourceURL.path)
+        XCTAssertEqual(viewModel.transcriptions.first?.filePath, sourceURL.path)
+    }
+
     func testDeleteFailureKeepsCurrentSelection() {
         let t = Transcription(fileName: "keep.mp3", rawTranscript: "Hello", status: .completed)
         mockRepo.transcriptions = [t]

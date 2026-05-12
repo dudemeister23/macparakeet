@@ -46,7 +46,7 @@ public final class MediaPlayerViewModel {
     /// otherwise the row would still reference a now-deleted source. When
     /// `nil`, the lazy migration is suppressed entirely (we'd otherwise
     /// produce an orphan .m4a the DB couldn't point at).
-    public var onPlaybackFilePathConverted: (@Sendable (UUID, String, String) -> Void)?
+    public var onPlaybackFilePathConverted: (@MainActor @Sendable (UUID, String, String) async throws -> Void)?
 
     private var subtitleCues: [ExportService.SubtitleCue] = []
     private var lastCueIndex: Int = -1
@@ -100,27 +100,36 @@ public final class MediaPlayerViewModel {
         // Set duration from transcription metadata so the scrubber shows the correct
         // total time immediately — AVPlayer may fail to read duration from downloaded
         // audio (e.g. webm/opus format) or the async asset load may not complete yet.
-        if let transcriptionDurationMs = transcription.durationMs, transcriptionDurationMs > 0 {
-            durationMs = transcriptionDurationMs
+        let knownDurationMs = transcription.durationMs.flatMap { $0 > 0 ? $0 : nil }
+        if let knownDurationMs {
+            durationMs = knownDurationMs
         }
 
         if let filePath = transcription.filePath,
            FileManager.default.fileExists(atPath: filePath) {
-            if YouTubeAudioPlaybackConverter.needsConversion(forPath: filePath),
-               let persist = onPlaybackFilePathConverted {
-                // Existing webm-backed transcription (predates issue #237's
-                // playback fix). Transcode to .m4a in the background so
-                // the audio scrubber starts working. Show `.loading` while
-                // the transcode runs so the play button isn't presented as
-                // ready before the player is actually loaded — the swap
-                // back to `.ready` happens inside the conversion task.
-                playerState = .loading
-                schedulePlaybackConversion(
-                    inputPath: filePath,
-                    transcriptionId: transcription.id,
-                    persist: persist
-                )
-                logger.info("Prepared YouTube media: queued lazy m4a conversion for unplayable saved audio")
+            if YouTubeAudioPlaybackConverter.needsConversion(forPath: filePath) {
+                clearLoadedPlayer()
+                if let knownDurationMs {
+                    durationMs = knownDurationMs
+                }
+                if let persist = onPlaybackFilePathConverted {
+                    // Existing webm-backed transcription (predates issue #237's
+                    // playback fix). Transcode to .m4a in the background so
+                    // the audio scrubber starts working. Show `.loading` while
+                    // the transcode runs so the play button isn't presented as
+                    // ready before the player is actually loaded — the swap
+                    // back to `.ready` happens inside the conversion task.
+                    playerState = .loading
+                    schedulePlaybackConversion(
+                        inputPath: filePath,
+                        transcriptionId: transcription.id,
+                        persist: persist
+                    )
+                    logger.info("Prepared YouTube media: queued lazy m4a conversion for unplayable saved audio")
+                } else {
+                    playerState = .idle
+                    logger.info("Prepared YouTube media: saved audio needs conversion but no persistence callback is wired; using Show Video fallback")
+                }
             } else {
                 loadLocalFile(filePath)
                 playerState = .ready
@@ -142,7 +151,7 @@ public final class MediaPlayerViewModel {
     private func schedulePlaybackConversion(
         inputPath: String,
         transcriptionId: UUID,
-        persist: @escaping @Sendable (UUID, String, String) -> Void
+        persist: @escaping @MainActor @Sendable (UUID, String, String) async throws -> Void
     ) {
         playbackConversionTask?.cancel()
         let converter = playbackConverter
@@ -166,7 +175,7 @@ public final class MediaPlayerViewModel {
                 // retries. Until 9a1fda2e the VM scheduled its own
                 // `removeItem` here in parallel with `persist`, which was a
                 // race with the persist's own internal task.
-                persist(transcriptionId, newPath, inputPath)
+                try await persist(transcriptionId, newPath, inputPath)
                 // Only swap the active player if we're still presenting
                 // the audio-scrubber state for this transcription. If the
                 // user clicked Show Video in the meantime, `needsVideoStreamLoad`
@@ -337,6 +346,24 @@ public final class MediaPlayerViewModel {
         let playerItem = AVPlayerItem(url: url)
         setupPlayer(with: playerItem)
         playerState = .ready
+    }
+
+    private func clearLoadedPlayer() {
+        if let timeObserver, let player {
+            player.removeTimeObserver(timeObserver)
+        }
+        timeObserver = nil
+        statusObserver?.invalidate()
+        statusObserver = nil
+        if let endOfTrackObserver {
+            NotificationCenter.default.removeObserver(endOfTrackObserver)
+        }
+        endOfTrackObserver = nil
+        player?.pause()
+        player = nil
+        isPlaying = false
+        currentTimeMs = 0
+        durationMs = 0
     }
 
     private func setupPlayer(with item: AVPlayerItem) {
