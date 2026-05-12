@@ -41,6 +41,10 @@
   <img src="Assets/screenshots/dictations.png?v=4" width="720" alt="MacParakeet — Dictation Stats with streak heatmap and top apps">
 </p>
 
+<p align="center">
+  <img src="Assets/screenshots/meeting-recording.png?v=4" width="720" alt="MacParakeet — Live meeting recording with floating pill and Notes/Transcript/Ask panel">
+</p>
+
 ---
 
 MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The v0.6 release scope includes system-wide dictation, file/URL transcription, meeting recording, and optional local WhisperKit recognition for languages Parakeet does not cover. All speech recognition happens on your Mac.
