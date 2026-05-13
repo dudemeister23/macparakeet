@@ -40,6 +40,15 @@ public final class TransformsViewModel {
     private var clipboardService: ClipboardServiceProtocol?
     private var copiedResetTask: Task<Void, Never>?
 
+    /// Monotonic counter advanced on every load / delete / clear so that
+    /// an older in-flight snapshot can't overwrite a newer one. Concurrent
+    /// `loadHistory()` (triggered by `.transformHistoryChanged`
+    /// notifications during rapid runs) racing a user-triggered delete is
+    /// the realistic race this guards against — without it the older
+    /// snapshot would briefly resurrect the just-deleted row until the
+    /// next notification reloaded.
+    private var historySnapshotGeneration: Int = 0
+
     public init() {}
 
     public func configure(
@@ -52,10 +61,11 @@ public final class TransformsViewModel {
         self.historyRepo = historyRepo
         self.clipboardService = clipboardService
         self.hasLLMProvider = hasLLMProvider
-        Task {
-            await load()
-            await loadHistory()
-        }
+        // `loadHistory()` is driven by the view (`.onAppear` and the
+        // `.transformHistoryChanged` notification). Doing it here too
+        // would race the view's first explicit load and clobber state
+        // when the generation-guarded snapshot resolves out of order.
+        Task { await load() }
     }
 
     /// Refresh the list from the repository. Built-ins are seeded by the
@@ -147,19 +157,24 @@ public final class TransformsViewModel {
     /// the "showing N of M" footer.
     public func loadHistory() async {
         guard let historyRepo else {
+            historySnapshotGeneration += 1
             history = []
             totalHistoryCount = 0
             return
         }
+        historySnapshotGeneration += 1
+        let myGeneration = historySnapshotGeneration
         do {
             let snapshot = try await Self.fetchHistorySnapshot(
                 repo: historyRepo,
                 limit: Self.historyFetchLimit
             )
+            guard myGeneration == historySnapshotGeneration else { return }
             history = snapshot.entries
             totalHistoryCount = snapshot.totalCount
             historyErrorMessage = nil
         } catch {
+            guard myGeneration == historySnapshotGeneration else { return }
             history = []
             totalHistoryCount = 0
             historyErrorMessage = error.localizedDescription
@@ -168,16 +183,20 @@ public final class TransformsViewModel {
 
     public func deleteHistoryEntry(_ entry: TransformHistoryEntry) async {
         guard let historyRepo else { return }
+        historySnapshotGeneration += 1
+        let myGeneration = historySnapshotGeneration
         do {
             let snapshot = try await Self.deleteHistoryEntryAndFetchSnapshot(
                 repo: historyRepo,
                 id: entry.id,
                 limit: Self.historyFetchLimit
             )
+            guard myGeneration == historySnapshotGeneration else { return }
             history = snapshot.entries
             totalHistoryCount = snapshot.totalCount
             historyErrorMessage = nil
         } catch {
+            guard myGeneration == historySnapshotGeneration else { return }
             historyErrorMessage = error.localizedDescription
         }
     }
@@ -190,16 +209,20 @@ public final class TransformsViewModel {
 
     public func clearHistory() async {
         guard let historyRepo else { return }
+        historySnapshotGeneration += 1
+        let myGeneration = historySnapshotGeneration
         do {
             let snapshot = try await Self.clearHistoryAndFetchSnapshot(
                 repo: historyRepo,
                 limit: Self.historyFetchLimit
             )
+            guard myGeneration == historySnapshotGeneration else { return }
             history = snapshot.entries
             totalHistoryCount = snapshot.totalCount
             isConfirmingClearHistory = false
             historyErrorMessage = nil
         } catch {
+            guard myGeneration == historySnapshotGeneration else { return }
             historyErrorMessage = error.localizedDescription
         }
     }
@@ -231,9 +254,7 @@ public final class TransformsViewModel {
         limit: Int
     ) async throws -> (entries: [TransformHistoryEntry], totalCount: Int) {
         try await Task.detached(priority: .userInitiated) {
-            let entries = try repo.fetchRecent(limit: limit)
-            let totalCount = try repo.count()
-            return (entries, totalCount)
+            try repo.fetchRecentWithCount(limit: limit)
         }.value
     }
 
@@ -244,9 +265,7 @@ public final class TransformsViewModel {
     ) async throws -> (entries: [TransformHistoryEntry], totalCount: Int) {
         try await Task.detached(priority: .userInitiated) {
             _ = try repo.delete(id: id)
-            let entries = try repo.fetchRecent(limit: limit)
-            let totalCount = try repo.count()
-            return (entries, totalCount)
+            return try repo.fetchRecentWithCount(limit: limit)
         }.value
     }
 
@@ -256,9 +275,7 @@ public final class TransformsViewModel {
     ) async throws -> (entries: [TransformHistoryEntry], totalCount: Int) {
         try await Task.detached(priority: .userInitiated) {
             try repo.deleteAll()
-            let entries = try repo.fetchRecent(limit: limit)
-            let totalCount = try repo.count()
-            return (entries, totalCount)
+            return try repo.fetchRecentWithCount(limit: limit)
         }.value
     }
 

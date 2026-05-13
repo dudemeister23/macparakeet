@@ -574,4 +574,93 @@ final class TransformsCommandTests: XCTestCase {
             XCTAssertEqual(provided, "abc")
         }
     }
+
+    func testHistoryShowRejectsNonHexPrefix() throws {
+        // Regression: a length-only check accepted inputs like "12--" that
+        // would never match any UUID. Validate against the hyphenless hex
+        // form so non-hex characters surface as a validation error.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "12zz",
+            "--database", dbPath,
+        ])
+
+        XCTAssertThrowsError(try show.run()) { error in
+            guard case CLITransformHistoryError.prefixTooShort = error else {
+                XCTFail("Expected prefixTooShort for non-hex prefix, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testHistoryShowJSONMapsTooShortPrefixToValidationError() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "abc",
+            "--database", dbPath,
+            "--json",
+        ])
+
+        var thrownError: Error?
+        let output = try captureStandardOutput {
+            do {
+                try show.run()
+            } catch {
+                thrownError = error
+            }
+        }
+
+        let exit = try XCTUnwrap(thrownError as? ExitCode)
+        XCTAssertEqual(exit.rawValue, 2)
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(object["ok"] as? Bool, false)
+        XCTAssertEqual(object["errorType"] as? String, "validation")
+    }
+
+    func testHistoryShowJSONMapsMissingItemToLookupError() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "abcd",
+            "--database", dbPath,
+            "--json",
+        ])
+
+        var thrownError: Error?
+        let output = try captureStandardOutput {
+            do {
+                try show.run()
+            } catch {
+                thrownError = error
+            }
+        }
+
+        let exit = try XCTUnwrap(thrownError as? ExitCode)
+        XCTAssertEqual(exit, .failure)
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(object["ok"] as? Bool, false)
+        XCTAssertEqual(object["errorType"] as? String, "lookup")
+    }
 }

@@ -361,6 +361,61 @@ final class TransformsViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isConfirmingClearHistory)
     }
 
+    func testDeleteHistoryEntryWorksWithoutPendingState() async throws {
+        // Regression: SwiftUI alert sets `pendingDeleteHistoryEntry = nil`
+        // before the Delete button's Task runs. The view must call
+        // `deleteHistoryEntry(entry)` with the closure-captured entry, not
+        // route through `confirmPendingHistoryDelete()` (which would read a
+        // now-nil pending field and silently no-op).
+        let entry = TransformHistoryEntry(
+            transformName: "Polish",
+            inputText: "rough",
+            outputText: "polished",
+            capturePath: "ax",
+            replacementPath: "ax",
+            llmElapsedMs: 1,
+            totalElapsedMs: 2
+        )
+        try historyRepo.save(entry)
+        await viewModel.loadHistory()
+        XCTAssertEqual(viewModel.history.count, 1)
+
+        viewModel.pendingDeleteHistoryEntry = nil  // simulate SwiftUI binding clear
+
+        await viewModel.deleteHistoryEntry(entry)
+
+        XCTAssertTrue(viewModel.history.isEmpty)
+        XCTAssertEqual(viewModel.totalHistoryCount, 0)
+    }
+
+    func testHistorySnapshotGenerationGuardsAgainstStaleLoadAfterDelete() async throws {
+        // Regression: a `loadHistory` triggered by a transformHistoryChanged
+        // notification can race a user-triggered delete. Without a
+        // generation guard, the stale load could resurrect the just-deleted
+        // row until the next notification reloaded.
+        let first = TransformHistoryEntry(
+            transformName: "Polish",
+            inputText: "rough",
+            outputText: "polished",
+            capturePath: "ax",
+            replacementPath: "ax",
+            llmElapsedMs: 1,
+            totalElapsedMs: 2
+        )
+        try historyRepo.save(first)
+        await viewModel.loadHistory()
+        XCTAssertEqual(viewModel.history.count, 1)
+
+        // Kick off concurrent load + delete. The delete should win the
+        // visible state regardless of which detached fetch lands first.
+        async let load: Void = viewModel.loadHistory()
+        async let delete: Void = viewModel.deleteHistoryEntry(first)
+        _ = await (load, delete)
+
+        XCTAssertTrue(viewModel.history.isEmpty)
+        XCTAssertEqual(viewModel.totalHistoryCount, 0)
+    }
+
     func testCopyOutputToClipboardWritesToClipboardAndFlagsCopied() async throws {
         let entry = TransformHistoryEntry(
             transformName: "Polish",

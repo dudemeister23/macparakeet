@@ -84,9 +84,14 @@ struct TransformsView: View {
             ),
             presenting: viewModel.pendingDeleteHistoryEntry
         ) { entry in
+            // Use the closure-captured `entry`, not `pendingDeleteHistoryEntry`
+            // via a wrapper method. SwiftUI clears the binding (and the
+            // pending field) before this Task runs, so reading the pending
+            // field would silently no-op the deletion.
             Button("Delete", role: .destructive) {
                 Task {
-                    await viewModel.confirmPendingHistoryDelete()
+                    viewModel.pendingDeleteHistoryEntry = nil
+                    await viewModel.deleteHistoryEntry(entry)
                 }
             }
             Button("Cancel", role: .cancel) {

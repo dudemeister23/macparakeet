@@ -547,7 +547,12 @@ private func findTransformHistoryEntry(
         return exact
     }
 
-    guard trimmed.count >= transformHistoryIDPrefixMinimumLength else {
+    // Length and hex-character validation against the hyphenless form so
+    // inputs like "12--" don't pass length-only checks then silently miss.
+    let normalized = trimmed.replacingOccurrences(of: "-", with: "")
+    let hexCharacters = Set("0123456789abcdefABCDEF")
+    let isHex = !normalized.isEmpty && normalized.allSatisfy { hexCharacters.contains($0) }
+    guard isHex, normalized.count >= transformHistoryIDPrefixMinimumLength else {
         throw CLITransformHistoryError.prefixTooShort(
             min: transformHistoryIDPrefixMinimumLength,
             provided: trimmed

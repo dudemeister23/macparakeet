@@ -5,6 +5,10 @@ public protocol TransformHistoryRepositoryProtocol: Sendable {
     func save(_ entry: TransformHistoryEntry) throws
     func fetchAll() throws -> [TransformHistoryEntry]
     func fetchRecent(limit: Int) throws -> [TransformHistoryEntry]
+    /// Atomic `(recent rows, total count)` read so the UI's "showing N of M"
+    /// footer is consistent with the visible rows. Splitting into two reads
+    /// can interleave with a concurrent write and produce mismatched values.
+    func fetchRecentWithCount(limit: Int) throws -> (entries: [TransformHistoryEntry], totalCount: Int)
     func fetch(id: UUID) throws -> TransformHistoryEntry?
     func fetch(idPrefix: String) throws -> [TransformHistoryEntry]
     func count() throws -> Int
@@ -39,6 +43,19 @@ public final class TransformHistoryRepository: TransformHistoryRepositoryProtoco
                 .order(TransformHistoryEntry.Columns.createdAt.desc)
                 .limit(max(0, limit))
                 .fetchAll(db)
+        }
+    }
+
+    public func fetchRecentWithCount(
+        limit: Int = 200
+    ) throws -> (entries: [TransformHistoryEntry], totalCount: Int) {
+        try dbQueue.read { db in
+            let entries = try TransformHistoryEntry
+                .order(TransformHistoryEntry.Columns.createdAt.desc)
+                .limit(max(0, limit))
+                .fetchAll(db)
+            let totalCount = try TransformHistoryEntry.fetchCount(db)
+            return (entries, totalCount)
         }
     }
 
