@@ -420,9 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let transforms = TransformsCoordinator(
             llmServiceProvider: llmServiceProvider,
             promptRepository: env.promptRepo,
-            profileRepository: env.transformProfileRepo,
-            historyRepository: env.transformHistoryRepo,
-            writingSampleRepository: env.writingSampleRepo
+            historyRepository: env.transformHistoryRepo
         )
         transforms.start()
         transformsCoordinator = transforms

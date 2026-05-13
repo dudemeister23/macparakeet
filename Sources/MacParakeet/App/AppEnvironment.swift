@@ -12,9 +12,7 @@ final class AppEnvironment {
     let chatConversationRepo: ChatConversationRepository
     let promptRepo: PromptRepository
     let promptResultRepo: PromptResultRepository
-    let transformProfileRepo: TransformProfileRepository
     let transformHistoryRepo: TransformHistoryRepository
-    let writingSampleRepo: WritingSampleRepository
     let quickPromptRepo: QuickPromptRepository
     let sttRuntime: STTRuntime
     let sttScheduler: STTScheduler
@@ -51,9 +49,7 @@ final class AppEnvironment {
         chatConversationRepo = ChatConversationRepository(dbQueue: databaseManager.dbQueue)
         promptRepo = PromptRepository(dbQueue: databaseManager.dbQueue)
         promptResultRepo = PromptResultRepository(dbQueue: databaseManager.dbQueue)
-        transformProfileRepo = TransformProfileRepository(dbQueue: databaseManager.dbQueue)
         transformHistoryRepo = TransformHistoryRepository(dbQueue: databaseManager.dbQueue)
-        writingSampleRepo = WritingSampleRepository(dbQueue: databaseManager.dbQueue)
         quickPromptRepo = QuickPromptRepository(dbQueue: databaseManager.dbQueue)
 
         // Services

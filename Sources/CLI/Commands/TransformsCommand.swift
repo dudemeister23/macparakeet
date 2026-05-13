@@ -8,9 +8,8 @@ import MacParakeetCore
 /// verify the dispatch table without launching the GUI.
 ///
 /// Versus `llm transform --prompt "..."` (which is the raw-prompt ad-hoc
-/// primitive), `transforms run <name>` invokes the effective saved Transform:
-/// prompt body plus workbench rules, custom instructions, and enabled writing
-/// samples.
+/// primitive), `transforms run <name>` invokes the **saved** prompt body
+/// stored in the prompts table.
 struct TransformsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "transforms",
@@ -152,14 +151,7 @@ extension TransformsCommand {
                 try AppPaths.ensureDirectories()
                 let db = try DatabaseManager(path: resolvedDatabasePath(database))
                 let repo = PromptRepository(dbQueue: db.dbQueue)
-                let profileRepo = TransformProfileRepository(dbQueue: db.dbQueue)
-                let writingSampleRepo = WritingSampleRepository(dbQueue: db.dbQueue)
                 let transform = try findTransform(idOrName: idOrName, repo: repo)
-                let prompt = try assembledTransformPrompt(
-                    transform: transform,
-                    profileRepo: profileRepo,
-                    writingSampleRepo: writingSampleRepo
-                )
 
                 let text = try readInput(input)
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -173,16 +165,16 @@ extension TransformsCommand {
                 )
 
                 if json {
-                    let result = try await service.transformDetailed(text: text, prompt: prompt)
+                    let result = try await service.transformDetailed(text: text, prompt: transform.content)
                     try printJSON(result)
                 } else if stream {
-                    let tokenStream = service.transformStream(text: text, prompt: prompt)
+                    let tokenStream = service.transformStream(text: text, prompt: transform.content)
                     for try await token in tokenStream {
                         print(token, terminator: "")
                     }
                     print()
                 } else {
-                    print(try await service.transform(text: text, prompt: prompt))
+                    print(try await service.transform(text: text, prompt: transform.content))
                 }
             }
         }
@@ -600,20 +592,6 @@ private func singleLinePreview(_ text: String, maxLength: Int) -> String {
     return String(collapsed.prefix(max(0, maxLength - 1))) + "..."
 }
 
-func assembledTransformPrompt(
-    transform: Prompt,
-    profileRepo: TransformProfileRepositoryProtocol,
-    writingSampleRepo: WritingSampleRepositoryProtocol
-) throws -> String {
-    let profile = try profileRepo.fetch(promptId: transform.id)
-    let samples = profile?.useWritingSamples == true ? try writingSampleRepo.fetchAll() : []
-    return TransformPromptAssembler.assemble(
-        prompt: transform,
-        profile: profile,
-        writingSamples: samples
-    )
-}
-
 // MARK: - DTO + errors
 
 /// Snake-cased DTO for the `--json` envelope so CLI consumers don't have to
@@ -725,7 +703,6 @@ enum CLITransformsError: Error, CustomStringConvertible {
     case duplicateShortcut(String, String)
     case shortcutConflictsWithDictation(String)
     case shortcutConflictsWithMeeting(String)
-    case shortcutConflictsWithAppHotkey(String, String)
     case deleteBuiltIn(String)
 
     var description: String {
@@ -748,8 +725,6 @@ enum CLITransformsError: Error, CustomStringConvertible {
             return "Shortcut “\(shortcut)” conflicts with your dictation hotkey."
         case .shortcutConflictsWithMeeting(let shortcut):
             return "Shortcut “\(shortcut)” conflicts with your meeting recording hotkey."
-        case .shortcutConflictsWithAppHotkey(let shortcut, let name):
-            return "Shortcut “\(shortcut)” conflicts with your \(name) hotkey."
         case .deleteBuiltIn(let n):
             return "Cannot delete the built-in Transform “\(n)”. Reset it via the GUI or override its prompt body with `transforms create --name ...`."
         }
@@ -785,31 +760,25 @@ private func shortcutsMatch(_ lhs: KeyboardShortcut, _ rhs: KeyboardShortcut) ->
 private func appHotkeyCollision(for shortcut: KeyboardShortcut) -> CLITransformsError? {
     let defaults = macParakeetAppDefaults()
     let candidate = shortcut.hotkeyTrigger
-    let reservedHotkeys: [(name: String, trigger: HotkeyTrigger)] = [
-        ("dictation", HotkeyTrigger.current(defaults: defaults)),
-        ("push-to-talk", HotkeyTrigger.current(
+    let dictationHotkeys = [
+        HotkeyTrigger.current(defaults: defaults),
+        HotkeyTrigger.current(
             defaults: defaults,
             defaultsKey: HotkeyTrigger.pushToTalkDefaultsKey,
             fallback: .defaultPushToTalk
-        )),
-        ("meeting recording", HotkeyTrigger.current(
-            defaults: defaults,
-            defaultsKey: HotkeyTrigger.meetingDefaultsKey,
-            fallback: .defaultMeetingRecording
-        )),
-        ("file transcription", HotkeyTrigger.current(
-            defaults: defaults,
-            defaultsKey: HotkeyTrigger.fileTranscriptionDefaultsKey,
-            fallback: .disabled
-        )),
-        ("YouTube transcription", HotkeyTrigger.current(
-            defaults: defaults,
-            defaultsKey: HotkeyTrigger.youtubeTranscriptionDefaultsKey,
-            fallback: .disabled
-        )),
+        ),
     ]
-    if let match = reservedHotkeys.first(where: { !$0.trigger.isDisabled && candidate.overlaps(with: $0.trigger) }) {
-        return .shortcutConflictsWithAppHotkey(shortcut.displayString, match.name)
+    if dictationHotkeys.contains(where: { candidate.overlaps(with: $0) }) {
+        return .shortcutConflictsWithDictation(shortcut.displayString)
+    }
+
+    let meetingHotkey = HotkeyTrigger.current(
+        defaults: defaults,
+        defaultsKey: HotkeyTrigger.meetingDefaultsKey,
+        fallback: .defaultMeetingRecording
+    )
+    if candidate.overlaps(with: meetingHotkey) {
+        return .shortcutConflictsWithMeeting(shortcut.displayString)
     }
 
     return nil

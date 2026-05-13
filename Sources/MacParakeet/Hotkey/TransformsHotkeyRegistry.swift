@@ -1,7 +1,6 @@
 import Cocoa
 import Foundation
 import MacParakeetCore
-import MacParakeetViewModels
 
 /// Single process-wide event tap that dispatches keyboard chords to bound
 /// Transforms. Owns one `CGEventTap` and a `[KeyMatch: Prompt.ID]` dispatch
@@ -214,8 +213,10 @@ public enum TransformsHotkeyCollision: Equatable, Sendable {
     case macOSDeadKey
     /// Another Transform already binds this combo.
     case duplicateTransform(otherPromptID: UUID)
-    /// Another app-level MacParakeet hotkey conflicts with this combo.
-    case reservedHotkey(name: String, shortcut: String)
+    /// The user's dictation hotkey conflicts with this combo.
+    case dictationHotkey
+    /// The user's meeting-toggle hotkey conflicts with this combo.
+    case meetingHotkey
 
     public var message: String {
         switch self {
@@ -225,8 +226,10 @@ public enum TransformsHotkeyCollision: Equatable, Sendable {
             return "This shortcut produces a special character on Mac (\u{2325} dead-key). Pick another combo."
         case .duplicateTransform:
             return "Another Transform already uses this shortcut."
-        case .reservedHotkey(let name, let shortcut):
-            return "This shortcut conflicts with \(name): \(shortcut)."
+        case .dictationHotkey:
+            return "This shortcut conflicts with your dictation hotkey."
+        case .meetingHotkey:
+            return "This shortcut conflicts with your meeting recording hotkey."
         }
     }
 }
@@ -245,7 +248,8 @@ public struct TransformsHotkeyCollisionChecker {
         candidate: KeyboardShortcut,
         existing: [UUID: KeyboardShortcut],
         excludingPromptID: UUID?,
-        reservedHotkeys: [TransformShortcutReservedHotkey]
+        dictationHotkeys: [HotkeyTrigger],
+        meetingHotkey: HotkeyTrigger?
     ) -> TransformsHotkeyCollision? {
         guard candidate.hasModifier else { return .missingModifier }
         if candidate.isMacOSDeadKey { return .macOSDeadKey }
@@ -258,11 +262,11 @@ public struct TransformsHotkeyCollisionChecker {
         }
 
         let candidateTrigger = candidate.hotkeyTrigger
-        for reserved in reservedHotkeys where candidateTrigger.overlaps(with: reserved.trigger) {
-            return .reservedHotkey(
-                name: reserved.name,
-                shortcut: reserved.trigger.formattedLabel
-            )
+        for dictation in dictationHotkeys where candidateTrigger.overlaps(with: dictation) {
+            return .dictationHotkey
+        }
+        if let meeting = meetingHotkey, candidateTrigger.overlaps(with: meeting) {
+            return .meetingHotkey
         }
         return nil
     }

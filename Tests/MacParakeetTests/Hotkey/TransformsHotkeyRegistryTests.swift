@@ -1,7 +1,6 @@
 import XCTest
 @testable import MacParakeet
 @testable import MacParakeetCore
-@testable import MacParakeetViewModels
 
 final class TransformsHotkeyRegistryTests: XCTestCase {
 
@@ -130,10 +129,6 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
 
     private let checker = TransformsHotkeyCollisionChecker()
 
-    private func reserved(_ name: String, _ trigger: HotkeyTrigger) -> TransformShortcutReservedHotkey {
-        TransformShortcutReservedHotkey(name: name, trigger: trigger)
-    }
-
     func testCollisionMissingModifierIsRejected() {
         let bareKey = KeyboardShortcut(modifiers: 0, keyCode: 0x12, keyLabel: "1")
         XCTAssertEqual(
@@ -141,7 +136,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: bareKey,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: []
+                dictationHotkeys: [],
+                meetingHotkey: nil
             ),
             .missingModifier
         )
@@ -158,7 +154,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: optE,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: []
+                dictationHotkeys: [],
+                meetingHotkey: nil
             ),
             .macOSDeadKey
         )
@@ -175,7 +172,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
             candidate: opt1,
             existing: [otherID: opt1],
             excludingPromptID: nil,
-                reservedHotkeys: []
+            dictationHotkeys: [],
+            meetingHotkey: nil
         )
         XCTAssertEqual(result, .duplicateTransform(otherPromptID: otherID))
     }
@@ -194,7 +192,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [selfID: opt1],
                 excludingPromptID: selfID,
-                reservedHotkeys: []
+                dictationHotkeys: [],
+                meetingHotkey: nil
             )
         )
     }
@@ -210,9 +209,10 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: [reserved("Dictation", opt1.hotkeyTrigger)]
+                dictationHotkeys: [opt1.hotkeyTrigger],
+                meetingHotkey: nil
             ),
-            .reservedHotkey(name: "Dictation", shortcut: opt1.hotkeyTrigger.formattedLabel)
+            .dictationHotkey
         )
     }
 
@@ -227,9 +227,10 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: [reserved("Dictation", .option)]
+                dictationHotkeys: [.option],
+                meetingHotkey: nil
             ),
-            .reservedHotkey(name: "Dictation", shortcut: HotkeyTrigger.option.formattedLabel)
+            .dictationHotkey
         )
     }
 
@@ -244,10 +245,11 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt4,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: [
-                    reserved("Dictation", .fn),
-                    reserved("Push-to-talk", .modifierChord(modifiers: ["option", "command"])),
-                ]
+                dictationHotkeys: [
+                    .fn,
+                    .modifierChord(modifiers: ["option", "command"]),
+                ],
+                meetingHotkey: nil
             )
         )
     }
@@ -263,9 +265,10 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt1,
                 existing: [:],
                 excludingPromptID: nil,
-                reservedHotkeys: [reserved("Meeting recording", opt1.hotkeyTrigger)]
+                dictationHotkeys: [],
+                meetingHotkey: opt1.hotkeyTrigger
             ),
-            .reservedHotkey(name: "Meeting recording", shortcut: opt1.hotkeyTrigger.formattedLabel)
+            .meetingHotkey
         )
     }
 
@@ -285,7 +288,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
                 candidate: opt2,
                 existing: [UUID(): opt1],
                 excludingPromptID: nil,
-                reservedHotkeys: []
+                dictationHotkeys: [],
+                meetingHotkey: nil
             )
         )
     }
@@ -299,7 +303,8 @@ final class TransformsHotkeyRegistryTests: XCTestCase {
             candidate: bare,
             existing: [UUID(): bare],
             excludingPromptID: nil,
-                reservedHotkeys: []
+            dictationHotkeys: [],
+            meetingHotkey: nil
         )
         XCTAssertEqual(result, .missingModifier)
     }
