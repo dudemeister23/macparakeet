@@ -131,6 +131,7 @@ final class AppEnvironmentConfigurer {
         transformsViewModel.configure(
             repo: env.promptRepo,
             historyRepo: env.transformHistoryRepo,
+            clipboardService: env.clipboardService,
             hasLLMProvider: hasLLMConfig
         )
         llmSettingsViewModel.configure(

@@ -5,6 +5,8 @@ public protocol TransformHistoryRepositoryProtocol: Sendable {
     func save(_ entry: TransformHistoryEntry) throws
     func fetchAll() throws -> [TransformHistoryEntry]
     func fetchRecent(limit: Int) throws -> [TransformHistoryEntry]
+    func fetch(id: UUID) throws -> TransformHistoryEntry?
+    func fetch(idPrefix: String) throws -> [TransformHistoryEntry]
     func count() throws -> Int
     func delete(id: UUID) throws -> Bool
     func deleteAll() throws
@@ -40,6 +42,36 @@ public final class TransformHistoryRepository: TransformHistoryRepositoryProtoco
         }
     }
 
+    public func fetch(id: UUID) throws -> TransformHistoryEntry? {
+        try dbQueue.read { db in
+            try TransformHistoryEntry.fetchOne(db, key: id)
+        }
+    }
+
+    public func fetch(idPrefix: String) throws -> [TransformHistoryEntry] {
+        let escapedPrefix = Self.escapeLikePattern(
+            idPrefix
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "")
+        )
+        guard !escapedPrefix.isEmpty else { return [] }
+        let pattern = "\(escapedPrefix)%"
+
+        return try dbQueue.read { db in
+            try TransformHistoryEntry
+                .filter(
+                    sql: """
+                        (lower(hex(id)) LIKE ? ESCAPE '\\'
+                            OR replace(lower(id), '-', '') LIKE ? ESCAPE '\\')
+                        """,
+                    arguments: StatementArguments([pattern, pattern])
+                )
+                .order(TransformHistoryEntry.Columns.createdAt.desc)
+                .fetchAll(db)
+        }
+    }
+
     public func count() throws -> Int {
         try dbQueue.read { db in
             try TransformHistoryEntry.fetchCount(db)
@@ -56,5 +88,12 @@ public final class TransformHistoryRepository: TransformHistoryRepositoryProtoco
         _ = try dbQueue.write { db in
             try TransformHistoryEntry.deleteAll(db)
         }
+    }
+
+    private static func escapeLikePattern(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
     }
 }

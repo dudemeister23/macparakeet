@@ -554,19 +554,26 @@ private func transformHistoryRepo(database: String?) throws -> TransformHistoryR
     return TransformHistoryRepository(dbQueue: db.dbQueue)
 }
 
-private func findTransformHistoryEntry(idPrefix: String, repo: TransformHistoryRepository) throws -> TransformHistoryEntry {
+private let transformHistoryIDPrefixMinimumLength = 4
+
+private func findTransformHistoryEntry(idPrefix: String, repo: TransformHistoryRepositoryProtocol) throws -> TransformHistoryEntry {
     let trimmed = idPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
         throw CLITransformHistoryError.notFound(idPrefix)
     }
 
-    let entries = try repo.fetchAll()
-    if let uuid = UUID(uuidString: trimmed), let exact = entries.first(where: { $0.id == uuid }) {
+    if let uuid = UUID(uuidString: trimmed), let exact = try repo.fetch(id: uuid) {
         return exact
     }
 
-    let lowered = trimmed.lowercased()
-    let matches = entries.filter { $0.id.uuidString.lowercased().hasPrefix(lowered) }
+    guard trimmed.count >= transformHistoryIDPrefixMinimumLength else {
+        throw CLITransformHistoryError.prefixTooShort(
+            min: transformHistoryIDPrefixMinimumLength,
+            provided: trimmed
+        )
+    }
+
+    let matches = try repo.fetch(idPrefix: trimmed)
     if matches.count == 1 {
         return matches[0]
     }
@@ -727,6 +734,7 @@ enum CLITransformsError: Error, CustomStringConvertible {
 enum CLITransformHistoryError: Error, CustomStringConvertible, LocalizedError {
     case notFound(String)
     case ambiguous(String, [String])
+    case prefixTooShort(min: Int, provided: String)
     case deleteFailed(String)
 
     var description: String {
@@ -735,6 +743,8 @@ enum CLITransformHistoryError: Error, CustomStringConvertible, LocalizedError {
             return "No Transform history item matching '\(value)'"
         case .ambiguous(let value, let matches):
             return "Ambiguous Transform history ID '\(value)' (matches: \(matches.joined(separator: ", ")))"
+        case .prefixTooShort(let min, let provided):
+            return "Transform history ID prefix '\(provided)' is too short. Use at least \(min) characters."
         case .deleteFailed(let value):
             return "Failed to delete Transform history item '\(value)'"
         }

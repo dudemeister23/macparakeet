@@ -116,7 +116,7 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
     history item.
   - `transforms history clear [--json]` — removes all saved Transform
     history from the local database.
-  - JSON uses snake-cased fields: `transform_id`, `transform_name`,
+  - JSON uses snake-cased fields: `id`, `transform_id`, `transform_name`,
     `input_text`, `output_text`, `source_app_bundle_id`,
     `source_app_name`, `capture_path`, `replacement_path`,
     `llm_elapsed_ms`, `total_elapsed_ms`, `created_at`, `updated_at`.

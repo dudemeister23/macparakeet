@@ -43,10 +43,14 @@ struct TransformsView: View {
         }
         .background(DesignSystem.Colors.background)
         .onAppear {
-            viewModel.loadHistory()
+            Task {
+                await viewModel.loadHistory()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .transformHistoryChanged)) { _ in
-            viewModel.loadHistory()
+            Task {
+                await viewModel.loadHistory()
+            }
         }
         .alert(
             "Delete this Transform?",
@@ -75,7 +79,9 @@ struct TransformsView: View {
             presenting: viewModel.pendingDeleteHistoryEntry
         ) { _ in
             Button("Delete", role: .destructive) {
-                viewModel.confirmPendingHistoryDelete()
+                Task {
+                    await viewModel.confirmPendingHistoryDelete()
+                }
             }
             Button("Cancel", role: .cancel) {
                 viewModel.pendingDeleteHistoryEntry = nil
@@ -85,7 +91,9 @@ struct TransformsView: View {
         }
         .alert("Clear Transform history?", isPresented: $viewModel.isConfirmingClearHistory) {
             Button("Clear History", role: .destructive) {
-                viewModel.clearHistory()
+                Task {
+                    await viewModel.clearHistory()
+                }
             }
             Button("Cancel", role: .cancel) {
                 viewModel.isConfirmingClearHistory = false
@@ -214,7 +222,7 @@ struct TransformsView: View {
                     .font(DesignSystem.Typography.pageTitle)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                 if !viewModel.history.isEmpty {
-                    Text("\(viewModel.history.count)")
+                    Text("\(viewModel.totalHistoryCount)")
                         .font(DesignSystem.Typography.duration)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                         .padding(.horizontal, 6)
@@ -254,7 +262,11 @@ struct TransformsView: View {
                         TransformHistoryRow(
                             entry: entry,
                             isCopied: viewModel.copiedHistoryEntryID == entry.id,
-                            onCopy: { viewModel.copyOutputToClipboard(entry) },
+                            onCopy: {
+                                Task {
+                                    await viewModel.copyOutputToClipboard(entry)
+                                }
+                            },
                             onDelete: { viewModel.pendingDeleteHistoryEntry = entry }
                         )
                     }
@@ -312,6 +324,9 @@ private struct TransformHistoryEmptyState: View {
 }
 
 private struct TransformHistoryRow: View {
+    private static let todayTimeFormat = Date.FormatStyle(date: .omitted, time: .shortened)
+    private static let dateTimeFormat = Date.FormatStyle(date: .numeric, time: .shortened)
+
     let entry: TransformHistoryEntry
     let isCopied: Bool
     let onCopy: () -> Void
@@ -414,10 +429,7 @@ private struct TransformHistoryRow: View {
     }
 
     private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
-        return formatter.string(from: date)
+        date.formatted(Calendar.current.isDateInToday(date) ? Self.todayTimeFormat : Self.dateTimeFormat)
     }
 }
 
@@ -440,7 +452,7 @@ private struct TransformHistoryIconButton: View {
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .parakeetAction(.subtle)
         .foregroundStyle(isHovered ? DesignSystem.Colors.textPrimary : color)
         .help(help)
         .onHover { isHovered = $0 }

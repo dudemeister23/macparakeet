@@ -172,6 +172,7 @@ final class TransformsCommandTests: XCTestCase {
         let data = try cliJSONEncoder.encode(TransformHistoryDTO(entry: entry))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
+        XCTAssertEqual(object["id"] as? String, "22222222-2222-2222-2222-222222222222")
         XCTAssertEqual(object["transform_name"] as? String, "Polish")
         XCTAssertEqual(object["input_text"] as? String, "rough")
         XCTAssertEqual(object["output_text"] as? String, "polished")
@@ -222,6 +223,8 @@ final class TransformsCommandTests: XCTestCase {
     }
 
     func testHistoryDeleteAndClearRoundTrip() throws {
+        // These subcommands intentionally reopen the database from `--database`,
+        // so this round-trip needs a file-backed path rather than one in-memory queue.
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -263,6 +266,30 @@ final class TransformsCommandTests: XCTestCase {
         ])
         try clear.run()
         XCTAssertEqual(try repo.count(), 0)
+    }
+
+    func testHistoryShowRejectsTooShortPrefix() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "abc",
+            "--database", dbPath,
+        ])
+
+        XCTAssertThrowsError(try show.run()) { error in
+            guard case CLITransformHistoryError.prefixTooShort(let min, let provided) = error else {
+                XCTFail("Expected prefixTooShort, got \(error)")
+                return
+            }
+            XCTAssertEqual(min, 4)
+            XCTAssertEqual(provided, "abc")
+        }
     }
 
     func testCreateRejectsBareKeyShortcut() throws {

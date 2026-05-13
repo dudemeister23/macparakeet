@@ -7,14 +7,21 @@ final class TransformsViewModelTests: XCTestCase {
     var manager: DatabaseManager!
     var repo: PromptRepository!
     var historyRepo: TransformHistoryRepository!
+    var clipboardService: MockClipboardService!
     var viewModel: TransformsViewModel!
 
     override func setUp() async throws {
         manager = try DatabaseManager()
         repo = PromptRepository(dbQueue: manager.dbQueue)
         historyRepo = TransformHistoryRepository(dbQueue: manager.dbQueue)
+        clipboardService = MockClipboardService()
         viewModel = TransformsViewModel()
-        viewModel.configure(repo: repo, historyRepo: historyRepo, hasLLMProvider: true)
+        viewModel.configure(
+            repo: repo,
+            historyRepo: historyRepo,
+            clipboardService: clipboardService,
+            hasLLMProvider: true
+        )
     }
 
     func testLoadPullsOnlyTransformCategoryPrompts() {
@@ -144,7 +151,7 @@ final class TransformsViewModelTests: XCTestCase {
         XCTAssertEqual(reloaded.content, customContent, "Reseed must not overwrite existing built-in customizations.")
     }
 
-    func testLoadHistoryOrdersNewestFirst() throws {
+    func testLoadHistoryOrdersNewestFirst() async throws {
         try historyRepo.save(
             TransformHistoryEntry(
                 transformName: "Polish",
@@ -172,12 +179,36 @@ final class TransformsViewModelTests: XCTestCase {
             )
         )
 
-        viewModel.loadHistory()
+        await viewModel.loadHistory()
 
         XCTAssertEqual(viewModel.history.map(\.transformName), ["Distill", "Polish"])
+        XCTAssertEqual(viewModel.totalHistoryCount, 2)
     }
 
-    func testDeleteAndClearHistory() throws {
+    func testLoadHistoryTotalCountIncludesRowsPastFetchLimit() async throws {
+        for index in 0..<205 {
+            try historyRepo.save(
+                TransformHistoryEntry(
+                    transformName: "Transform \(index)",
+                    inputText: "input",
+                    outputText: "output",
+                    capturePath: "ax",
+                    replacementPath: "ax",
+                    llmElapsedMs: 1,
+                    totalElapsedMs: 2,
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                    updatedAt: Date(timeIntervalSince1970: TimeInterval(index))
+                )
+            )
+        }
+
+        await viewModel.loadHistory()
+
+        XCTAssertEqual(viewModel.history.count, TransformsViewModel.historyFetchLimit)
+        XCTAssertEqual(viewModel.totalHistoryCount, 205)
+    }
+
+    func testDeleteAndClearHistory() async throws {
         let first = TransformHistoryEntry(
             transformName: "Polish",
             inputText: "one",
@@ -198,15 +229,35 @@ final class TransformsViewModelTests: XCTestCase {
         )
         try historyRepo.save(first)
         try historyRepo.save(second)
-        viewModel.loadHistory()
+        await viewModel.loadHistory()
 
-        viewModel.deleteHistoryEntry(first)
+        await viewModel.deleteHistoryEntry(first)
 
         XCTAssertEqual(viewModel.history.map(\.id), [second.id])
+        XCTAssertEqual(viewModel.totalHistoryCount, 1)
 
-        viewModel.clearHistory()
+        await viewModel.clearHistory()
 
         XCTAssertTrue(viewModel.history.isEmpty)
+        XCTAssertEqual(viewModel.totalHistoryCount, 0)
         XCTAssertEqual(try historyRepo.count(), 0)
+    }
+
+    func testCopyHistoryOutputUsesInjectedClipboardService() async {
+        let entry = TransformHistoryEntry(
+            transformName: "Polish",
+            inputText: "rough",
+            outputText: "polished",
+            capturePath: "ax",
+            replacementPath: "ax",
+            llmElapsedMs: 1,
+            totalElapsedMs: 2
+        )
+
+        await viewModel.copyOutputToClipboard(entry)
+
+        let copiedText = await clipboardService.lastCopiedText
+        XCTAssertEqual(copiedText, "polished")
+        XCTAssertEqual(viewModel.copiedHistoryEntryID, entry.id)
     }
 }

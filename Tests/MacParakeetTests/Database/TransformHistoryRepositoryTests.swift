@@ -72,6 +72,40 @@ final class TransformHistoryRepositoryTests: XCTestCase {
         XCTAssertEqual(try repo.count(), 5)
     }
 
+    func testFetchByIDAndIDPrefix() throws {
+        let first = TransformHistoryEntry(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            transformName: "Polish",
+            inputText: "one",
+            outputText: "One.",
+            capturePath: "ax",
+            replacementPath: "ax",
+            llmElapsedMs: 1,
+            totalElapsedMs: 2,
+            createdAt: Date(timeIntervalSince1970: 10),
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let second = TransformHistoryEntry(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            transformName: "Distill",
+            inputText: "two",
+            outputText: "Two.",
+            capturePath: "clipboard",
+            replacementPath: "clipboardPaste",
+            llmElapsedMs: 3,
+            totalElapsedMs: 4,
+            createdAt: Date(timeIntervalSince1970: 20),
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        try repo.save(first)
+        try repo.save(second)
+
+        XCTAssertEqual(try repo.fetch(id: first.id)?.id, first.id)
+        XCTAssertEqual(try repo.fetch(idPrefix: "2222").map(\.id), [second.id])
+        XCTAssertEqual(try repo.fetch(idPrefix: "1111").map(\.id), [first.id])
+        XCTAssertTrue(try repo.fetch(idPrefix: "%").isEmpty)
+    }
+
     func testDeleteSingleAndDeleteAll() throws {
         let first = TransformHistoryEntry(
             transformName: "Polish",
