@@ -752,6 +752,40 @@ public final class DatabaseManager: Sendable {
             try db.execute(sql: "DROP TABLE IF EXISTS transform_history")
         }
 
+        // v0.17 — Restore local Transform run history (without the workbench
+        // profiles/writing-samples that v0.16 cleaned up). Recreates the same
+        // table v0.14 defined so dev databases that lost it in v0.16 get it
+        // back; fresh installs land here after v0.14/v0.15/v0.16 run in order.
+        migrator.registerMigration("v0.17-recreate-transform-history") { db in
+            try db.create(table: "transform_history", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("transformId", .text)
+                t.column("transformName", .text).notNull()
+                t.column("inputText", .text).notNull()
+                t.column("outputText", .text).notNull()
+                t.column("sourceAppBundleID", .text)
+                t.column("sourceAppName", .text)
+                t.column("capturePath", .text).notNull()
+                t.column("replacementPath", .text).notNull()
+                t.column("llmElapsedMs", .integer).notNull().defaults(to: 0)
+                t.column("totalElapsedMs", .integer).notNull().defaults(to: 0)
+                t.column("createdAt", .text).notNull()
+                t.column("updatedAt", .text).notNull()
+            }
+            try db.create(
+                index: "idx_transform_history_created_at",
+                on: "transform_history",
+                columns: ["createdAt"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "idx_transform_history_transform_id",
+                on: "transform_history",
+                columns: ["transformId"],
+                ifNotExists: true
+            )
+        }
+
         try migrator.migrate(dbQueue)
         try reconcileBuiltInPrompts()
         try reconcileBuiltInQuickPrompts()
