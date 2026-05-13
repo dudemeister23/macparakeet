@@ -201,6 +201,44 @@ final class SelectionReplacementServiceTests: XCTestCase {
             XCTFail("Unexpected error: \(error)")
         }
     }
+
+    func testClipboardPasteDoesNotPostCmdVUntilTargetIsFrontmost() async {
+        let backend = FakeSelectionReplacementBackend(
+            isTrusted: true,
+            axWriteSucceeds: false,
+            targetActivationSucceeds: true,
+            activationMakesTargetFrontmost: false
+        )
+        let service = SelectionReplacementService(
+            backend: backend,
+            postPasteDelay: .milliseconds(1),
+            activationTimeout: .milliseconds(1),
+            activationPollIntervalNanos: 1_000_000
+        )
+        let snapshot = PasteboardSnapshot(items: nil, originalChangeCount: 42)
+
+        do {
+            _ = try await service.replace(
+                with: "polished",
+                in: .clipboard(
+                    text: "raw",
+                    savedClipboard: snapshot,
+                    target: SelectionCaptureTarget(
+                        processIdentifier: 1234,
+                        bundleIdentifier: "com.example.Source"
+                    )
+                )
+            )
+            XCTFail("Expected targetActivationFailed")
+        } catch let error as SelectionReplacementError {
+            XCTAssertEqual(error, .targetActivationFailed)
+            XCTAssertEqual(backend.cmdVPostCount(), 0)
+            XCTAssertGreaterThanOrEqual(backend.frontmostCheckCount(), 1)
+            XCTAssertGreaterThanOrEqual(backend.restoreCount(), 1)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 }
 
 // MARK: - Fake Backend
@@ -213,12 +251,15 @@ final class FakeSelectionReplacementBackend: SelectionReplacementBackend, @unche
     private let pasteboardWriteSucceedsValue: Bool
     private let simulateUserCopyAfterWrite: Bool
     private let targetActivationSucceeds: Bool
+    private let activationMakesTargetFrontmost: Bool
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
 
     private struct State {
         var axTexts: [String] = []
         var clipboardTexts: [String] = []
         var activatedTargets: [SelectionCaptureTarget] = []
+        var frontmostTarget: SelectionCaptureTarget?
+        var frontmostChecks: Int = 0
         var cmdVPosts: Int = 0
         var restoreSnapshots: [PasteboardSnapshot] = []
         /// Simulated pasteboard changeCount. Bumped on `writePasteboardString`
@@ -236,6 +277,7 @@ final class FakeSelectionReplacementBackend: SelectionReplacementBackend, @unche
         pasteboardWriteSucceeds: Bool = true,
         simulateUserCopyAfterWrite: Bool = false,
         targetActivationSucceeds: Bool = true,
+        activationMakesTargetFrontmost: Bool = true,
         initialChangeCount: Int = 0
     ) {
         self.trusted = isTrusted
@@ -243,6 +285,7 @@ final class FakeSelectionReplacementBackend: SelectionReplacementBackend, @unche
         self.pasteboardWriteSucceedsValue = pasteboardWriteSucceeds
         self.simulateUserCopyAfterWrite = simulateUserCopyAfterWrite
         self.targetActivationSucceeds = targetActivationSucceeds
+        self.activationMakesTargetFrontmost = activationMakesTargetFrontmost
         lock.withLock { $0.changeCount = initialChangeCount }
     }
 
@@ -268,8 +311,21 @@ final class FakeSelectionReplacementBackend: SelectionReplacementBackend, @unche
 
     @MainActor
     func activateApplication(target: SelectionCaptureTarget) -> Bool {
-        lock.withLock { $0.activatedTargets.append(target) }
+        lock.withLock { state in
+            state.activatedTargets.append(target)
+            if targetActivationSucceeds, activationMakesTargetFrontmost {
+                state.frontmostTarget = target
+            }
+        }
         return targetActivationSucceeds
+    }
+
+    @MainActor
+    func isFrontmostApplication(target: SelectionCaptureTarget) -> Bool {
+        lock.withLock { state in
+            state.frontmostChecks += 1
+            return state.frontmostTarget == target
+        }
     }
 
     @MainActor
@@ -320,6 +376,10 @@ final class FakeSelectionReplacementBackend: SelectionReplacementBackend, @unche
 
     func activatedTargets() -> [SelectionCaptureTarget] {
         lock.withLock { $0.activatedTargets }
+    }
+
+    func frontmostCheckCount() -> Int {
+        lock.withLock { $0.frontmostChecks }
     }
 
     func restoreCount() -> Int {

@@ -61,6 +61,9 @@ protocol SelectionReplacementBackend: Sendable {
     func activateApplication(target: SelectionCaptureTarget) -> Bool
 
     @MainActor
+    func isFrontmostApplication(target: SelectionCaptureTarget) -> Bool
+
+    @MainActor
     func postCmdV() throws
 
     /// Current `NSPasteboard.changeCount`. Used by the restore guard to
@@ -91,9 +94,12 @@ public actor SelectionReplacementService {
     /// clipboard snapshot. 500ms matches the conventional "Espanso / Raycast"
     /// value and the Gemini-review feedback on the capture side.
     public static let defaultPostPasteDelay: Duration = .milliseconds(500)
+    public static let defaultActivationTimeout: Duration = .milliseconds(500)
 
     private let backend: any SelectionReplacementBackend
     private let postPasteDelay: Duration
+    private let activationTimeout: Duration
+    private let activationPollIntervalNanos: UInt64
     private let logger: Logger
 
     public init() {
@@ -103,10 +109,14 @@ public actor SelectionReplacementService {
     init(
         backend: any SelectionReplacementBackend,
         postPasteDelay: Duration = SelectionReplacementService.defaultPostPasteDelay,
+        activationTimeout: Duration = SelectionReplacementService.defaultActivationTimeout,
+        activationPollIntervalNanos: UInt64 = 10_000_000,  // 10 ms
         logger: Logger = Logger(subsystem: "com.macparakeet.core", category: "SelectionReplacementService")
     ) {
         self.backend = backend
         self.postPasteDelay = postPasteDelay
+        self.activationTimeout = activationTimeout
+        self.activationPollIntervalNanos = activationPollIntervalNanos
         self.logger = logger
     }
 
@@ -182,12 +192,10 @@ public actor SelectionReplacementService {
         }
 
         if let target {
-            let didActivate = await activateApplicationOnMain(target)
-            guard didActivate else {
+            guard await activateAndWaitForTarget(target) else {
                 await restoreIfSafe(snapshot, ourChangeCount: ourChangeCount)
                 throw SelectionReplacementError.targetActivationFailed
             }
-            await Task.yield()
         }
 
         do {
@@ -216,6 +224,26 @@ public actor SelectionReplacementService {
     @MainActor
     private func activateApplicationOnMain(_ target: SelectionCaptureTarget) -> Bool {
         backend.activateApplication(target: target)
+    }
+
+    private func activateAndWaitForTarget(_ target: SelectionCaptureTarget) async -> Bool {
+        guard await activateApplicationOnMain(target) else {
+            return false
+        }
+
+        let deadline = ContinuousClock.now + activationTimeout
+        while ContinuousClock.now < deadline {
+            if await isFrontmostApplicationOnMain(target) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: activationPollIntervalNanos)
+        }
+        return await isFrontmostApplicationOnMain(target)
+    }
+
+    @MainActor
+    private func isFrontmostApplicationOnMain(_ target: SelectionCaptureTarget) -> Bool {
+        backend.isFrontmostApplication(target: target)
     }
 
     @MainActor
@@ -319,6 +347,15 @@ struct SystemSelectionReplacementBackend: SelectionReplacementBackend, @unchecke
             return false
         }
         return app.activate()
+    }
+
+    @MainActor
+    func isFrontmostApplication(target: SelectionCaptureTarget) -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+        return app.processIdentifier == target.processIdentifier
+            && app.bundleIdentifier == target.bundleIdentifier
     }
 
     @MainActor

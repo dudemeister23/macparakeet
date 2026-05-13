@@ -120,6 +120,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
     `input_text`, `output_text`, `source_app_bundle_id`,
     `source_app_name`, `capture_path`, `replacement_path`,
     `llm_elapsed_ms`, `total_elapsed_ms`, `created_at`, `updated_at`.
+  - `delete --json` emits `{ "ok": true, "id": "..." }`.
+    `clear --json` emits `{ "ok": true, "deleted_count": N }`.
 
 ### Fixed
 

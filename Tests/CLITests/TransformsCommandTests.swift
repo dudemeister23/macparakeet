@@ -1,3 +1,4 @@
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import CLI
@@ -290,6 +291,70 @@ final class TransformsCommandTests: XCTestCase {
             XCTAssertEqual(min, 4)
             XCTAssertEqual(provided, "abc")
         }
+    }
+
+    func testHistoryShowJSONMapsTooShortPrefixToValidationError() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "abc",
+            "--database", dbPath,
+            "--json",
+        ])
+
+        var thrownError: Error?
+        let output = try captureStandardOutput {
+            do {
+                try show.run()
+            } catch {
+                thrownError = error
+            }
+        }
+
+        let exit = try XCTUnwrap(thrownError as? ExitCode)
+        XCTAssertEqual(exit.rawValue, 2)
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(object["ok"] as? Bool, false)
+        XCTAssertEqual(object["errorType"] as? String, "validation")
+    }
+
+    func testHistoryShowJSONMapsMissingItemToLookupError() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transforms-history-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbPath = tmp.appendingPathComponent("test.db").path
+
+        _ = try DatabaseManager(path: dbPath)
+
+        let show = try TransformsCommand.HistorySubcommand.ShowSubcommand.parse([
+            "abcd",
+            "--database", dbPath,
+            "--json",
+        ])
+
+        var thrownError: Error?
+        let output = try captureStandardOutput {
+            do {
+                try show.run()
+            } catch {
+                thrownError = error
+            }
+        }
+
+        let exit = try XCTUnwrap(thrownError as? ExitCode)
+        XCTAssertEqual(exit, .failure)
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(object["ok"] as? Bool, false)
+        XCTAssertEqual(object["errorType"] as? String, "lookup")
     }
 
     func testCreateRejectsBareKeyShortcut() throws {
