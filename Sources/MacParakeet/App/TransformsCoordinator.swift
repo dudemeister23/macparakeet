@@ -15,10 +15,9 @@ import OSLog
 ///   guarding, and per-Transform telemetry
 ///
 /// Replaces `TransformsSpikeCoordinator` (which bound a single hardcoded
-/// Opt+Ctrl+1 to a baked-in Polish prompt). The new coordinator is gated
-/// by `AppFeatures.transformsEnabled` (defaults to `false` at merge so
-/// the website telemetry-allowlist deploy can land first; flipped to
-/// `true` in a follow-up commit per the rollout plan).
+/// Opt+Ctrl+1 to a baked-in Polish prompt). The coordinator is gated by
+/// `AppFeatures.transformsEnabled`, which is enabled on `main` after the
+/// website telemetry allowlist deploy landed.
 @MainActor
 final class TransformsCoordinator {
     private let llmServiceProvider: () -> LLMServiceProtocol?

@@ -106,7 +106,7 @@ The CLI is the load-bearing surface. The GUI is one well-crafted client of it. A
 
 ### 1. Promote `macparakeet-cli` to a versioned public surface
 
-**Why:** The CLI was previously framed as `"MacParakeet developer CLI (internal; used for AI-assisted development and testing)"` in its own `--help` abstract. Once OpenClaw/Hermes users build skills against `macparakeet-cli flow words add`, that's a public contract. Breaking changes need migration paths.
+**Why:** The CLI was previously framed as `"MacParakeet developer CLI (internal; used for AI-assisted development and testing)"` in its own `--help` abstract. Once OpenClaw/Hermes users build skills against `macparakeet-cli vocab words add`, that's a public contract. Breaking changes need migration paths.
 
 **What:**
 - Adopt **semver** for the CLI surface. Stamp `1.0.0` on it (it's mature enough — the PR #138 work landed CRUD, JSON, validation, tests).

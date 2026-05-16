@@ -55,7 +55,7 @@ macparakeet-cli
 │   ├── warm-up [--attempts]             Warm up speech model
 │   ├── repair [--attempts]              Best-effort model repair
 │   └── clear                            Delete cached models
-├── flow                                 Text processing pipeline
+├── vocab                                Text processing pipeline
 │   ├── process <text> [--copy]          Run clean text processing
 │   ├── words {list,add,delete}          Manage custom words
 │   │   └── list [--source manual|learned|all] [--json]
@@ -83,6 +83,13 @@ macparakeet-cli
 │   ├── pin <id-or-label> / unpin <id-or-label>
 │   ├── restore-defaults [--id UUID]
 │   └── export [--out path] [--pinned true|false] [--include-builtins] / import <path> [--mode merge|replace]
+├── transforms                           Manage and run saved Transforms
+│   ├── list [--json]
+│   ├── show <id-or-name> [--json]
+│   ├── run <id-or-name> --input FILE|- [--stream] [--json]
+│   ├── create --name X (--prompt Y | --from-file path) [--shortcut opt+1] [--json]
+│   ├── delete <id-or-name> [--json]
+│   └── history {list,show,delete,clear} [--json]
 ├── meetings                             Inspect and manage local meeting recordings
 │   ├── list [--limit] [--json]
 │   ├── show <meeting> [--json]
@@ -386,17 +393,17 @@ swift run macparakeet-cli models clear
 ## Text Pipeline
 
 ```bash
-swift run macparakeet-cli flow process "your text"
-swift run macparakeet-cli flow process "your text" --copy   # also copies to clipboard
+swift run macparakeet-cli vocab process "your text"
+swift run macparakeet-cli vocab process "your text" --copy   # also copies to clipboard
 
-swift run macparakeet-cli flow words list
-swift run macparakeet-cli flow words add "macparakeet" "MacParakeet"
-swift run macparakeet-cli flow words add "hmm"              # vocabulary anchor (no replacement)
-swift run macparakeet-cli flow words delete <ID>
+swift run macparakeet-cli vocab words list
+swift run macparakeet-cli vocab words add "macparakeet" "MacParakeet"
+swift run macparakeet-cli vocab words add "hmm"              # vocabulary anchor (no replacement)
+swift run macparakeet-cli vocab words delete <ID>
 
-swift run macparakeet-cli flow snippets list
-swift run macparakeet-cli flow snippets add "my signature" "Best regards, Daniel"
-swift run macparakeet-cli flow snippets delete <ID>
+swift run macparakeet-cli vocab snippets list
+swift run macparakeet-cli vocab snippets add "my signature" "Best regards, Daniel"
+swift run macparakeet-cli vocab snippets delete <ID>
 ```
 
 ## LLM Commands
@@ -489,6 +496,33 @@ swift run macparakeet-cli llm summarize transcript.txt --provider cli --command 
 
 # Custom command
 swift run macparakeet-cli llm chat transcript.txt --provider cli --command "my-tool --stdin" --question "Key points?"
+```
+
+## Transforms
+
+`transforms` is the saved-prompt product surface from ADR-022. It operates on
+text passed to the CLI directly; AX selection capture and in-place replacement
+are GUI-only.
+
+```bash
+# Inspect built-ins and custom Transforms
+swift run macparakeet-cli transforms list
+swift run macparakeet-cli transforms show Polish --json
+
+# Run a saved Transform against a file or stdin
+swift run macparakeet-cli transforms run Polish --input draft.txt --json
+echo "too long; didn't read" | swift run macparakeet-cli transforms run Distill --input -
+
+# Create a custom Transform
+swift run macparakeet-cli transforms create \
+  --name "Terse" \
+  --prompt "Rewrite the input in terse, direct prose. Return only the rewritten text." \
+  --shortcut opt+4 \
+  --json
+
+# Inspect local run history
+swift run macparakeet-cli transforms history list --json
+swift run macparakeet-cli transforms history show <id-prefix>
 ```
 
 ## Prompt Library

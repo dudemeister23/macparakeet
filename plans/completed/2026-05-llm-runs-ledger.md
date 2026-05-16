@@ -1,6 +1,9 @@
 # LLM Runs Ledger
 
-> Status: **IMPLEMENTED FOR FORMATTER**; prompt/chat/transform recording remains deferred.
+> Status: **COMPLETED FOR FORMATTER V1**. Archived from `plans/active/`
+> during the 2026-05-16 docs/spec audit. Prompt/chat/transform recording
+> remains deferred until streaming LLM APIs expose a terminal metadata envelope;
+> that expansion should get a fresh plan.
 
 ## Goal
 

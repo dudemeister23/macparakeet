@@ -17,6 +17,7 @@
 #   LIB   - Transcription library
 #   MEET  - Meeting recording
 #   CLI   - Public command-line surface
+#   XFORM - System-wide selected-text Transforms
 
 # --- v0.1 Core MVP ---
 
@@ -266,6 +267,18 @@ REQ-TRANS-002:
 
 REQ-MEET-007:
   description: Meeting recordings capture the active speech engine and Whisper language at recording start for live preview, metadata, crash recovery, and final transcription
+  version: v0.6
+  status: implemented
+
+# --- v0.6 Transforms ---
+
+REQ-XFORM-001:
+  description: Productized Transforms rewrite selected text anywhere on macOS through saved Prompt rows, global hotkeys, AX-first capture, clipboard fallback, and the configured LLM provider
+  version: v0.6
+  status: implemented
+
+REQ-XFORM-002:
+  description: Completed Transform runs can be stored locally with input/output/source-app/timing history, and the CLI can list, show, delete, and clear that history
   version: v0.6
   status: implemented
 

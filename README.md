@@ -51,7 +51,7 @@
 
 ---
 
-MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The v0.6 release scope includes system-wide dictation, file/URL transcription, meeting recording, and optional local WhisperKit recognition for languages Parakeet does not cover. All speech recognition happens on your Mac.
+MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The v0.6 release scope includes system-wide dictation, file/URL transcription, meeting recording, optional local WhisperKit recognition for languages Parakeet does not cover, and productized Transforms on `main`. All speech recognition happens on your Mac.
 
 ## Release status
 
@@ -60,7 +60,7 @@ The [notarized DMG](https://downloads.macparakeet.com/MacParakeet.dmg) is the st
 | Channel | Status | Includes |
 |---------|--------|----------|
 | Stable DMG | Recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, optional WhisperKit, exports, vocabulary, AI features |
-| `main` branch | Development | v0.6 release scope plus hidden calendar auto-start code under `AppFeatures.calendarEnabled = false` |
+| `main` branch | Development | v0.6 release scope plus productized Transforms; hidden calendar auto-start code remains under `AppFeatures.calendarEnabled = false` |
 
 Calendar reminders, auto-start, and auto-stop are implemented in source but hidden from the v0.6 product surface while they await end-to-end validation.
 
@@ -74,7 +74,7 @@ Calendar reminders, auto-start, and auto-stop are implemented in source but hidd
 
 **Text cleanup** — Filler word removal, custom word replacements, text snippets with triggers. Deterministic pipeline, no LLM needed.
 
-**AI features** — Optional summaries, chat, and an AI formatter. Connect any cloud provider (OpenAI, Anthropic, Gemini, OpenRouter), local runtime (Ollama, LM Studio), OpenAI-compatible endpoint, or CLI tool (Claude Code, Codex). Entirely opt-in.
+**AI features** — Optional summaries, chat, AI formatter, and Transforms for rewriting selected text through your configured provider. Connect any cloud provider (OpenAI, Anthropic, Gemini, OpenRouter), local runtime (Ollama, LM Studio), OpenAI-compatible endpoint, or CLI tool (Claude Code, Codex). Entirely opt-in.
 
 ### Performance
 
@@ -168,6 +168,7 @@ AI features are entirely **opt-in** and separate from speech recognition — tra
 - **Summarize** — After a transcription finishes, click Summarize and pick a prompt ("Summary", "Action Items & Decisions", "Chapter Breakdown", etc.) or write your own. The LLM processes the transcript and streams back a summary. You can generate multiple summaries per transcript, each in its own tab. Prompts marked as auto-run generate summaries automatically for new transcriptions.
 - **Chat** — Ask questions about a transcript in a multi-turn chat interface. The LLM answers based on the transcript content.
 - **AI formatter** — Optionally run your dictation and file transcripts through your AI provider to clean up grammar, punctuation, and paragraphing. Toggle on/off, customize the prompt, or reset to default.
+- **Transforms** — Select text in any app and press a bound Transform hotkey, such as `Option-1` for Polish, to rewrite the selection through your configured LLM provider.
 
 **Supported providers:**
 

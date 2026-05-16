@@ -194,6 +194,7 @@ CREATE TABLE text_snippets (
     id TEXT PRIMARY KEY,                              -- UUID string
     trigger TEXT NOT NULL,                             -- Natural language trigger phrase (e.g., "my address")
     expansion TEXT NOT NULL,                           -- Full expansion text
+    action TEXT,                                       -- v0.7: optional post-paste action (Voice Return)
     isEnabled INTEGER NOT NULL DEFAULT 1,              -- Toggle without deleting
     useCount INTEGER NOT NULL DEFAULT 0,               -- Track usage for sorting/display
     createdAt TEXT NOT NULL,                           -- ISO 8601 timestamp
@@ -206,6 +207,7 @@ CREATE UNIQUE INDEX idx_text_snippets_trigger ON text_snippets(trigger COLLATE N
 **Notes:**
 - Case-insensitive unique index on trigger prevents conflicts.
 - `use_count` enables "most used" sorting in the management UI.
+- `action` stores optional post-paste actions for terminal action snippets. These rows are extracted before text snippet expansion; `expansion` remains non-null for schema compatibility.
 
 ---
 

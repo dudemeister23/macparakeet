@@ -67,8 +67,8 @@ See [00-vision.md](./00-vision.md) for positioning and market context.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Labs on main - "Meeting Recording + Multilingual STT"           │
-│  "Record meetings locally, add optional WhisperKit coverage"     │
+│  v0.6 - "Meeting Recording + Multilingual STT + Transforms"      │
+│  "Record meetings locally, add WhisperKit, rewrite selected text" │
 ├─────────────────────────────────────────────────────────────────┤
 │  • Meeting recording (system audio + mic with echo mitigation)    │
 │  • Concurrent with dictation (ADR-015) — dictate during meetings │
@@ -81,6 +81,8 @@ See [00-vision.md](./00-vision.md) for positioning and market context.
 │  • Settings engine picker + Whisper language picker              │
 │  • CLI --engine parakeet|whisper --language                      │
 │  • Meeting engine/language pinning for live + recovery + final   │
+│  • Transforms: Polish / Distill / Decide selected text anywhere  │
+│  • CLI transforms + local Transform history                      │
 │  • Calendar auto-start implemented but hidden behind feature flag │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -703,7 +705,7 @@ Audio path is computed from ID by default. Files stored as WAV (16kHz mono). Use
 3. **Controllable** -- Users manage their own word list and snippets. No AI surprises.
 4. **Debuggable** -- Pipeline reports exactly what it changed.
 
-Parakeet TDT already outputs good punctuation and capitalization natively, and WhisperKit can do the same for broader languages. The pipeline focuses on what STT cannot do: removing verbal fillers, applying domain-specific corrections, and expanding shorthand.
+Parakeet TDT already outputs good punctuation and capitalization natively, and WhisperKit can do the same for broader languages. The pipeline focuses on what STT cannot do: removing always-safe hesitation sounds, applying domain-specific corrections, expanding shorthand, and extracting terminal action snippets such as Voice Return.
 
 **Pipeline steps (in order):**
 
@@ -711,19 +713,14 @@ Parakeet TDT already outputs good punctuation and capitalization natively, and W
 Audio → local STT → raw transcript → clean pipeline → paste
                                     1. Filler removal (word list)
                                     2. Custom word replacements (user-defined)
-                                    3. Snippet expansion (trigger → text)
-                                    4. Whitespace cleanup
+                                    3. Trailing action extraction (Voice Return)
+                                    4. Snippet expansion (trigger → text)
+                                    5. Whitespace cleanup
 ```
 
 **Step 1: Filler removal**
 
-Three-tier strategy with conservative defaults (false negatives are better than false positives):
-
-| Tier | Words | Behavior |
-|------|-------|----------|
-| Multi-word (checked first) | "you know", "I mean", "sort of", "kind of" | Always removed |
-| Always safe | um, uh, umm, uhh | Always removed |
-| Sentence-start only | so, well, like, right | Removed only at sentence boundaries; preserved mid-sentence where meaningful |
+Conservative defaults: only pure hesitation sounds (`um`, `uh`, `umm`, `uhh`) are removed. False negatives are better than false positives, so words like `like`, `so`, `right`, and phrases like `you know` are not stripped by default.
 
 **Step 2: Custom word replacements**
 
@@ -738,7 +735,11 @@ User-defined corrections for domain vocabulary and proper nouns that STT gets wr
 
 Each custom word is a `(word, replacement)` pair with an enabled/disabled toggle.
 
-**Step 3: Snippet expansion**
+**Step 3: Trailing action extraction**
+
+Action snippets with a terminal trigger phrase are stripped from the transcript and returned as a post-paste action. This is how Voice Return can press Return after paste without leaving the trigger text in the output. Raw mode skips full cleanup but still performs terminal action extraction.
+
+**Step 4: Snippet expansion**
 
 Natural language trigger phrases that expand into longer text. Triggers are spoken phrases (not abbreviations) because STT outputs natural speech — users say "my address" not "addr".
 
@@ -753,7 +754,7 @@ Natural language trigger phrases that expand into longer text. Triggers are spok
 
 Each snippet has a trigger phrase, expansion text, and use count for tracking.
 
-**Step 4: Whitespace cleanup**
+**Step 5: Whitespace cleanup**
 
 - Collapse multiple spaces into single space
 - Fix punctuation spacing (remove space before period/comma, ensure space after)
@@ -765,7 +766,7 @@ Each snippet has a trigger phrase, expansion text, and use count for tracking.
 | Mode | Description | Default? |
 |------|-------------|----------|
 | Raw | STT output as-is, no processing | No |
-| Clean | Filler removal + custom words + snippets + whitespace | **Yes** |
+| Clean | Filler removal + custom words + trailing actions + snippets + whitespace | **Yes** |
 
 **Backup & Restore (issue #67):**
 
@@ -773,7 +774,7 @@ Users can export the combined vocabulary (manual custom words + text snippets)
 to a versioned JSON file, and import on the same or another Mac. Import shows
 a preview sheet with counts and case-insensitive conflict detection;
 duplicates can be skipped (default) or replaced. Surfaced from the Vocabulary
-panel and via `macparakeet-cli flow vocabulary {export,import,schema}`. The
+panel and via `macparakeet-cli vocab {export,import,schema}`. The
 `schema` subcommand prints an LLM-readable spec so a local coding agent can
 generate valid bundles from natural-language input.
 
@@ -794,6 +795,7 @@ CREATE TABLE text_snippets (
     id TEXT PRIMARY KEY,
     trigger TEXT NOT NULL UNIQUE,
     expansion TEXT NOT NULL,
+    action TEXT,
     useCount INTEGER NOT NULL DEFAULT 0,
     isEnabled INTEGER NOT NULL DEFAULT 1,
     createdAt TEXT NOT NULL,
@@ -805,13 +807,14 @@ CREATE TABLE text_snippets (
 
 **Acceptance criteria:**
 - [x] Filler words removed from raw STT output
-- [x] Multi-word fillers handled correctly (checked before single-word)
-- [x] Sentence-start-only fillers preserved mid-sentence
+- [x] Only always-safe hesitation sounds are removed by default
+- [x] Meaningful words such as "like", "so", and "right" are preserved
 - [x] Custom word replacements applied (case-insensitive matching)
+- [x] Trailing action snippets are extracted before text snippet expansion
 - [x] Snippet triggers expanded to full text
 - [x] Whitespace normalized and punctuation fixed
 - [x] Processing completes in sub-millisecond
-- [x] Raw mode bypasses all processing
+- [x] Raw mode bypasses full cleanup but still supports terminal action extraction
 - [x] Clean mode is the default for new dictations
 
 ---
@@ -1070,7 +1073,7 @@ Overlay shows selected text preview (truncated) so the user confirms the right t
 ```
 
 **Technical implementation:**
-- Response generated through `LLMServiceProtocol.chatStream(question:transcript:history:)`
+- Response generated through `LLMServiceProtocol.chatStream(question:transcript:userNotes:history:)`
 - Context is bounded before prompt submission
 - Conversations are persisted per transcript through `ChatConversationRepository`
 - Model/provider selection comes from the shared LLM settings/config store
@@ -1623,6 +1626,29 @@ Meeting transcription uses the current speech engine captured at recording start
 - [x] Live Ask strip reads `visiblePinned` from `QuickPromptsViewModel`; empty Ask state and sparkle popover read `visiblePromptGroups`, preserving group order by first occurrence with unpinned prompts before pinned-no-group cluster
 - [x] `macparakeet-cli quick-prompts` supports list/show/add/set/delete/pin/unpin/restore-defaults/export/import with JSON success/failure envelopes; `--pinned <true|false>` filters list and export
 - [x] Quick-prompt import/export uses stable `schema: "macparakeet.quick_prompts"` and `version: 1` with `isPinned: Bool`; duplicate ids and malformed bundles fail with `errorType: "import_schema"`
+
+### F43: Transforms
+
+> Status: **IMPLEMENTED ON MAIN** — Productized ADR-022 surface enabled by `AppFeatures.transformsEnabled = true`.
+
+**What:** System-wide selected-text rewrites through the user's configured LLM provider. The user selects text in any app, presses a bound Transform hotkey, and MacParakeet captures the selection, runs the saved prompt, and replaces the selection in place. The default built-ins are `Polish` (`Option-1`), `Distill` (`Option-2`), and `Decide` (`Option-3`).
+
+**Implementation:**
+- Transforms are `Prompt` rows with `category == .transform`; they reuse Prompt Library persistence but have their own sidebar surface and never appear in summary prompt pickers.
+- `prompts.keyboardShortcut` stores an encoded `KeyboardShortcut`; `prompts.runningLabel` stores optional progress-pill copy.
+- `TransformsHotkeyRegistry` owns one process-wide event tap and dispatches hotkeys to Transform prompt IDs.
+- Selection capture is AX-first with clipboard fallback; replacement tries AX write first and falls back to clipboard paste with snapshot/restore guards.
+- `TransformExecutor` uses `LLMService.transformDetailed` so CLI JSON output and local history can capture provider/model/latency metadata where available.
+- `transform_history` stores local input/output/source-app/timing rows for completed Transform runs. This is deliberate local user data; telemetry and `llm_runs` do not duplicate the content.
+- `macparakeet-cli transforms` manages and runs saved Transforms headlessly; `macparakeet-cli transforms history` reads and manages local Transform history.
+
+**Acceptance criteria:**
+- [x] Built-ins seed as `Polish`, `Distill`, and `Decide` with default `Option-1/2/3` shortcuts and resettable prompt bodies
+- [x] Users can create, edit, delete custom Transforms and clear/rebind shortcuts
+- [x] Shortcut validation blocks bare keys, duplicate Transform bindings, dictation/meeting hotkey collisions, and hostile Option-letter dead-key combos
+- [x] Transforms tab appears in the main sidebar when `AppFeatures.transformsEnabled` is true
+- [x] Triggering a Transform shows the floating progress pill, handles cancellation/error cleanup, and preserves clipboard state on abandon
+- [x] CLI `transforms` and `transforms history` surfaces mirror the saved-prompt and local-history data model for agent workflows
 
 ---
 

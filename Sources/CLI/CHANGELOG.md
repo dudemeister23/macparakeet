@@ -78,7 +78,7 @@ ArgumentParser's plain-text stderr path with exit code `2`. Downstream
 agents that branch on `errorType` should also handle the parse-error case
 by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
-## [Unreleased]
+## [2.3.0] -- 2026-05-16
 
 ### Changed
 
@@ -88,7 +88,7 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   flattened to `vocab export/import/schema`. No deprecated alias — the
   old `flow` surface had no external consumers.
 
-### Added (2.2.0)
+### Added
 
 - `transforms list / show / run / create / delete` — new subcommand tree
   for managing user-defined Transforms (ADR-022). Same surface that the

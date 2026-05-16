@@ -90,6 +90,13 @@ This matrix traces each requirement ID from `requirements.yaml` to its implement
 | REQ-TRANS-002 | `CLI/Commands/TranscribeCommand.swift`, `CLI/Commands/ModelsCommand.swift`, `MacParakeetCore/STT/STTResult.swift`, `MacParakeetCore/Services/TranscriptionService.swift`, `MacParakeetCore/Services/AppPaths.swift` | `TranscribeCommandTests.swift`, `ModelLifecycleCommandTests.swift`, `TranscriptionServiceTests.swift` |
 | REQ-MEET-007 | `MacParakeetCore/Services/MeetingRecording/MeetingRecordingService.swift`, `MacParakeetCore/Services/MeetingRecording/MeetingRecordingMetadata.swift`, `MacParakeetCore/Services/MeetingRecording/MeetingRecordingOutput.swift`, `MacParakeetCore/Services/MeetingRecording/MeetingRecordingLockFileStore.swift`, `MacParakeetCore/Services/MeetingRecording/MeetingRecordingRecoveryService.swift`, `MacParakeetCore/Services/TranscriptionService.swift` | `MeetingRecordingServiceTests.swift`, `MeetingRecordingLockFileStoreTests.swift`, `MeetingRecordingRecoveryServiceTests.swift`, `TranscriptionServiceTests.swift`, `STTSchedulerTests.swift` |
 
+## v0.6 Transforms
+
+| Requirement | Source Files | Test Files |
+|------------|-------------|------------|
+| REQ-XFORM-001 | `MacParakeetCore/Models/Prompt.swift`, `MacParakeetCore/Models/KeyboardShortcut.swift`, `MacParakeetCore/Services/System/SelectionCaptureService.swift`, `MacParakeetCore/Services/System/SelectionReplacementService.swift`, `MacParakeetCore/Services/Transforms/TransformExecutor.swift`, `MacParakeet/Hotkey/TransformsHotkeyRegistry.swift`, `MacParakeet/App/TransformsCoordinator.swift`, `MacParakeet/Views/Transforms/TransformsView.swift`, `MacParakeetViewModels/TransformsViewModel.swift`, `MacParakeetViewModels/TransformEditorViewModel.swift`, `CLI/Commands/TransformsCommand.swift` | `PromptRepositoryTests.swift`, `KeyboardShortcutTests.swift`, `SelectionCaptureServiceTests.swift`, `SelectionReplacementServiceTests.swift`, `TransformExecutorTests.swift`, `TransformsHotkeyRegistryTests.swift`, `TransformsViewModelTests.swift`, `TransformEditorViewModelTests.swift`, `TransformsCommandTests.swift` |
+| REQ-XFORM-002 | `MacParakeetCore/Models/TransformHistoryEntry.swift`, `MacParakeetCore/Database/TransformHistoryRepository.swift`, `MacParakeetCore/Services/Transforms/TransformExecutor.swift`, `MacParakeetViewModels/TransformsViewModel.swift`, `CLI/Commands/TransformsCommand.swift` | `TransformHistoryRepositoryTests.swift`, `TransformExecutorTests.swift`, `TransformsViewModelTests.swift`, `TransformsCommandTests.swift` |
+
 ## CLI Public Surface
 
 | Requirement | Source Files | Test Files |

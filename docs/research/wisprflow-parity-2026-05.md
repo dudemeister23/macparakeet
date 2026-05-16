@@ -135,7 +135,7 @@ This is the largest capability gap. It's also the one with the most direct tensi
 
 **Why we'd think twice:**
 - It only works well with an LLM in the loop. Deterministic pipelines (our current `clean` mode) can't pull off "rewrite this with the energy of an excited Slack message." So shipping this means making LLM cleanup a first-class path, not a side feature.
-- Local-first commitment. We can mitigate by routing through Apple Foundation Models or a local Ollama provider when available, and falling back to user-configured cloud providers. ADR-002 allows opt-in cloud LLM, so this is consistent in principle — but defaulting users into LLM-rewriting every dictation crosses a line we haven't crossed before.
+- Local-first commitment. We can mitigate by routing through local providers such as LM Studio, Ollama, or Local CLI, and falling back to user-configured cloud providers only when the user opts in. ADR-002 allows opt-in cloud LLM, so this is consistent in principle — but defaulting users into LLM-rewriting every dictation crosses a line we haven't crossed before.
 - App-list churn. WisprFlow ships a hardcoded list of which apps map to which tab. Maintaining that list (and answering "why isn't $APP in the work-messages tab?") becomes ongoing product work.
 
 ### Recommendation
@@ -166,7 +166,7 @@ Important note: *"Note your original dictation is never lost. Just go to the thr
 
 Two independent layers:
 
-- `Dictation.ProcessingMode` = `.raw` or `.clean`. `.raw` = no edits. `.clean` = deterministic 5-step pipeline (filler removal + custom words + snippet expansion + whitespace).
+- `Dictation.ProcessingMode` = `.raw` or `.clean`. `.raw` = no edits except terminal action extraction for Voice Return. `.clean` = deterministic 5-step pipeline (filler removal + custom words + trailing action extraction + snippet expansion + whitespace).
 - `AIFormatter` — optional LLM polish layer, controlled by `aiFormatterEnabled: Bool` + `aiFormatterPrompt: String` in `AppRuntimePreferences`. Off by default; one global prompt.
 
 So we have two levers that map roughly to "no edits" / "deterministic clean" / "deterministic + LLM polish" — three states, where WisprFlow has four with clearer naming.
@@ -245,7 +245,7 @@ This is where the strategic decision actually lives. Two coherent answers:
 
 1. Wire `Prompt.category = .transform` to a hotkey-driven path. Reuse the existing Prompt Library UI for the management surface.
 2. Implement AX selection-capture with clipboard fallback (the WisprFlow error toast tells us this is the right boundary).
-3. Ship two defaults that mirror Polish and Prompt Engineer (we already have similar prompt shapes in our Prompt Library for meetings — porting is mostly copy).
+3. Ship focused defaults that cover polish, distillation, and decision framing. MacParakeet's implemented set is `Polish`, `Distill`, and `Decide`.
 4. Skip the rule-toggle composition in v1 — it's a delightful detail but adds a lot of UI surface. Ship raw editable prompts only.
 5. Skip the live diff preview in v1. Hard to implement well, easy to live without.
 
