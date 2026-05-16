@@ -1066,7 +1066,7 @@ struct OnboardingFlowView: View {
             return [
                 "Check your internet connection, then retry setup.",
                 "Use a stable network until the speech model finishes downloading.",
-                "If it keeps failing, open Settings > Speech Model and run Repair."
+                "If it keeps failing, open Settings > Engine > Local Models and run Repair."
             ]
         }
 
@@ -1074,7 +1074,7 @@ struct OnboardingFlowView: View {
             return [
                 "Free at least 7 GB of disk space.",
                 "Retry setup after storage is available.",
-                "You can also run Repair in Settings > Speech Model."
+                "You can also run Repair in Settings > Engine > Local Models."
             ]
         }
 
@@ -1082,7 +1082,7 @@ struct OnboardingFlowView: View {
             return [
                 "Confirm the app can write to your user Library folder.",
                 "Restart MacParakeet, then retry setup.",
-                "If needed, run Repair in Settings > Speech Model."
+                "If needed, run Repair in Settings > Engine > Local Models."
             ]
         }
 
@@ -1095,7 +1095,7 @@ struct OnboardingFlowView: View {
 
         return [
             "Retry setup first (temporary failures are common).",
-            "If it keeps failing, open Settings > Speech Model and run Repair.",
+            "If it keeps failing, open Settings > Engine > Local Models and run Repair.",
             "If the error persists, restart the app and retry once."
         ]
     }
