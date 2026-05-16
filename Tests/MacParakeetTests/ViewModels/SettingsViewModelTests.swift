@@ -776,6 +776,55 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(mockRepo.dictations.isEmpty, "no dictation rows survive Clear All")
     }
 
+    // MARK: - Clear Transform History
+
+    func testClearTransformHistoryCallsRepoAndNotifies() async throws {
+        let transformHistoryRepo = MockTransformHistoryRepository()
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            transformHistoryRepo: transformHistoryRepo,
+            entitlementsService: entitlements,
+            checkoutURL: nil
+        )
+
+        var stateChangedFireCount = 0
+        viewModel.onTransformHistoryChanged = { stateChangedFireCount += 1 }
+
+        viewModel.clearTransformHistory()
+
+        try await waitUntil {
+            transformHistoryRepo.deleteAllCalled && stateChangedFireCount == 1
+        }
+        XCTAssertTrue(transformHistoryRepo.deleteAllCalled)
+        XCTAssertEqual(stateChangedFireCount, 1)
+    }
+
+    func testClearTransformHistoryTracksFailedDeleteAllCallWithoutNotifying() async throws {
+        let transformHistoryRepo = MockTransformHistoryRepository()
+        transformHistoryRepo.deleteAllError = NSError(domain: "test", code: 1)
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            transformHistoryRepo: transformHistoryRepo,
+            entitlementsService: entitlements,
+            checkoutURL: nil
+        )
+
+        var stateChangedFireCount = 0
+        viewModel.onTransformHistoryChanged = { stateChangedFireCount += 1 }
+
+        viewModel.clearTransformHistory()
+
+        try await waitUntil {
+            transformHistoryRepo.deleteAllCalled
+        }
+        XCTAssertTrue(transformHistoryRepo.deleteAllCalled)
+        XCTAssertEqual(stateChangedFireCount, 0)
+    }
+
     // MARK: - Reset Lifetime Stats (#124)
 
     func testResetLifetimeStatsCallsRepo() {
