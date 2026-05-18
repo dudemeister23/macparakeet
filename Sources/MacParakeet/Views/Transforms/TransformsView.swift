@@ -218,10 +218,6 @@ struct TransformsView: View {
                 .font(DesignSystem.Typography.pageTitle)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
             Spacer()
-            Button(action: onCreate) {
-                Label("Create New", systemImage: "plus")
-            }
-            .parakeetAction(.primary)
         }
     }
 
