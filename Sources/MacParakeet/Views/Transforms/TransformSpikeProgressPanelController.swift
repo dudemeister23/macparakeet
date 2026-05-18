@@ -20,26 +20,17 @@ private final class TransformsSpikePanel: NSPanel {
 private enum TransformProgressPanelLayout {
     static let bottomOffset: CGFloat = 12
     /// Stable transparent host width. The visible capsule animates inside
-    /// this frame so label reveal and success do not fight AppKit window
-    /// resizing.
+    /// this frame so routine state changes do not fight AppKit window
+    /// resizing. Error copy can still expand inside this host.
     static let panelWidth: CGFloat = 360
     static let baselineHeight: CGFloat = 64
     static let labelMaxWidth: CGFloat = 280
-    static let labelRevealDelay: Duration = .seconds(5)
 }
 
 @MainActor
 @Observable
 final class TransformSpikeProgressViewModel {
-    var label: String = "Still polishing…"
     var phase: Phase = .working
-    /// Hidden during the working state's first few seconds — the rose loader
-    /// is enough signal that work is in flight, and the user just pressed the
-    /// hotkey so they already know what's happening. The controller flips
-    /// this on after a patience threshold (`labelRevealDelay`) so longer-than-
-    /// usual runs get an empathetic "still working" cue without forcing every
-    /// short transform to render text.
-    var showLabel: Bool = false
 
     enum Phase: Equatable {
         case working
@@ -54,29 +45,20 @@ final class TransformSpikeProgressPanelController {
     private var host: NSHostingView<TransformSpikeProgressView>?
     private var viewModel: TransformSpikeProgressViewModel?
     private var autoDismissTask: Task<Void, Never>?
-    private var labelRevealTask: Task<Void, Never>?
 
     /// Open (or reuse) the panel showing the in-progress indicator. Idempotent
-    /// — calling `show` while a panel is visible just resets state. The pill
-    /// starts as an icon-only circle; if work runs past `labelRevealDelay` the
-    /// caller-supplied label is faded in.
-    func show(label: String = "Still polishing…") {
+    /// — calling `show` while a panel is visible just resets state.
+    func show(label _: String = "Still polishing…") {
         autoDismissTask?.cancel()
         autoDismissTask = nil
-        labelRevealTask?.cancel()
-        labelRevealTask = nil
 
         if let viewModel {
-            viewModel.label = label
             viewModel.phase = .working
-            viewModel.showLabel = false
             resetPanelToBaseline(animated: false)
-            scheduleLabelReveal()
             return
         }
 
         let vm = TransformSpikeProgressViewModel()
-        vm.label = label
         self.viewModel = vm
 
         let host = NSHostingView(rootView: TransformSpikeProgressView(viewModel: vm))
@@ -112,15 +94,11 @@ final class TransformSpikeProgressPanelController {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
         }
-
-        scheduleLabelReveal()
     }
 
     /// Swap the loader for a "Done" affordance, auto-dismiss after 1.2s.
     func done(message _: String = "Done") {
         guard let viewModel else { return }
-        labelRevealTask?.cancel()
-        labelRevealTask = nil
         viewModel.phase = .done
         scheduleAutoDismiss(after: .milliseconds(1200))
     }
@@ -131,8 +109,6 @@ final class TransformSpikeProgressPanelController {
             // Spike-grade: surface the error briefly even if show() never ran.
             show(label: "Transforms")
         }
-        labelRevealTask?.cancel()
-        labelRevealTask = nil
         viewModel?.phase = .failed(message: message)
         scheduleRelayout()
         scheduleAutoDismiss(after: .milliseconds(4000))
@@ -144,8 +120,6 @@ final class TransformSpikeProgressPanelController {
     func close() {
         autoDismissTask?.cancel()
         autoDismissTask = nil
-        labelRevealTask?.cancel()
-        labelRevealTask = nil
         guard let panelRef = panel else { return }
         panel = nil
         host = nil
@@ -212,21 +186,6 @@ final class TransformSpikeProgressPanelController {
         panel.setFrame(frame, display: true, animate: animated)
     }
 
-    /// After the patience threshold, fade the label in inside the stable
-    /// transparent host. Cancelled by done/fail/close — so transforms that
-    /// finish quickly never show text.
-    private func scheduleLabelReveal() {
-        labelRevealTask?.cancel()
-        labelRevealTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: TransformProgressPanelLayout.labelRevealDelay)
-            guard !Task.isCancelled, let self else { return }
-            guard let vm = self.viewModel, case .working = vm.phase else { return }
-            withAnimation(.easeInOut(duration: 0.28)) {
-                vm.showLabel = true
-            }
-        }
-    }
-
     private func scheduleAutoDismiss(after delay: Duration) {
         autoDismissTask?.cancel()
         autoDismissTask = Task { @MainActor [weak self] in
@@ -252,9 +211,9 @@ private struct TransformSpikeProgressView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // Icon-only phases (.done) get equal padding so the Capsule renders
+        // Icon-only phases (.working, .done) get equal padding so the Capsule renders
         // as a perfect circle — matches the dictation overlay's success
-        // state. Phases with a label get the wider oblong-pill padding.
+        // state. Failure copy gets the wider oblong-pill padding.
         let label = currentLabel
         let isIconOnly = label == nil
         let horizontalPadding: CGFloat = isIconOnly ? 10 : 14
@@ -308,21 +267,12 @@ private struct TransformSpikeProgressView: View {
 
     @ViewBuilder
     private func labelText(_ label: String) -> some View {
-        switch viewModel.phase {
-        case .failed:
-            Text(label)
-                .font(DesignSystem.Typography.meetingPillStatus)
-                .foregroundStyle(DesignSystem.Colors.meetingPillText)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: TransformProgressPanelLayout.labelMaxWidth, alignment: .leading)
-        case .working, .done:
-            Text(label)
-                .font(DesignSystem.Typography.meetingPillStatus)
-                .foregroundStyle(DesignSystem.Colors.meetingPillText)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
+        Text(label)
+            .font(DesignSystem.Typography.meetingPillStatus)
+            .foregroundStyle(DesignSystem.Colors.meetingPillText)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: TransformProgressPanelLayout.labelMaxWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -337,12 +287,11 @@ private struct TransformSpikeProgressView: View {
         }
     }
 
-    /// Working starts icon-only and the label only fades in after the
-    /// patience threshold (`showLabel`). Done is icon-only: the green
-    /// checkmark is the completion message.
+    /// Working and done stay icon-only: the loader communicates in-flight
+    /// work, and the green checkmark communicates completion.
     private var currentLabel: String? {
         switch viewModel.phase {
-        case .working: return viewModel.showLabel ? viewModel.label : nil
+        case .working: return nil
         case .done: return nil
         case .failed(let message): return message
         }
