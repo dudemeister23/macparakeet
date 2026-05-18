@@ -552,7 +552,7 @@ private struct TransformHistoryRow: View {
                 copiedTitle: "Copied",
                 systemImage: "doc.on.doc",
                 copiedSystemImage: "checkmark",
-                isCopied: copiedTarget == .output,
+                isCopied: copiedTarget != nil,
                 prominence: .primary,
                 help: "Copy transformed result",
                 action: onCopyOutput
@@ -603,7 +603,7 @@ private struct TransformHistoryRow: View {
 
                         TransformHistoryCopyButton(
                             title: "Copy original",
-                            copiedTitle: "Copied original",
+                            copiedTitle: "Copied",
                             systemImage: "doc.text",
                             copiedSystemImage: "checkmark",
                             isCopied: copiedTarget == .input,
