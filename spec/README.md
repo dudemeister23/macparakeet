@@ -113,7 +113,7 @@ Dictation + transcription + history + settings. Get audio in, text out, pasted i
 - [x] Clean text pipeline (deterministic: fillers, custom words, snippets)
 - [x] Custom words & snippets management UI
 - [x] CLI commands (`macparakeet-cli vocab process/words/snippets` + `macparakeet-cli models status/warm-up/repair`)
-- [x] In-app feedback form (Feedback sidebar item → Cloudflare Worker → GitHub Issues on `macparakeet-community`)
+- [x] In-app feedback form (Feedback sidebar item → Cloudflare Worker → GitHub Issues on `moona3k/macparakeet`)
 
 ### v0.3 YouTube & Export (Implemented)
 

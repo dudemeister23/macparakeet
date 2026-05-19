@@ -1249,7 +1249,11 @@ Center and vertex glow are static (constants `centerGlow = 0.32`, `vertexGlow = 
 
 ---
 
-## Version Roadmap
+## Historical UI Roadmap
+
+> Historical implementation snapshot. Current release status lives in
+> `spec/README.md`, and current feature exposure is controlled by
+> `Sources/MacParakeetCore/AppFeatures.swift`.
 
 ### v0.1 (MVP)
 
@@ -1263,12 +1267,12 @@ All UI listed above is v0.1 except where noted:
 
 ### v0.2 (AI Refinement)
 
-- Vocabulary sidebar item (processing mode, pipeline guide, custom words & snippets management)
+- Vocabulary sidebar item (global processing mode, pipeline guide, custom words & snippets management)
 - Custom Words management view (sheet from Vocabulary)
 - Text Snippets management view (sheet from Vocabulary)
-- Context mode selector in dictation (raw/clean badge on overlay)
+- No per-dictation context-mode picker on the dictation overlay; processing mode stays a global Vocabulary default.
 
-### v0.3 (Import & Export, In Progress)
+### v0.3 (Import & Export, Historical Target)
 
 - Feedback sidebar item (form with category cards, community link)
 - YouTube URL input field in transcription view

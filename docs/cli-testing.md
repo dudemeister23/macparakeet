@@ -55,7 +55,7 @@ macparakeet-cli
 │   ├── warm-up [--attempts]             Warm up speech model
 │   ├── repair [--attempts]              Best-effort model repair
 │   └── clear                            Delete cached models
-├── vocab                                Text processing pipeline
+├── vocab, flow                          Text processing pipeline (`flow` is deprecated)
 │   ├── process <text> [--copy]          Run clean text processing
 │   ├── words {list,add,delete}          Manage custom words
 │   │   └── list [--source manual|learned|all] [--json]
@@ -100,6 +100,9 @@ macparakeet-cli
 │   └── upcoming [--days N] [--filter link|participants|all] [--json]
 └── feedback <message> [options]         Submit feedback
 ```
+
+`flow` is a compatibility alias for `vocab` in CLI 2.3.x. Use `vocab` in new
+scripts; the alias remains documented here only while the CLI still exposes it.
 
 > **JSON output convention**: any query command marked `[--json]` emits a single
 > JSON document on stdout (ISO-8601 dates, sorted keys, pretty-printed). Pipe to

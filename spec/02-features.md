@@ -1331,7 +1331,7 @@ new scheduling architecture.
 
 ### F15: Low-Energy "Whisper Mode" — REMOVED
 
-> **Removed:** This historical feature was about low-volume/quiet speaking, not the WhisperKit speech engine added later in v0.7. Parakeet TDT has no tunable low-energy speech parameter; a "whisper mode" for quiet speech would amount to a mic gain preset. Users can adjust mic sensitivity in macOS System Settings.
+> **Removed:** This historical feature was about low-volume/quiet speaking, not the optional WhisperKit speech engine that ships in the v0.6 release scope. Parakeet TDT has no tunable low-energy speech parameter; a "whisper mode" for quiet speech would amount to a mic gain preset. Users can adjust mic sensitivity in macOS System Settings.
 
 ---
 
