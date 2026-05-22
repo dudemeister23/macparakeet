@@ -342,7 +342,13 @@ final class TransformsCoordinator {
         operationContext: ObservabilityOperationContext
     ) {
         panelController?.show()
-        panelController?.fail(message: "Opening AI settings...")
+        // Name the problem + where to fix it. The old "Opening AI settings..."
+        // described a side-effect, not what the user needs to do — and when the
+        // hotkey is fired from another app the Settings window opens behind
+        // focus, so it read as "nothing happened" and users re-fired the hotkey
+        // (see the no_provider telemetry cluster). The Settings → AI window
+        // still opens automatically alongside this message.
+        panelController?.fail(message: "Add an LLM provider in Settings to use Transforms")
         onLLMProviderRequired()
         Telemetry.send(.transformFailed(transformName: telemetryName, reason: .noProvider))
         sendTransformOperation(
