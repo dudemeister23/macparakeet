@@ -193,10 +193,34 @@ final class MeetingMonitorTests: XCTestCase {
             config: config(reminderMinutes: 5),
             activeRecording: false,
             dismissedEventIds: [],
-            remindedEventIds: ["evt-1"],
+            remindedEventIds: [evt.dedupeKey],
             countdownShownEventIds: []
         )
         XCTAssertTrue(result.isEmpty)
+    }
+
+    func testRescheduledEventReFiresReminder() {
+        let now = Date()
+        // Reminded at an earlier slot, then moved. Same id, different start
+        // time → different dedupeKey → the reminder fires again.
+        let rescheduled = event(id: "evt-1", startsIn: 5 * 60, from: now)
+        let oldSlotKey = CalendarEvent(
+            id: "evt-1",
+            title: "Standup",
+            startTime: now.addingTimeInterval(-3600),
+            endTime: now.addingTimeInterval(-1800)
+        ).dedupeKey
+        let result = MeetingMonitor.evaluate(
+            events: [rescheduled],
+            now: now,
+            config: config(reminderMinutes: 5),
+            activeRecording: false,
+            dismissedEventIds: [],
+            remindedEventIds: [oldSlotKey],
+            countdownShownEventIds: []
+        )
+        XCTAssertEqual(extractIds(result), ["evt-1"],
+                       "A reschedule to a new time must re-fire — the old slot's key must not suppress it")
     }
 
     func testReminderMinutesZeroDisablesReminder() {
@@ -321,7 +345,7 @@ final class MeetingMonitorTests: XCTestCase {
             now: now,
             config: config(),
             activeRecording: false,
-            dismissedEventIds: ["evt-1"],
+            dismissedEventIds: [evt.dedupeKey],
             remindedEventIds: [],
             countdownShownEventIds: []
         )
@@ -372,9 +396,86 @@ final class MeetingMonitorTests: XCTestCase {
             activeRecording: false,
             dismissedEventIds: [],
             remindedEventIds: [],
-            countdownShownEventIds: ["evt-1"]
+            countdownShownEventIds: [evt.dedupeKey]
         )
         XCTAssertTrue(result.isEmpty)
+    }
+
+    // MARK: - RSVP gating for auto-start (#5)
+
+    func testAutoStartSkipsPendingInvite() {
+        let now = Date()
+        let evt = event(startsIn: 0, from: now, userStatus: .pending)
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .autoStart, reminderMinutes: 0),
+            activeRecording: false,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertTrue(result.isEmpty,
+                      "An invite the user hasn't accepted (.pending) must not auto-record")
+    }
+
+    func testAutoStartFiresForTentative() {
+        let now = Date()
+        let evt = event(startsIn: 0, from: now, userStatus: .tentative)
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .autoStart, reminderMinutes: 0),
+            activeRecording: false,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertTrue(result.contains { if case .autoStartDue = $0 { return true } else { return false } },
+                      "A tentatively-accepted meeting is still likely-attending — auto-start should fire")
+    }
+
+    func testReminderStillFiresForPendingInvite() {
+        let now = Date()
+        // Reminders are lenient: a pending invite still gets a notification.
+        let evt = event(startsIn: 5 * 60, from: now, userStatus: .pending)
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .notify, reminderMinutes: 5),
+            activeRecording: false,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertTrue(result.contains { if case .reminderDue = $0 { return true } else { return false } },
+                      "Reminders should remain lenient for pending invites")
+    }
+
+    func testAutoStopFiresForPendingInviteOnceRecording() {
+        let now = Date()
+        // RSVP gates auto-START only. If we're already recording a meeting
+        // (regardless of RSVP), auto-stop must still fire at its end.
+        let evt = CalendarEvent(
+            id: "ending",
+            title: "Wrap",
+            startTime: now.addingTimeInterval(-1500),
+            endTime: now.addingTimeInterval(20),
+            meetUrl: "https://zoom.us/j/1",
+            participants: [EventParticipant(email: "x@y")],
+            userStatus: .pending
+        )
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .autoStart, autoStopEnabled: true),
+            activeRecording: true,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertTrue(result.contains { if case .autoStopDue = $0 { return true } else { return false } },
+                      "Auto-stop is not RSVP-gated — a recording in flight must still stop at meeting end")
     }
 
     // MARK: - Late join
@@ -461,6 +562,58 @@ final class MeetingMonitorTests: XCTestCase {
         XCTAssertFalse(result.contains { if case .autoStopDue = $0 { return true } else { return false } })
     }
 
+    func testAutoStopFiresWithinForgivenessTailPastEnd() {
+        let now = Date()
+        // Meeting already ended 60s ago, recording still active (we woke from
+        // sleep / it ran long). Within the 5-min forgiveness tail → auto-stop
+        // should still fire so the recording doesn't run forever.
+        let evt = CalendarEvent(
+            id: "ended",
+            title: "Wrap",
+            startTime: now.addingTimeInterval(-1800),
+            endTime: now.addingTimeInterval(-60),
+            meetUrl: "https://zoom.us/j/1",
+            participants: [EventParticipant(email: "x@y")],
+            userStatus: .accepted
+        )
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .autoStart, autoStopEnabled: true),
+            activeRecording: true,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertTrue(result.contains { if case .autoStopDue = $0 { return true } else { return false } },
+                      "Auto-stop must still fire shortly after endTime (sleep / long meeting)")
+    }
+
+    func testAutoStopDoesNotFireBeyondForgivenessTail() {
+        let now = Date()
+        // Ended 6 minutes ago — beyond the 5-min forgiveness tail. Leave it
+        // for a manual stop rather than force-stopping a long-past meeting.
+        let evt = CalendarEvent(
+            id: "ended",
+            title: "Wrap",
+            startTime: now.addingTimeInterval(-3600),
+            endTime: now.addingTimeInterval(-6 * 60),
+            meetUrl: "https://zoom.us/j/1",
+            participants: [EventParticipant(email: "x@y")],
+            userStatus: .accepted
+        )
+        let result = MeetingMonitor.evaluate(
+            events: [evt],
+            now: now,
+            config: config(mode: .autoStart, autoStopEnabled: true),
+            activeRecording: true,
+            dismissedEventIds: [],
+            remindedEventIds: [],
+            countdownShownEventIds: []
+        )
+        XCTAssertFalse(result.contains { if case .autoStopDue = $0 { return true } else { return false } })
+    }
+
     // MARK: - Multiple events
 
     func testHandlesMultipleEventsIndependently() {
@@ -472,7 +625,7 @@ final class MeetingMonitorTests: XCTestCase {
             now: now,
             config: config(),
             activeRecording: false,
-            dismissedEventIds: ["dismissed"],
+            dismissedEventIds: [dismissed.dedupeKey],
             remindedEventIds: [],
             countdownShownEventIds: []
         )

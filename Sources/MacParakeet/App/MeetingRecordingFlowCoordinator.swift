@@ -203,16 +203,39 @@ final class MeetingRecordingFlowCoordinator {
     /// calendar coordinator can drop its binding, and emits
     /// `calendar_auto_start_failed{reason=state_busy}` so we can see how
     /// often back-to-back meetings actually collide in the wild.
-    func startFromCalendar(title: String? = nil) {
+    @discardableResult
+    func startFromCalendar(title: String? = nil) -> Int? {
         guard stateMachine.state == .idle else {
             Telemetry.send(.calendarAutoStartFailed(reason: "state_busy"))
             onAutoStartFailed?()
-            return
+            return nil
         }
         pendingTrigger = .calendarAutoStart
         pendingTitle = title
         currentMeetingOperationContext = ObservabilityOperationContext()
         sendEvent(.startRequested)
+        return stateMachine.generation
+    }
+
+    /// Calendar-driven stop. **Idempotent: stops an in-flight recording but
+    /// NEVER starts one.** The auto-stop countdown completion routes here
+    /// instead of `toggleRecording()` — a blind toggle would *start* a brand
+    /// new recording if the user had already stopped the auto-started one
+    /// during the 30s countdown, which for a privacy-first app is the worst
+    /// kind of surprise (silent mic + system-audio capture nobody asked for).
+    /// Only `.stopRequested` is ever sent, and only from states that have
+    /// something to stop — `(.idle, .stopRequested)` is a state-machine no-op
+    /// anyway, but we don't even send it.
+    func stopFromCalendar(recordingGeneration: Int) {
+        guard stateMachine.generation == recordingGeneration else { return }
+        switch stateMachine.state {
+        case .checkingPermissions:
+            sendEvent(.cancelRequested)
+        case .recording, .starting, .stopping:
+            sendEvent(.stopRequested)
+        case .idle, .transcribing, .finishing:
+            break  // nothing to stop — and never start
+        }
     }
 
     /// Discard the pending start context (trigger + title) when the start

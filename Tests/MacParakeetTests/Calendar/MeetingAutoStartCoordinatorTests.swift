@@ -17,6 +17,12 @@ final class MeetingAutoStartCoordinatorTests: XCTestCase {
     private var autoStartConfirmedCount = 0
     private var autoStartConfirmedTitles: [String] = []
     private var autoStopConfirmedCount = 0
+    private var autoStopConfirmedGenerations: [Int] = []
+    /// When true, the `onAutoStartConfirmed` stub mimics the real flow
+    /// coordinator's `state_busy` rejection by clearing the binding —
+    /// exercising the back-to-back retry path (#8).
+    private var simulateAutoStartBusy = false
+    private weak var coordinatorRef: MeetingAutoStartCoordinator?
 
     override func setUp() {
         super.setUp()
@@ -33,6 +39,9 @@ final class MeetingAutoStartCoordinatorTests: XCTestCase {
         autoStartConfirmedCount = 0
         autoStartConfirmedTitles = []
         autoStopConfirmedCount = 0
+        autoStopConfirmedGenerations = []
+        simulateAutoStartBusy = false
+        coordinatorRef = nil
     }
 
     /// Seed `UserDefaults` *before* the SettingsViewModel is constructed
@@ -67,10 +76,21 @@ final class MeetingAutoStartCoordinatorTests: XCTestCase {
             settingsViewModel: settingsViewModel,
             isRecordingActive: { [weak self] in self?.recordingActiveStub ?? false },
             onAutoStartConfirmed: { [weak self] title in
-                self?.autoStartConfirmedCount += 1
-                self?.autoStartConfirmedTitles.append(title)
+                guard let self else { return nil }
+                self.autoStartConfirmedCount += 1
+                self.autoStartConfirmedTitles.append(title)
+                if self.simulateAutoStartBusy {
+                    // Mimic MeetingRecordingFlowCoordinator.startFromCalendar's
+                    // synchronous state_busy path: clear the optimistic binding.
+                    self.coordinatorRef?.clearAutoStartBinding()
+                    return nil
+                }
+                return 1
             },
-            onAutoStopConfirmed: { [weak self] in self?.autoStopConfirmedCount += 1 },
+            onAutoStopConfirmed: { [weak self] generation in
+                self?.autoStopConfirmedCount += 1
+                self?.autoStopConfirmedGenerations.append(generation)
+            },
             toastController: toastController
         )
     }
@@ -211,6 +231,30 @@ final class MeetingAutoStartCoordinatorTests: XCTestCase {
         coordinator.stop()
     }
 
+    func testAutoStartCompletionIgnoredAfterModeTurnsOff() {
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        let event = CalendarEvent(
+            id: "evt-1",
+            title: "Standup",
+            startTime: Date(),
+            endTime: Date().addingTimeInterval(1800)
+        )
+        coordinator.testHook_markCountdownShown(event)
+
+        settingsViewModel.calendarAutoStartMode = .off
+        coordinator.handleAutoStartOutcome(.completed, for: event)
+
+        XCTAssertEqual(autoStartConfirmedCount, 0,
+                       "A countdown that completes after calendar auto-start is disabled must not start recording")
+        XCTAssertFalse(coordinator.testHook_isCountdownShown(event),
+                       "Disabled-mode completion should not permanently suppress a later re-enable")
+
+        coordinator.stop()
+    }
+
     func testAutoStartUserCancelDoesNotTriggerRecording() async {
         calendarService.stubPermissionStatus = .granted
         seedSettings(mode: .autoStart)
@@ -269,6 +313,255 @@ final class MeetingAutoStartCoordinatorTests: XCTestCase {
         await waitForPoll()
         XCTAssertNil(coordinator.testHook_autoStartedEventId,
                      "Binding must clear when recording stops outside coordinator's control")
+
+        coordinator.stop()
+    }
+
+    // MARK: - Back-to-back retry (#8)
+
+    func testStateBusyAutoStartClearsSuppressionForRetry() async {
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinatorRef = coordinator
+        simulateAutoStartBusy = true
+        coordinator.start()
+        await waitForPoll()
+
+        let event = CalendarEvent(
+            id: "B",
+            title: "Back-to-back",
+            startTime: Date(),
+            endTime: Date().addingTimeInterval(1800)
+        )
+        coordinator.testHook_markCountdownShown(event)
+        XCTAssertTrue(coordinator.testHook_isCountdownShown(event))
+
+        // Completion attempts the start; the stub rejects it (state_busy) and
+        // clears the binding synchronously → suppression must be dropped.
+        coordinator.handleAutoStartOutcome(.completed, for: event)
+        XCTAssertFalse(coordinator.testHook_isCountdownShown(event),
+                       "A state_busy auto-start must clear suppression so a true back-to-back meeting can retry once the first recording ends")
+
+        coordinator.stop()
+    }
+
+    func testSuccessfulAutoStartRetainsSuppression() async {
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinatorRef = coordinator
+        simulateAutoStartBusy = false  // success path
+        coordinator.start()
+        await waitForPoll()
+
+        let event = CalendarEvent(
+            id: "B",
+            title: "Solo",
+            startTime: Date(),
+            endTime: Date().addingTimeInterval(1800)
+        )
+        coordinator.testHook_markCountdownShown(event)
+        coordinator.handleAutoStartOutcome(.completed, for: event)
+        XCTAssertTrue(coordinator.testHook_isCountdownShown(event),
+                      "A successful auto-start must keep its suppression — no duplicate countdown")
+
+        coordinator.stop()
+    }
+
+    // MARK: - Poll reentrancy (#3)
+
+    func testConcurrentPollsDoNotInterleave() async {
+        // Hold one poll inside its fetch, then issue a second. The reentrancy
+        // guard must drop the second so it can't double-post a reminder.
+        calendarService.stubPermissionStatus = .granted
+        calendarService.stubEvents = [event(startsIn: 5 * 60)]
+        seedSettings(mode: .notify, reminderMinutes: 5)
+
+        let coordinator = makeCoordinator()
+        calendarService.holdNextFetch = true
+
+        coordinator.testHook_forcePoll()   // poll A enters and parks in fetch
+        await waitForPoll()
+        XCTAssertEqual(calendarService.fetchUpcomingEventsCallCount, 1,
+                       "First poll should be mid-fetch")
+
+        coordinator.testHook_forcePoll()   // poll B — should be coalesced
+        await waitForPoll()
+        XCTAssertTrue(coordinator.testHook_pollAgainRequested,
+                      "The reentrant poll must register a coalesced re-run (proves it entered and hit the guard, not merely queued)")
+        XCTAssertEqual(calendarService.fetchUpcomingEventsCallCount, 1,
+                       "A reentrant poll must not run a second concurrent fetch")
+
+        // Releasing A lets it finish and run exactly one coalesced re-poll.
+        calendarService.releaseHeldFetch()
+        await waitForPoll()
+        XCTAssertFalse(coordinator.testHook_pollAgainRequested,
+                       "Coalesced flag should be consumed by the re-run")
+        XCTAssertEqual(calendarService.fetchUpcomingEventsCallCount, 2,
+                       "The dropped poll must be honored once after the in-flight poll completes")
+
+        coordinator.stop()
+    }
+
+    // MARK: - Owned-event merge for reliable auto-stop (#2)
+
+    func testMergeReinjectsOwnedEventWhenDroppedFromFetch() {
+        // EventKit stops returning the event once `now` passes its endTime, so
+        // a still-active owned recording must be re-injected for the auto-stop
+        // window to remain evaluable.
+        let owned = event(id: "owned", startsIn: -1800)
+        let merged = MeetingAutoStartCoordinator.mergingOwnedEvent(
+            into: [],
+            owned: owned,
+            activeRecording: true
+        )
+        XCTAssertEqual(merged.map(\.id), ["owned"])
+    }
+
+    func testMergeDoesNotDuplicateWhenOwnedEventStillPresent() {
+        let owned = event(id: "owned", startsIn: -600)
+        let merged = MeetingAutoStartCoordinator.mergingOwnedEvent(
+            into: [owned],
+            owned: owned,
+            activeRecording: true
+        )
+        XCTAssertEqual(merged.map(\.id), ["owned"], "Must not duplicate an event already in the fetch")
+    }
+
+    func testMergeNoOpWhenNotRecording() {
+        let owned = event(id: "owned", startsIn: -600)
+        let merged = MeetingAutoStartCoordinator.mergingOwnedEvent(
+            into: [],
+            owned: owned,
+            activeRecording: false
+        )
+        XCTAssertTrue(merged.isEmpty, "No merge when there's no active recording to protect")
+    }
+
+    // MARK: - Auto-stop idempotency (#1 — privacy)
+
+    func testAutoStopCompletionAfterExternalStopDoesNotConfirm() async {
+        // The privacy regression: a calendar auto-stop countdown was up,
+        // the user manually stopped the recording during the 30s window, and
+        // when the countdown completed the old code blindly toggled — which,
+        // with no recording in flight, *started* a brand-new one. The fix:
+        // the completion re-verifies ownership (cleared by the self-heal) and
+        // routes through an idempotent stop. Here we assert the completion is
+        // a no-op once the binding is gone.
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinator.start()
+        await waitForPoll()
+
+        recordingActiveStub = true
+        coordinator.testHook_simulateAutoStartConfirmed(eventId: "evt-1")
+        XCTAssertEqual(coordinator.testHook_autoStartedEventId, "evt-1")
+
+        // User stops the recording themselves; the next poll self-heals the
+        // binding (and dismisses any live auto-stop toast).
+        recordingActiveStub = false
+        calendarService.stubEvents = []
+        coordinator.testHook_forcePoll()
+        await waitForPoll()
+        XCTAssertNil(coordinator.testHook_autoStartedEventId)
+
+        // The auto-stop countdown completes *after* the external stop.
+        let event = CalendarEvent(
+            id: "evt-1",
+            title: "Wrap",
+            startTime: Date().addingTimeInterval(-1800),
+            endTime: Date().addingTimeInterval(5)
+        )
+        coordinator.handleAutoStopOutcome(.completed, for: event)
+        XCTAssertEqual(autoStopConfirmedCount, 0,
+                       "Auto-stop completion after an external stop must NOT confirm — otherwise the idempotent stop could hit a replacement recording, and the old toggle would have *started* one")
+
+        coordinator.stop()
+    }
+
+    func testAutoStopCompletionWhileOwnedAndActiveConfirms() async {
+        // Guard against the ownership recheck being too aggressive: the happy
+        // path (binding still owns the active recording) must still stop.
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinator.start()
+        await waitForPoll()
+
+        recordingActiveStub = true
+        coordinator.testHook_simulateAutoStartConfirmed(eventId: "evt-1")
+
+        let event = CalendarEvent(
+            id: "evt-1",
+            title: "Wrap",
+            startTime: Date().addingTimeInterval(-1800),
+            endTime: Date().addingTimeInterval(5)
+        )
+        coordinator.handleAutoStopOutcome(.completed, for: event)
+        XCTAssertEqual(autoStopConfirmedCount, 1,
+                       "An owned, still-active recording must auto-stop on completion")
+        XCTAssertEqual(autoStopConfirmedGenerations, [1],
+                       "Auto-stop must target the recording generation returned by calendar auto-start")
+
+        coordinator.stop()
+    }
+
+    func testAutoStopCompletionIgnoredAfterAutoStopDisabled() async {
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinator.start()
+        await waitForPoll()
+
+        recordingActiveStub = true
+        coordinator.testHook_simulateAutoStartConfirmed(eventId: "evt-1")
+        settingsViewModel.calendarAutoStopEnabled = false
+
+        let event = CalendarEvent(
+            id: "evt-1",
+            title: "Wrap",
+            startTime: Date().addingTimeInterval(-1800),
+            endTime: Date().addingTimeInterval(5)
+        )
+        coordinator.handleAutoStopOutcome(.completed, for: event)
+
+        XCTAssertEqual(autoStopConfirmedCount, 0,
+                       "A countdown that completes after calendar auto-stop is disabled must not stop recording")
+
+        coordinator.stop()
+    }
+
+    func testKeepRecordingDoesNotLeaveFastPollingStuck() async {
+        calendarService.stubPermissionStatus = .granted
+        seedSettings(mode: .autoStart)
+
+        let coordinator = makeCoordinator()
+        coordinator.start()
+        await waitForPoll()
+
+        recordingActiveStub = true
+        let event = CalendarEvent(
+            id: "evt-1",
+            title: "Wrap",
+            startTime: Date().addingTimeInterval(-1800),
+            endTime: Date().addingTimeInterval(5)
+        )
+        coordinator.handleAutoStartOutcome(.completed, for: event)
+        coordinator.handleAutoStopOutcome(.userDismissed, for: event)
+
+        calendarService.stubEvents = []
+        coordinator.testHook_forcePoll()
+        await waitForPoll()
+
+        XCTAssertEqual(coordinator.testHook_pollingInterval, 60,
+                       "After Keep Recording, dismissed auto-stop should not force 5s polling forever")
 
         coordinator.stop()
     }
