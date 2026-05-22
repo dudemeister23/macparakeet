@@ -116,6 +116,14 @@ if [[ -d "$SPARKLE_FW" ]]; then
   codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$SPARKLE_FW"
 fi
 
+# Sign optional model-backed meeting echo-suppression dylibs.
+while IFS= read -r -d '' dylib; do
+  echo "Signing bundled dylib: $dylib"
+  codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$dylib"
+done < <(
+  find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -type f -name "*.dylib" -print0 2>/dev/null || true
+)
+
 # Sign helper binaries under Resources.
 NODE_RUNTIME_ENTITLEMENTS="$ROOT_DIR/scripts/dist/NodeRuntime.entitlements"
 YTDLP_RUNTIME_ENTITLEMENTS="$ROOT_DIR/scripts/dist/YtDlpRuntime.entitlements"
@@ -155,6 +163,7 @@ codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp \
 
 echo "[4/8] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+VERIFY_CODE_SIGNATURES=1 "$ROOT_DIR/scripts/dist/verify_meeting_echo_assets.sh" "$APP_PATH"
 
 ZIP_PATH="$DIST_DIR/${APP_NAME}.app.zip"
 rm -f "$ZIP_PATH"
