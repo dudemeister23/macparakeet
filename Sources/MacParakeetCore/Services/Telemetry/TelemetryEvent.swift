@@ -193,6 +193,20 @@ public enum TelemetryFormatterSource: String, Sendable, Equatable {
     case transcription
 }
 
+/// Which chat surface a `llm_chat_used` / chat-feature LLM operation came
+/// from. Pre-2026-05-19 builds emitted `llm_chat_used` without a source,
+/// which collapsed live meeting Ask chat and post-transcription transcript
+/// chat into one unattributable bucket. New rows carry `source` so the two
+/// surfaces are separable in production telemetry.
+public enum TelemetryChatSource: String, Sendable, Equatable {
+    /// Live in-meeting Ask tab (ADR-018). `userNotesProvider` is bound by
+    /// `MeetingRecordingPanelViewModel`.
+    case meetingAsk = "meeting_ask"
+    /// Post-transcription chat surface — file, YouTube, dictation, or a
+    /// finalized meeting transcript shown in `TranscriptResultView`.
+    case transcriptChat = "transcript_chat"
+}
+
 /// Which Transform (ADR-022) ran. Built-in names are transmitted verbatim
 /// (`polish`, `distill`, `decide`) so per-built-in usage is observable.
 /// Custom Transforms map to `custom` — a user-supplied name like "Boss
@@ -437,8 +451,8 @@ public enum TelemetryEventSpec: Sendable {
     case exportUsed(format: String)
     case llmPromptResultUsed(provider: String)
     case llmPromptResultFailed(provider: String, errorType: String, errorDetail: String? = nil)
-    case llmChatUsed(provider: String, messageCount: Int)
-    case llmChatFailed(provider: String, errorType: String, errorDetail: String? = nil)
+    case llmChatUsed(provider: String, source: TelemetryChatSource, messageCount: Int)
+    case llmChatFailed(provider: String, source: TelemetryChatSource, errorType: String, errorDetail: String? = nil)
     case llmTransformUsed(provider: String)
     case llmTransformFailed(provider: String, errorType: String, errorDetail: String? = nil)
     /// Transforms (ADR-022) feature-level success. Fired by
@@ -1017,10 +1031,10 @@ extension TelemetryEventSpec {
             var props = ["provider": provider, "error_type": errorType]
             if let errorDetail = Self.sanitizedErrorDetail(errorDetail) { props["error_detail"] = errorDetail }
             return props
-        case .llmChatUsed(let provider, let messageCount):
-            return ["provider": provider, "message_count": "\(messageCount)"]
-        case .llmChatFailed(let provider, let errorType, let errorDetail):
-            var props = ["provider": provider, "error_type": errorType]
+        case .llmChatUsed(let provider, let source, let messageCount):
+            return ["provider": provider, "source": source.rawValue, "message_count": "\(messageCount)"]
+        case .llmChatFailed(let provider, let source, let errorType, let errorDetail):
+            var props = ["provider": provider, "source": source.rawValue, "error_type": errorType]
             if let errorDetail = Self.sanitizedErrorDetail(errorDetail) { props["error_detail"] = errorDetail }
             return props
         case .llmTransformUsed(let provider):
@@ -1517,8 +1531,8 @@ public enum TelemetryImplementedContract {
         .exportUsed: ["format"],
         .llmPromptResultUsed: ["provider"],
         .llmPromptResultFailed: ["provider", "error_type"],
-        .llmChatUsed: ["provider", "message_count"],
-        .llmChatFailed: ["provider", "error_type"],
+        .llmChatUsed: ["provider", "source", "message_count"],
+        .llmChatFailed: ["provider", "source", "error_type"],
         .llmTransformUsed: ["provider"],
         .llmTransformFailed: ["provider", "error_type"],
         .transformExecuted: ["transform_name", "capture_path", "replace_path", "llm_ms", "total_ms"],
