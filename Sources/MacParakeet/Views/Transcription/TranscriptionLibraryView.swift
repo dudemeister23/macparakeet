@@ -32,8 +32,7 @@ struct TranscriptionLibraryView: View {
                 Spacer()
 
                 if let primaryActionTitle, let onPrimaryAction {
-                    Button(primaryActionTitle, action: onPrimaryAction)
-                        .parakeetAction(.primaryProminent)
+                    LibraryPrimaryActionButton(title: primaryActionTitle, action: onPrimaryAction)
                 }
             }
             .padding(.horizontal, DesignSystem.Spacing.lg)
@@ -367,5 +366,47 @@ private struct LibraryFilterChip: View {
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+    }
+}
+
+/// The Library header's primary "New Transcription" CTA — a filled coral capsule
+/// with a create glyph and a soft coral shadow that lifts on hover. Filled (not
+/// outline) because it's the single highest-priority action on the surface, and
+/// it carries the same hover idiom (scale + pointing-hand cursor) as the other
+/// polished buttons so the header reads as one system.
+private struct LibraryPrimaryActionButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .bold))
+                Text(title)
+                    .font(DesignSystem.Typography.bodySmall.weight(.semibold))
+            }
+            .foregroundStyle(DesignSystem.Colors.onAccent)
+            .padding(.horizontal, DesignSystem.Spacing.md)
+            .padding(.vertical, 9)
+            .background(Capsule().fill(DesignSystem.Colors.accent))
+            .shadow(
+                color: DesignSystem.Colors.accent.opacity(isHovered ? 0.45 : 0.26),
+                radius: isHovered ? 12 : 6,
+                x: 0,
+                y: isHovered ? 5 : 3
+            )
+            .scaleEffect(isHovered ? 1.035 : 1.0)
+            .animation(DesignSystem.Animation.hoverTransition, value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .accessibilityLabel(title)
+        .accessibilityHint("Starts a new transcription")
     }
 }
