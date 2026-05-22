@@ -124,7 +124,9 @@ Uses app defaults for processing mode, speech engine, speaker detection, and
 YouTube audio retention. This is the best CLI mode for checking GUI behavior
 without controlling the GUI, but it is not full GUI parity: the CLI does not
 exercise GUI-only windowing, playback, hotkeys, PDF/DOCX export, or optional
-AI formatter output.
+AI formatter output. Bare `transcribe` already follows the app-default speaker
+detection setting; the explicit flag below keeps the behavior visible in test
+commands.
 
 ```bash
 swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" \
@@ -188,17 +190,18 @@ auto-detect; the saved Whisper language is only used by `--engine app-default`.
 
 ### Speaker Diarization
 
-Speaker detection runs by default for existing CLI compatibility. Disable with
-either the explicit option or the legacy alias:
+Speaker detection follows the saved app/CLI preference by default. A fresh
+preference store resolves to `off`, matching the GUI default. Pin a run with
+the explicit option, or use the legacy alias to force it off:
 
 ```bash
+swift run macparakeet-cli transcribe "<FILE>" --speaker-detection on
 swift run macparakeet-cli transcribe "<FILE>" --speaker-detection off
 swift run macparakeet-cli transcribe "<FILE>" --no-diarize
 ```
 
-Use `--speaker-detection app-default` when validating the GUI's saved speaker
-detection preference. `config get speaker-detection` reports that saved
-app-default value, not the no-flag CLI default.
+`config get speaker-detection` reports the saved app-default value used by
+bare `transcribe` and by `--speaker-detection app-default`.
 
 ### Shared Config
 

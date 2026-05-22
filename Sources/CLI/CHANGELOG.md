@@ -87,6 +87,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Changed
 
+- `transcribe` now defaults `--speaker-detection` to `app-default`, so bare
+  CLI transcription follows the saved GUI/CLI speaker-detection preference.
+  Use `--speaker-detection on` to force diarization for one run, or
+  `--speaker-detection off` / `--no-diarize` to force it off.
 - CLI LLM base URL validation now matches the GUI safety model: `https://`
   remains allowed everywhere, `http://` remains allowed for loopback and local
   providers, and non-local providers require `--allow-insecure-http` before

@@ -79,8 +79,8 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(help: "Path to SQLite database file (defaults to the app database).")
     var database: String?
 
-    @Option(name: .long, help: "Speaker detection: app-default, on, off. Default: on; app-default follows the saved GUI preference.")
-    var speakerDetection: SpeakerDetectionOption = .on
+    @Option(name: .long, help: "Speaker detection: app-default, on, off. Default: app-default, which follows the saved GUI/CLI preference.")
+    var speakerDetection: SpeakerDetectionOption = .appDefault
 
     @Flag(help: "Compatibility alias for --speaker-detection off.")
     var noDiarize: Bool = false

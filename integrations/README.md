@@ -164,8 +164,10 @@ macparakeet-cli models select whisper-large-v3-v20240930-turbo-632MB --json
 macparakeet-cli transcribe /path/to/korean.mp3 --engine whisper --language ko --format json
 ```
 
-To test the same defaults a user selected in the GUI, opt into app-default
-resolution explicitly. This follows saved transcription defaults; it does not
+To test the same defaults a user selected in the GUI, make every app-default
+read explicit. Bare `transcribe` already follows the saved speaker-detection
+preference, but the full flag group below also opts into saved speech-engine,
+processing, audio-retention, and YouTube-quality defaults. This does not
 exercise GUI-only UI, playback, hotkey, export, or optional AI formatter output.
 
 ```bash
@@ -393,11 +395,11 @@ macparakeet-cli prompts run "<prompt-name>" \
 - Use the full app-default group (`--engine app-default`,
   `--speaker-detection app-default`, `--mode app-default`,
   `--downloaded-audio app-default`, and `--youtube-audio-quality app-default`)
-  only when you are intentionally checking GUI-default behavior. Pin explicit
-  flags for reproducible agent tests.
+  when you are intentionally checking GUI-default behavior. Pin explicit flags
+  for reproducible agent tests.
 - `config get speaker-detection` reports the saved app-default value. Bare
-  `transcribe` keeps speaker detection on for compatibility, so pass
-  `--speaker-detection app-default` when you want the saved GUI preference.
+  `transcribe` and `--speaker-detection app-default` use that value; pass
+  `--speaker-detection on` or `off` to override it for one run.
 ````
 
 ## Conventions

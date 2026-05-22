@@ -188,11 +188,11 @@ final class TranscribeCommandTests: XCTestCase {
         }
     }
 
-    func testParakeetRemainsDefaultEngine() throws {
+    func testNoFlagDefaultsKeepParakeetAndUseAppDefaultSpeakerDetection() throws {
         let command = try TranscribeCommand.parse(["sample.wav"])
         XCTAssertEqual(command.engine, .parakeet)
         XCTAssertNil(command.language)
-        XCTAssertEqual(command.speakerDetection, .on)
+        XCTAssertEqual(command.speakerDetection, .appDefault)
         XCTAssertEqual(command.youtubeAudioQuality, .appDefault)
     }
 
