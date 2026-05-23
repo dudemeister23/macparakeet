@@ -423,17 +423,6 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
         checkForUpdatesItem.target = updaterController
         menu.addItem(checkForUpdatesItem)
 
-        #if DEBUG
-        menu.addItem(NSMenuItem.separator())
-        let previewToastItem = NSMenuItem(
-            title: "Preview Calendar Toast",
-            action: #selector(debugPreviewCalendarToast),
-            keyEquivalent: ""
-        )
-        previewToastItem.target = self
-        menu.addItem(previewToastItem)
-        #endif
-
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(
@@ -549,12 +538,6 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
         guard let url = URL(string: raw) else { return }
         NSWorkspace.shared.open(url)
     }
-
-    #if DEBUG
-    @objc private func debugPreviewCalendarToast() {
-        NotificationCenter.default.post(name: .mpDebugPreviewCalendarToast, object: nil)
-    }
-    #endif
 
     @objc private func pasteLastDictation() {
         guard let env = environmentProvider() else { return }

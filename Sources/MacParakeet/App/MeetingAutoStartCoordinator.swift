@@ -78,12 +78,6 @@ final class MeetingAutoStartCoordinator {
     nonisolated(unsafe) private var wakeObserver: NSObjectProtocol?
     private var cleanupTask: Task<Void, Never>?
 
-    #if DEBUG
-    /// Observer for the developer-only "Preview Calendar Toast" menu action —
-    /// lets us eyeball the countdown halo without waiting on a real meeting.
-    nonisolated(unsafe) private var debugPreviewObserver: NSObjectProtocol?
-    #endif
-
     init(
         calendarService: any CalendarServicing = CalendarService.shared,
         settingsViewModel: SettingsViewModel,
@@ -112,11 +106,6 @@ final class MeetingAutoStartCoordinator {
         if let observer = wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        #if DEBUG
-        if let observer = debugPreviewObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        #endif
     }
 
     // MARK: - Lifecycle
@@ -135,9 +124,6 @@ final class MeetingAutoStartCoordinator {
         registerCalendarChangeObserver()
         registerSettingsObserver()
         registerWakeObserver()
-        #if DEBUG
-        registerDebugPreviewObserver()
-        #endif
         rescheduleTimer(interval: 60)
         // Poll immediately so a meeting starting in the next minute doesn't
         // wait for the first tick.
@@ -502,45 +488,6 @@ extension MeetingAutoStartCoordinator {
         Task { @MainActor [weak self] in await self?.pollAsync() }
     }
 }
-
-#if DEBUG
-extension Notification.Name {
-    /// Posted by the developer-only menu item to preview the auto-start
-    /// countdown halo without waiting on a real meeting.
-    static let mpDebugPreviewCalendarToast = Notification.Name("mp.debug.previewCalendarToast")
-}
-
-/// Developer-only countdown-toast preview. Shows the real toast UI with sample
-/// data so the design can be eyeballed without a live calendar event. Compiled
-/// out of release builds entirely.
-extension MeetingAutoStartCoordinator {
-    func registerDebugPreviewObserver() {
-        guard debugPreviewObserver == nil else { return }
-        debugPreviewObserver = NotificationCenter.default.addObserver(
-            forName: .mpDebugPreviewCalendarToast,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugPreviewToast()
-            }
-        }
-    }
-
-    private func debugPreviewToast() {
-        let context = MeetingCountdownToastViewModel.CalendarContext(
-            attendeeCount: 4,
-            serviceName: "Google Meet",
-            steeringHint: "Take notes during the meeting. ⌘1 jumps to Notes."
-        )
-        toastController.showAutoStart(
-            title: "Standup",
-            duration: 6,
-            calendarContext: context
-        ) { _ in }
-    }
-}
-#endif
 
 private extension MeetingAutoStartCoordinator {
     func showReminder(_ event: CalendarEvent, mode: CalendarAutoStartMode) async {
