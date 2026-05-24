@@ -28,7 +28,7 @@ REQ-DICT-001:
   status: implemented
 
 REQ-DICT-002:
-  description: Distinct, non-overlapping hands-free tap-to-toggle and hold-to-talk shortcuts
+  description: Hands-free tap-to-toggle and hold-to-talk shortcuts, allowing exact shared triggers and blocking non-identical overlaps
   version: v0.1
   status: implemented
 
