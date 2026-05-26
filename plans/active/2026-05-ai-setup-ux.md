@@ -2,6 +2,7 @@
 
 > Status: **ACTIVE PLAN**
 > Drafted: 2026-05-02
+> Updated: 2026-05-26 -- baked-in LLM research pass
 > ADR: `spec/adr/011-llm-cloud-and-local-providers.md`
 > Related history: `spec/adr/008-local-llm-runtime-and-model.md`
 > Scope: AI setup for summaries, transcript chat, prompt actions, and meeting Ask. Speech-to-text is unchanged.
@@ -9,6 +10,8 @@
 ## 1. Decision
 
 Keep the stable product on the ADR-011 model: MacParakeet does not bundle a local LLM runtime or model in the app. Users can bring a local AI app, an API key, or a command-line AI tool.
+
+The 2026-05-26 baked-in LLM research pass keeps that decision intact for app-bundled weights/runtimes. The only credible "baked in" exception is a future Apple Foundation Models provider, because the OS owns the model and runtime. That exception still needs an ADR-011 amendment before implementation, and it should be explicit user setup rather than a silent default.
 
 The product work is to make that setup feel first-class and low-friction:
 
@@ -19,6 +22,8 @@ The product work is to make that setup feel first-class and low-friction:
 5. Feature surfaces do not show provider plumbing once AI is configured.
 
 This gives users a clean path to local summaries and chat without reopening the bundled-MLX decision that was already tried and removed.
+
+Reference: `docs/research/apple-foundation-models.md`.
 
 ## 2. Research Baseline
 
@@ -40,6 +45,23 @@ References:
 - Char local LLM setup: https://char.com/docs/faq/local-llm-setup/
 - Char local models: https://char.com/docs/developers/local-models/
 - Hyprnote/Char repository: https://github.com/fastrepl/anarlog
+
+### Baked-In LLM Review (2026-05-26)
+
+The reviewed options split into two very different categories:
+
+1. **OS-managed local LLM:** Apple Foundation Models on macOS 26+.
+2. **App-managed local LLM:** MLX Swift LM, llama.cpp/GGUF, Cactus, or a bundled local server.
+
+Decision:
+
+1. Do not bundle MLX, llama.cpp, Cactus, Ollama, LM Studio, or model weights in stable MacParakeet.
+2. Treat Apple Foundation Models as a future optional provider candidate, not as part of the current setup UX slice.
+3. If accepted, ship Apple Foundation Models first for short prompts: AI formatter, Transforms, and recent-window Live Ask.
+4. Do not use it as the default full-transcript summary engine. Apple's on-device model has a 4096-token context window, so real meeting transcripts often exceed it.
+5. Do not auto-fallback from Apple Foundation Models to cloud. ADR-011 currently rejects automatic fallback, and privacy expectations are clearest when the user explicitly chooses the provider.
+
+The implementation plan for a future coding agent is in `docs/research/apple-foundation-models.md`.
 
 ## 3. Product Principles
 
@@ -349,6 +371,31 @@ Required coverage:
 
 Run `swift test` before declaring implementation complete.
 
+### Future Phase: Apple Foundation Models Provider
+
+This is deliberately outside the current AI setup UX slice. Start it only after
+an ADR-011 amendment accepts OS-managed local providers as distinct from
+app-bundled runtimes.
+
+Files likely touched:
+
+1. `spec/adr/011-llm-cloud-and-local-providers.md`
+2. `Sources/MacParakeetCore/Models/LLMProvider.swift`
+3. `Sources/MacParakeetCore/Services/LLM/RoutingLLMClient.swift`
+4. New Foundation Models client/adapter in `MacParakeetCore`
+5. `Sources/MacParakeetViewModels/LLMSettingsViewModel.swift`
+6. `Sources/MacParakeet/Views/Settings/LLMSettingsView.swift`
+7. LLM service/context-budget tests
+
+Work:
+
+1. Add an explicit `Apple Intelligence` setup option only on macOS 26+.
+2. Gate all `FoundationModels` symbols with availability checks.
+3. Add token-aware prompt budgeting for the 4096-token context window.
+4. Ship first on short-prompt features, then Live Ask with a recent transcript window.
+5. Show a clear too-long state for full transcript summary/chat instead of silently chunking or falling back to cloud.
+6. Keep CLI support deferred until the GUI provider proves stable.
+
 ## 8. Acceptance Criteria
 
 1. A new user can understand AI setup without knowing what an LLM provider is.
@@ -361,6 +408,7 @@ Run `swift test` before declaring implementation complete.
 8. Advanced users can still override base URL and model ID.
 9. STT behavior and STT model packaging are untouched.
 10. No bundled local LLM runtime or model is added to the stable app.
+11. If Apple Foundation Models is later added, it is an explicit OS-managed provider, not an app-bundled model and not a silent default.
 
 ## 9. Explicit Non-Goals
 
@@ -371,3 +419,5 @@ Run `swift test` before declaring implementation complete.
 5. Do not remove Local CLI.
 6. Do not remove cloud API providers.
 7. Do not rewrite the LLM provider architecture unless a specific implementation blocker appears.
+8. Do not add Apple Foundation Models without an ADR-011 amendment.
+9. Do not auto-fallback from a local/on-device provider to cloud.
