@@ -39,8 +39,16 @@ public final class FeedbackViewModel {
                 pendingScreenshotFilename = nil
                 return
             }
-            let filename = screenshotFilename ?? pendingScreenshotFilename ?? "screenshot.png"
-            screenshotAttachments = [FeedbackScreenshotAttachment(filename: filename, data: newValue)]
+            if let first = screenshotAttachments.first {
+                screenshotAttachments[0] = FeedbackScreenshotAttachment(
+                    id: first.id,
+                    filename: first.filename,
+                    data: newValue
+                )
+            } else {
+                let filename = pendingScreenshotFilename ?? "screenshot.png"
+                screenshotAttachments = [FeedbackScreenshotAttachment(filename: filename, data: newValue)]
+            }
             pendingScreenshotFilename = nil
         }
     }

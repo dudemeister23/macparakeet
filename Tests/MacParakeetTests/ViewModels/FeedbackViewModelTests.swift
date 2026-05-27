@@ -214,6 +214,20 @@ final class FeedbackViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.screenshotData, Data([0x01]))
     }
 
+    func testLegacyDataSetterUpdatesFirstAttachmentWithoutDroppingOthers() {
+        let first = FeedbackScreenshotAttachment(filename: "first.png", data: Data([0x01]))
+        let second = FeedbackScreenshotAttachment(filename: "second.png", data: Data([0x02]))
+        viewModel.screenshotAttachments = [first, second]
+
+        viewModel.screenshotData = Data([0x09])
+
+        XCTAssertEqual(viewModel.screenshotAttachments.count, 2)
+        XCTAssertEqual(viewModel.screenshotAttachments[0].id, first.id)
+        XCTAssertEqual(viewModel.screenshotAttachments[0].filename, "first.png")
+        XCTAssertEqual(viewModel.screenshotAttachments[0].data, Data([0x09]))
+        XCTAssertEqual(viewModel.screenshotAttachments[1], second)
+    }
+
     // MARK: - System Info
 
     func testSystemInfoReturnsCurrentInfo() {
