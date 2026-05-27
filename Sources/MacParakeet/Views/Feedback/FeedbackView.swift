@@ -208,7 +208,7 @@ struct FeedbackView: View {
                 }
             }
 
-            // Email + Screenshot — both optional, visually secondary, sharing
+            // Email + screenshots — both optional, visually secondary, sharing
             // the same input material so they read as a pair.
             HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
@@ -223,33 +223,49 @@ struct FeedbackView: View {
                 .frame(maxWidth: .infinity)
 
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-                    Text("Screenshot (optional)")
+                    Text("Screenshots (optional)")
                         .font(DesignSystem.Typography.body)
                         .fontWeight(.medium)
 
-                    if let filename = viewModel.screenshotFilename {
-                        screenshotAttachedPill(filename)
-                    } else {
+                    if viewModel.screenshotAttachments.isEmpty {
                         screenshotAttachButton
+                    } else {
+                        VStack(spacing: DesignSystem.Spacing.xs) {
+                            ForEach(viewModel.screenshotAttachments) { attachment in
+                                screenshotAttachedPill(attachment)
+                            }
+                            if viewModel.canAttachMoreScreenshots {
+                                screenshotAttachButton
+                            }
+                        }
                     }
 
-                    Text(viewModel.screenshotFilename != nil
-                         ? "PNG, JPEG, TIFF, or HEIC"
-                         : "or drop an image here")
+                    Text(viewModel.screenshotAttachments.isEmpty
+                         ? "or drop images here"
+                         : "PNG, JPEG, TIFF, or HEIC. Up to 5.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .onDrop(of: [.image], isTargeted: $isDraggingScreenshot) { providers in
-                    guard let provider = providers.first else { return false }
-                    _ = provider.loadFileRepresentation(for: .image) { url, _, error in
-                        guard let url, error == nil else { return }
-                        let tmp = FileManager.default.temporaryDirectory
-                            .appendingPathComponent(url.lastPathComponent)
-                        try? FileManager.default.removeItem(at: tmp)
-                        try? FileManager.default.copyItem(at: url, to: tmp)
-                        Task { @MainActor in
-                            viewModel.handleScreenshotDrop(url: tmp)
+                    guard !providers.isEmpty else { return false }
+                    for provider in providers {
+                        _ = provider.loadFileRepresentation(for: .image) { url, _, error in
+                            guard let url, error == nil else { return }
+                            let tmpDirectory = FileManager.default.temporaryDirectory
+                                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                            let tmp = tmpDirectory.appendingPathComponent(url.lastPathComponent)
+                            do {
+                                try FileManager.default.createDirectory(at: tmpDirectory, withIntermediateDirectories: true)
+                                try FileManager.default.copyItem(at: url, to: tmp)
+                            } catch {
+                                try? FileManager.default.removeItem(at: tmpDirectory)
+                                return
+                            }
+                            Task { @MainActor in
+                                defer { try? FileManager.default.removeItem(at: tmpDirectory) }
+                                viewModel.handleScreenshotDrop(url: tmp)
+                            }
                         }
                     }
                     return true
@@ -353,18 +369,18 @@ struct FeedbackView: View {
         .buttonStyle(.plain)
     }
 
-    private func screenshotAttachedPill(_ filename: String) -> some View {
+    private func screenshotAttachedPill(_ attachment: FeedbackScreenshotAttachment) -> some View {
         HStack(spacing: DesignSystem.Spacing.xs) {
             Image(systemName: "photo")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Text(filename)
+            Text(attachment.filename)
                 .font(DesignSystem.Typography.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
             Button {
-                viewModel.removeScreenshot()
+                viewModel.removeScreenshot(id: attachment.id)
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 13))

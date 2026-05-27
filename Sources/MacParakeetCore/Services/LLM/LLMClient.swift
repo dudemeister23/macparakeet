@@ -633,11 +633,12 @@ public final class LLMClient: LLMClientProtocol, Sendable {
 
         // Try OpenAI-compatible format: { "data": [{ "id": "..." }] }
         if let modelsResponse = try? JSONDecoder().decode(ModelsListResponse.self, from: data) {
-            return modelsResponse.data
+            let models = modelsResponse.data
                 .map { id in
                     // Gemini returns "models/gemini-2.5-flash" — strip prefix
                     id.id.hasPrefix("models/") ? String(id.id.dropFirst(7)) : id.id
                 }
+            return Self.filterListedModels(models, for: config)
                 .sorted()
         }
 
@@ -757,7 +758,7 @@ public final class LLMClient: LLMClientProtocol, Sendable {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        // OpenAI reasoning models (o1/o3/o4) reject temperature AND max_tokens.
+        // OpenAI reasoning models reject temperature AND max_tokens.
         // Newer OpenAI models (gpt-5.x) reject max_tokens but accept temperature.
         // All of them require max_completion_tokens instead of max_tokens.
         let isReasoningModel = config.id == .openai && Self.isOpenAIReasoningModel(config.modelName)
@@ -792,12 +793,11 @@ public final class LLMClient: LLMClientProtocol, Sendable {
 
     /// OpenAI reasoning models that reject temperature and max_tokens parameters.
     private static func isOpenAIReasoningModel(_ model: String) -> Bool {
-        let lowered = model.lowercased()
-        return lowered.hasPrefix("o1") || lowered.hasPrefix("o3") || lowered.hasPrefix("o4")
+        isOpenAIReasoningModelID(model.lowercased())
     }
 
     /// OpenAI models that require max_completion_tokens instead of max_tokens.
-    /// Includes reasoning models (o1/o3/o4) and newer GPT models (5.x+).
+    /// Includes reasoning models and newer GPT models (5.x+).
     private static func openAIRequiresMaxCompletionTokens(_ model: String) -> Bool {
         let lowered = model.lowercased()
         if isOpenAIReasoningModel(lowered) { return true }
@@ -806,6 +806,45 @@ public final class LLMClient: LLMClientProtocol, Sendable {
             return true
         }
         return false
+    }
+
+    private static func filterListedModels(_ models: [String], for config: LLMProviderConfig) -> [String] {
+        guard config.id == .openai else { return models }
+        return models.filter(isOpenAIStreamingChatModel)
+    }
+
+    private static func isOpenAIStreamingChatModel(_ model: String) -> Bool {
+        let lowered = model.lowercased()
+        let unsupportedSubstrings = [
+            "audio",
+            "dall-e",
+            "embedding",
+            "image",
+            "moderation",
+            "realtime",
+            "sora",
+            "transcribe",
+            "tts",
+            "whisper",
+        ]
+        guard !unsupportedSubstrings.contains(where: lowered.contains) else { return false }
+        guard !lowered.hasSuffix("-pro") else { return false }
+        return lowered.hasPrefix("gpt-")
+            || lowered.hasPrefix("chatgpt-")
+            || isOpenAIReasoningModelID(lowered)
+    }
+
+    private static func isOpenAIReasoningModelID(_ model: String) -> Bool {
+        guard model.hasPrefix("o") else { return false }
+        let suffix = model.dropFirst()
+        guard let generation = suffix.first, generation.isNumber else { return false }
+        return hasOpenAIModelPrefix(model, prefix: "o\(generation)")
+    }
+
+    private static func hasOpenAIModelPrefix(_ model: String, prefix: String) -> Bool {
+        guard model.hasPrefix(prefix) else { return false }
+        let boundary = model.dropFirst(prefix.count).first
+        return boundary == nil || boundary == "-"
     }
 
     private static func responseFormat(from format: ChatResponseFormat?) -> OpenAIResponseFormat? {

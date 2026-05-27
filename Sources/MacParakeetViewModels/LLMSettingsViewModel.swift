@@ -522,9 +522,7 @@ public final class LLMSettingsViewModel {
             )
             return
         }
-        if !Self.usesDiscoveredModelList(providerID) {
-            resetDiscoveredModels()
-        }
+        resetDiscoveredModels()
         let apiKey = providerID.supportsAPIKey ? ((try? configStore?.loadAPIKey(for: providerID)) ?? "") : ""
         let cliConfig = providerID == .localCLI ? cliConfigStore?.load() : nil
         var nextDraft = LLMSettingsDraft.defaults(

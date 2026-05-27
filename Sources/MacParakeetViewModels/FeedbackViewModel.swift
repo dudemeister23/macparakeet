@@ -5,18 +5,73 @@ import MacParakeetCore
 import AppKit
 #endif
 
+public struct FeedbackScreenshotAttachment: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let filename: String
+    public let data: Data
+
+    public init(id: UUID = UUID(), filename: String, data: Data) {
+        self.id = id
+        self.filename = filename
+        self.data = data
+    }
+}
+
 @MainActor
 @Observable
 public final class FeedbackViewModel {
     private static let maxScreenshotSizeBytes = 5 * 1024 * 1024
+    private static let maxScreenshotCount = 5
 
     // Form fields
     public var category: FeedbackCategory = .bug
     public var message: String = ""
     public var email: String = ""
-    public var screenshotData: Data?
-    public var screenshotFilename: String?
+    public var screenshotAttachments: [FeedbackScreenshotAttachment] = []
     public var showSystemInfo: Bool = false
+    private var pendingScreenshotFilename: String?
+
+    public var screenshotData: Data? {
+        get { screenshotAttachments.first?.data }
+        set {
+            guard let newValue else {
+                screenshotAttachments = []
+                pendingScreenshotFilename = nil
+                return
+            }
+            if let first = screenshotAttachments.first {
+                screenshotAttachments[0] = FeedbackScreenshotAttachment(
+                    id: first.id,
+                    filename: first.filename,
+                    data: newValue
+                )
+            } else {
+                let filename = pendingScreenshotFilename ?? "screenshot.png"
+                screenshotAttachments = [FeedbackScreenshotAttachment(filename: filename, data: newValue)]
+            }
+            pendingScreenshotFilename = nil
+        }
+    }
+
+    public var screenshotFilename: String? {
+        get { screenshotAttachments.first?.filename }
+        set {
+            guard let newValue else {
+                screenshotAttachments = []
+                pendingScreenshotFilename = nil
+                return
+            }
+            guard let first = screenshotAttachments.first else {
+                pendingScreenshotFilename = newValue
+                return
+            }
+            screenshotAttachments[0] = FeedbackScreenshotAttachment(id: first.id, filename: newValue, data: first.data)
+        }
+    }
+
+    public var canAttachMoreScreenshots: Bool {
+        screenshotAttachments.count < Self.maxScreenshotCount
+    }
 
     // Submission state
     public enum SubmissionState: Equatable {
@@ -53,56 +108,78 @@ public final class FeedbackViewModel {
         let panel = NSOpenPanel()
         panel.title = "Attach Screenshot"
         panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        do {
-            if let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-               fileSize > Self.maxScreenshotSizeBytes {
-                submissionState = .error("Screenshot must be 5 MB or smaller.")
-                return
-            }
-
-            let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            guard data.count <= Self.maxScreenshotSizeBytes else {
-                submissionState = .error("Screenshot must be 5 MB or smaller.")
-                return
-            }
-
-            screenshotData = data
-            screenshotFilename = url.lastPathComponent
-        } catch {
-            submissionState = .error("Failed to read screenshot: \(error.localizedDescription)")
-        }
+        guard panel.runModal() == .OK else { return }
+        attachScreenshots(from: panel.urls)
         #endif
     }
 
     public func handleScreenshotDrop(url: URL) {
-        do {
-            if let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-               fileSize > Self.maxScreenshotSizeBytes {
-                submissionState = .error("Screenshot must be 5 MB or smaller.")
-                return
-            }
+        attachScreenshots(from: [url])
+    }
 
-            let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            guard data.count <= Self.maxScreenshotSizeBytes else {
-                submissionState = .error("Screenshot must be 5 MB or smaller.")
-                return
-            }
-
-            screenshotData = data
-            screenshotFilename = url.lastPathComponent
-        } catch {
-            submissionState = .error("Failed to read screenshot: \(error.localizedDescription)")
-        }
+    public func removeScreenshot(id: FeedbackScreenshotAttachment.ID) {
+        screenshotAttachments.removeAll { $0.id == id }
     }
 
     public func removeScreenshot() {
-        screenshotData = nil
-        screenshotFilename = nil
+        screenshotAttachments = []
+        pendingScreenshotFilename = nil
+    }
+
+    private func attachScreenshots(from urls: [URL]) {
+        var nextAttachments = screenshotAttachments
+        for url in urls {
+            guard nextAttachments.count < Self.maxScreenshotCount else {
+                submissionState = .error("Attach up to \(Self.maxScreenshotCount) screenshots.")
+                break
+            }
+
+            do {
+                nextAttachments.append(try readScreenshotAttachment(from: url))
+            } catch {
+                submissionState = .error(error.localizedDescription)
+                break
+            }
+        }
+        screenshotAttachments = nextAttachments
+    }
+
+    private func readScreenshotAttachment(from url: URL) throws -> FeedbackScreenshotAttachment {
+        do {
+            if let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               fileSize > Self.maxScreenshotSizeBytes {
+                throw ScreenshotAttachmentError.tooLarge
+            }
+
+            let data = try Data(contentsOf: url)
+            guard data.count <= Self.maxScreenshotSizeBytes else {
+                throw ScreenshotAttachmentError.tooLarge
+            }
+
+            return FeedbackScreenshotAttachment(filename: url.lastPathComponent, data: data)
+        } catch {
+            if error is ScreenshotAttachmentError {
+                throw error
+            }
+            throw ScreenshotAttachmentError.readFailed(error.localizedDescription)
+        }
+    }
+
+    private enum ScreenshotAttachmentError: LocalizedError {
+        case tooLarge
+        case readFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge:
+                return "Each screenshot must be 5 MB or smaller."
+            case .readFailed(let detail):
+                return "Failed to read screenshot: \(detail)"
+            }
+        }
     }
 
     // MARK: - Submit
@@ -116,15 +193,20 @@ public final class FeedbackViewModel {
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let operationContext = Observability.childOperationContext()
+        let screenshots = screenshotAttachments.map {
+            FeedbackScreenshot(filename: $0.filename, base64: $0.data.base64EncodedString())
+        }
 
         let payload = FeedbackPayload(
             category: category,
             message: trimmedMessage,
             email: trimmedEmail.isEmpty ? nil : trimmedEmail,
-            screenshotBase64: screenshotData?.base64EncodedString(),
-            screenshotFilename: screenshotFilename,
+            screenshotBase64: screenshots.first?.base64,
+            screenshotFilename: screenshots.first?.filename,
+            screenshots: screenshots,
             systemInfo: systemInfo
         )
+        let hasScreenshots = !payload.screenshots.isEmpty
 
         submitTask = Task { [weak self] in
             guard let self else { return }
@@ -141,7 +223,7 @@ public final class FeedbackViewModel {
                     category: payload.category.rawValue,
                     outcome: .success,
                     durationSeconds: Observability.durationSeconds(since: operationContext.startedAt),
-                    screenshotAttached: payload.screenshotBase64 != nil,
+                    screenshotAttached: hasScreenshots,
                     systemInfoIncluded: true,
                     errorType: nil
                 ))
@@ -163,7 +245,7 @@ public final class FeedbackViewModel {
                     category: payload.category.rawValue,
                     outcome: .failure,
                     durationSeconds: Observability.durationSeconds(since: operationContext.startedAt),
-                    screenshotAttached: payload.screenshotBase64 != nil,
+                    screenshotAttached: hasScreenshots,
                     systemInfoIncluded: true,
                     errorType: Observability.errorType(for: error)
                 ))
@@ -180,8 +262,8 @@ public final class FeedbackViewModel {
         category = .bug
         message = ""
         email = ""
-        screenshotData = nil
-        screenshotFilename = nil
+        screenshotAttachments = []
+        pendingScreenshotFilename = nil
         showSystemInfo = false
         submissionState = .idle
     }

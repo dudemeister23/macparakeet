@@ -41,6 +41,7 @@ final class FeedbackViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.email, "")
         XCTAssertNil(viewModel.screenshotData)
         XCTAssertNil(viewModel.screenshotFilename)
+        XCTAssertTrue(viewModel.screenshotAttachments.isEmpty)
         XCTAssertFalse(viewModel.showSystemInfo)
         XCTAssertEqual(viewModel.submissionState, .idle)
     }
@@ -150,6 +151,7 @@ final class FeedbackViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.email, "")
         XCTAssertNil(viewModel.screenshotData)
         XCTAssertNil(viewModel.screenshotFilename)
+        XCTAssertTrue(viewModel.screenshotAttachments.isEmpty)
         XCTAssertFalse(viewModel.showSystemInfo)
         XCTAssertEqual(viewModel.submissionState, .idle)
     }
@@ -172,6 +174,58 @@ final class FeedbackViewModelTests: XCTestCase {
 
         XCTAssertNil(viewModel.screenshotData)
         XCTAssertNil(viewModel.screenshotFilename)
+    }
+
+    func testSubmissionIncludesMultipleScreenshots() async throws {
+        viewModel.message = "The form needs screenshots"
+        viewModel.screenshotAttachments = [
+            FeedbackScreenshotAttachment(filename: "first.png", data: Data([0x01, 0x02])),
+            FeedbackScreenshotAttachment(filename: "second.jpg", data: Data([0x03, 0x04])),
+        ]
+
+        viewModel.submit()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(mockService.lastPayload?.screenshots.count, 2)
+        XCTAssertEqual(mockService.lastPayload?.screenshots[0].filename, "first.png")
+        XCTAssertEqual(mockService.lastPayload?.screenshots[1].filename, "second.jpg")
+        XCTAssertEqual(mockService.lastPayload?.screenshotFilename, "first.png")
+        XCTAssertEqual(mockService.lastPayload?.screenshotBase64, Data([0x01, 0x02]).base64EncodedString())
+    }
+
+    func testRemoveScreenshotByIDKeepsOtherAttachments() {
+        let first = FeedbackScreenshotAttachment(filename: "first.png", data: Data([0x01]))
+        let second = FeedbackScreenshotAttachment(filename: "second.png", data: Data([0x02]))
+        viewModel.screenshotAttachments = [first, second]
+
+        viewModel.removeScreenshot(id: first.id)
+
+        XCTAssertEqual(viewModel.screenshotAttachments, [second])
+    }
+
+    func testLegacyFilenameSetterBeforeDataDoesNotCreateEmptyAttachment() {
+        viewModel.screenshotFilename = "later.png"
+
+        XCTAssertTrue(viewModel.screenshotAttachments.isEmpty)
+
+        viewModel.screenshotData = Data([0x01])
+
+        XCTAssertEqual(viewModel.screenshotFilename, "later.png")
+        XCTAssertEqual(viewModel.screenshotData, Data([0x01]))
+    }
+
+    func testLegacyDataSetterUpdatesFirstAttachmentWithoutDroppingOthers() {
+        let first = FeedbackScreenshotAttachment(filename: "first.png", data: Data([0x01]))
+        let second = FeedbackScreenshotAttachment(filename: "second.png", data: Data([0x02]))
+        viewModel.screenshotAttachments = [first, second]
+
+        viewModel.screenshotData = Data([0x09])
+
+        XCTAssertEqual(viewModel.screenshotAttachments.count, 2)
+        XCTAssertEqual(viewModel.screenshotAttachments[0].id, first.id)
+        XCTAssertEqual(viewModel.screenshotAttachments[0].filename, "first.png")
+        XCTAssertEqual(viewModel.screenshotAttachments[0].data, Data([0x09]))
+        XCTAssertEqual(viewModel.screenshotAttachments[1], second)
     }
 
     // MARK: - System Info

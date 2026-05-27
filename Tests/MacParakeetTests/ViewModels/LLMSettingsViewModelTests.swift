@@ -510,6 +510,21 @@ final class LLMSettingsViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.modelListErrorMessage)
     }
 
+    func testSwitchingBetweenDiscoveryProvidersClearsPreviousDiscoveredModels() async throws {
+        mockClient.modelsList = ["qwen3.5:9b", "gemma3:4b"]
+        viewModel.configure(configStore: mockConfigStore, llmClient: mockClient)
+
+        viewModel.selectedProviderID = .ollama
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(viewModel.availableModels, ["qwen3.5:9b", "gemma3:4b"])
+
+        viewModel.selectedProviderID = .openai
+
+        XCTAssertEqual(viewModel.discoveredModelCount, 0)
+        XCTAssertEqual(viewModel.availableModels, LLMSettingsViewModel.suggestedModels(for: .openai))
+        XCTAssertFalse(viewModel.availableModels.contains("qwen3.5:9b"))
+    }
+
     func testSwitchingProviderLoadsStoredKey() {
         viewModel.configure(configStore: mockConfigStore, llmClient: mockClient)
 

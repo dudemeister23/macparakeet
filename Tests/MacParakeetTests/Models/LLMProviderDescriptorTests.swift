@@ -44,6 +44,8 @@ final class LLMProviderDescriptorTests: XCTestCase {
     func testCuratedFallbacksTrackCurrentHeadlineModels() {
         XCTAssertEqual(LLMProviderID.openai.defaultModelName, "gpt-5.5")
         XCTAssertTrue(LLMProviderID.openai.fallbackModels.contains("gpt-5.4-mini"))
+        XCTAssertFalse(LLMProviderID.openai.fallbackModels.contains("gpt-5.5-pro"))
+        XCTAssertFalse(LLMProviderID.openai.fallbackModels.contains("gpt-5.4-pro"))
         XCTAssertTrue(LLMProviderID.anthropic.fallbackModels.contains("claude-opus-4-7"))
         XCTAssertTrue(LLMProviderID.gemini.fallbackModels.contains("gemini-3.1-flash-lite"))
         XCTAssertTrue(LLMProviderID.openrouter.fallbackModels.contains("anthropic/claude-opus-4.7"))

@@ -1011,6 +1011,33 @@ final class LLMClientTests: XCTestCase {
         XCTAssertEqual(models, ["qwen3.5:4b"])
     }
 
+    func testOpenAIListModelsFiltersCatalogToStreamingChatModels() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api.openai.com/v1/models")
+            return (self.okResponse(for: request), Data("""
+            {
+              "data": [
+                {"id":"gpt-5.5"},
+                {"id":"gpt-5.5-pro"},
+                {"id":"gpt-4.1-mini"},
+                {"id":"gpt-4o-transcribe"},
+                {"id":"gpt-image-1"},
+                {"id":"text-embedding-3-large"},
+                {"id":"omni-moderation-latest"},
+                {"id":"chatgpt-4o-latest"},
+                {"id":"o2-mini"},
+                {"id":"o10-mini"},
+                {"id":"o4-mini"}
+              ]
+            }
+            """.utf8))
+        }
+
+        let models = try await llmClient.listModels(config: .openai(apiKey: "sk-test"))
+
+        XCTAssertEqual(models, ["chatgpt-4o-latest", "gpt-4.1-mini", "gpt-5.5", "o2-mini", "o4-mini"])
+    }
+
     func testGeminiListModelsUsesNativeModelsEndpoint() async throws {
         var capturedRequest: URLRequest?
 
