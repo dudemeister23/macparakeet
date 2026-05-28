@@ -285,7 +285,26 @@ public final class MeetingsWorkspaceViewModel {
             && settingsViewModel.calendarPermissionStatus == .granted
     }
 
+    /// Decides which fetched events appear in the "Upcoming" preview.
+    ///
+    /// This mirrors the *candidate* set MacParakeet acts on, so the preview
+    /// never promises behavior the coordinator won't deliver. It matches the
+    /// candidate filter of `MeetingAutoStartCoordinator` + `MeetingMonitor.evaluate`:
+    ///   - exclude all-day and RSVP-declined events (`MeetingMonitor` candidate filter),
+    ///   - exclude calendars the user opted out of (`filterByIncludedCalendars`),
+    ///   - apply the trigger filter (`MeetingMonitor.passesFilter`).
+    /// RSVP is deliberately NOT mode-gated here: every candidate gets a reminder
+    /// in any non-`.off` mode, and `.pending`/`.tentative` differ only in whether
+    /// they additionally auto-*record* (`MeetingMonitor.shouldAutoStart`) — a
+    /// per-event nuance, not list membership. Hiding `.pending` in `.autoStart`
+    /// would make the app remind about an event missing from this list.
+    /// The only candidate-filter input not mirrored is `MeetingMonitor`'s
+    /// runtime `dismissedEventIds` (coordinator-private session state); a
+    /// dismissed event reappears here until it passes or the mode changes.
+    /// If the candidate rules change in `MeetingMonitor`, update this in lockstep.
     private func shouldShowCalendarEvent(_ event: CalendarEvent) -> Bool {
+        guard !event.isAllDay, !event.userDeclined else { return false }
+
         if let calendarIdentifier = event.calendarIdentifier,
            settingsViewModel.calendarExcludedIdentifiers.contains(calendarIdentifier) {
             return false

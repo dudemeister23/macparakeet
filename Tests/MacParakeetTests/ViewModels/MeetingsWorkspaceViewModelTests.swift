@@ -64,6 +64,90 @@ final class MeetingsWorkspaceViewModelTests: XCTestCase {
         }
     }
 
+    func testAutoStartPreviewShowsEveryRsvpStatusExceptDeclined() async {
+        // The preview mirrors MeetingMonitor's *candidate* set, which excludes
+        // only declined (and all-day) events. RSVP is not mode-gated: a pending
+        // or tentative invite still gets a reminder in .autoStart mode, so it
+        // must stay visible even though it won't auto-record.
+        let calendar = MockCalendarService()
+        calendar.stubPermissionStatus = .granted
+        calendar.stubEvents = [
+            makeEvent(title: "Accepted Review", meetUrl: "https://zoom.us/j/1", userStatus: .accepted),
+            makeEvent(title: "Pending Invite", meetUrl: "https://zoom.us/j/2", userStatus: .pending),
+            makeEvent(title: "Tentative Sync", meetUrl: "https://zoom.us/j/3", userStatus: .tentative),
+            makeEvent(title: "Declined Standup", meetUrl: "https://zoom.us/j/4", userStatus: .declined)
+        ]
+        let viewModel = makeViewModel(
+            calendarMode: .autoStart,
+            triggerFilter: .withLink,
+            calendarService: calendar
+        )
+        viewModel.settingsViewModel.calendarPermissionStatus = .granted
+
+        await viewModel.refreshUpcomingEvents().value
+
+        if AppFeatures.calendarEnabled {
+            XCTAssertEqual(
+                Set(viewModel.upcomingEvents.map(\.title)),
+                ["Accepted Review", "Pending Invite", "Tentative Sync"]
+            )
+        } else {
+            XCTAssertTrue(viewModel.upcomingEvents.isEmpty)
+        }
+    }
+
+    func testUpcomingPreviewSkipsAllDayAndDeclinedEvents() async {
+        let calendar = MockCalendarService()
+        calendar.stubPermissionStatus = .granted
+        calendar.stubEvents = [
+            makeEvent(title: "Real Meeting", meetUrl: "https://zoom.us/j/123"),
+            makeEvent(title: "All-day Offsite", meetUrl: "https://zoom.us/j/456", isAllDay: true),
+            makeEvent(title: "Declined Sync", meetUrl: "https://zoom.us/j/789", userStatus: .declined)
+        ]
+        let viewModel = makeViewModel(
+            calendarMode: .notify,
+            triggerFilter: .withLink,
+            calendarService: calendar
+        )
+        viewModel.settingsViewModel.calendarPermissionStatus = .granted
+
+        await viewModel.refreshUpcomingEvents().value
+
+        if AppFeatures.calendarEnabled {
+            XCTAssertEqual(viewModel.upcomingEvents.map(\.title), ["Real Meeting"])
+        } else {
+            XCTAssertTrue(viewModel.upcomingEvents.isEmpty)
+        }
+    }
+
+    func testNotifyModeKeepsPendingInvitations() async {
+        let calendar = MockCalendarService()
+        calendar.stubPermissionStatus = .granted
+        calendar.stubEvents = [
+            makeEvent(title: "Accepted Review", meetUrl: "https://zoom.us/j/123", userStatus: .accepted),
+            makeEvent(title: "Pending Invite", meetUrl: "https://zoom.us/j/456", userStatus: .pending)
+        ]
+        let viewModel = makeViewModel(
+            calendarMode: .notify,
+            triggerFilter: .withLink,
+            calendarService: calendar
+        )
+        viewModel.settingsViewModel.calendarPermissionStatus = .granted
+
+        await viewModel.refreshUpcomingEvents().value
+
+        if AppFeatures.calendarEnabled {
+            // Reminders stay lenient — pending invites still get a reminder, so
+            // they remain visible in the preview (matches MeetingMonitor).
+            XCTAssertEqual(
+                Set(viewModel.upcomingEvents.map(\.title)),
+                ["Accepted Review", "Pending Invite"]
+            )
+        } else {
+            XCTAssertTrue(viewModel.upcomingEvents.isEmpty)
+        }
+    }
+
     func testRecordingStatusTracksMeetingPillState() {
         let pill = MeetingRecordingPillViewModel()
         let viewModel = makeViewModel(meetingPillViewModel: pill)
@@ -193,7 +277,9 @@ final class MeetingsWorkspaceViewModelTests: XCTestCase {
     private func makeEvent(
         title: String,
         meetUrl: String?,
-        calendarIdentifier: String? = nil
+        calendarIdentifier: String? = nil,
+        userStatus: EventParticipant.ParticipantStatus? = nil,
+        isAllDay: Bool = false
     ) -> CalendarEvent {
         CalendarEvent(
             id: UUID().uuidString,
@@ -202,8 +288,10 @@ final class MeetingsWorkspaceViewModelTests: XCTestCase {
             endTime: Date().addingTimeInterval(5400),
             meetUrl: meetUrl,
             participants: [EventParticipant(name: "Ava")],
+            isAllDay: isAllDay,
             calendarName: "Work",
-            calendarIdentifier: calendarIdentifier
+            calendarIdentifier: calendarIdentifier,
+            userStatus: userStatus
         )
     }
 }
