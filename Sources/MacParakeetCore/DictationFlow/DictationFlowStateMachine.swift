@@ -124,6 +124,7 @@ public enum DictationFlowEffect: Equatable, Sendable {
 
     // App integration
     case updateMenuBar(DictationFlowMenuBarState)
+    case syncHotkeyRecordingMode(mode: FnKeyStateMachine.RecordingMode)
     case resetHotkeyStateMachine
     case notifyHotkeyCancelledByUI
     case presentEntitlementsAlert
@@ -234,7 +235,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
         case (.startingService(let mode), .recordingStarted(let gen)):
             guard gen == generation else { return [] }
             state = .recording(mode: mode)
-            return []
+            return [.syncHotkeyRecordingMode(mode: mode)]
 
         case (.startingService, .startFailed(let gen, let message)):
             guard gen == generation else { return [] }

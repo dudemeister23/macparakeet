@@ -729,9 +729,44 @@ public final class HotkeyManager {
         activeRecordingMode = mode
     }
 
+    public func syncRecordingMode(_ mode: FnKeyStateMachine.RecordingMode) {
+        if let resumeMode = Self.resumeMode(mode, for: gestureMode) {
+            resumeRecording(mode: resumeMode)
+        } else {
+            suppressUntilReset()
+        }
+    }
+
     /// Reset state machine to idle (e.g., after cancel countdown expires).
     public func resetToIdle(flags: CGEventFlags? = nil) {
         resetGestureState(flags: flags, triggerKeyPressed: false)
+    }
+
+    static func resumeMode(
+        _ activeMode: FnKeyStateMachine.RecordingMode?,
+        for gestureMode: HotkeyGestureController.Mode
+    ) -> FnKeyStateMachine.RecordingMode? {
+        guard let activeMode else { return nil }
+        switch (activeMode, gestureMode) {
+        case (.persistent, .singleTapToggle),
+             (.persistent, .doubleTapOnly),
+             (.persistent, .doubleTapAndHold),
+             (.holdToTalk, .holdOnly),
+             (.holdToTalk, .doubleTapAndHold):
+            return activeMode
+        case (.persistent, .holdOnly),
+             (.holdToTalk, .singleTapToggle),
+             (.holdToTalk, .doubleTapOnly):
+            return nil
+        }
+    }
+
+    static func shouldSuppressPeer(
+        _ activeMode: FnKeyStateMachine.RecordingMode?,
+        for gestureMode: HotkeyGestureController.Mode
+    ) -> Bool {
+        guard activeMode != nil else { return false }
+        return resumeMode(activeMode, for: gestureMode) == nil
     }
 
     @discardableResult

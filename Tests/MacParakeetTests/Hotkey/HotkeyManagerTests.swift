@@ -701,6 +701,44 @@ final class HotkeyManagerTests: XCTestCase {
         )
     }
 
+    func testSyncedPersistentRecordingFromExternalSurfaceMakesFnPressStop() {
+        let manager = HotkeyManager(trigger: .fn)
+
+        manager.syncRecordingMode(.persistent)
+
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskSecondaryFn],
+                timestampMs: 1_000
+            ),
+            [.stopRecording]
+        )
+    }
+
+    func testSyncedPersistentRecordingSuppressesHoldOnlyPeerUntilReset() {
+        let manager = HotkeyManager(trigger: .option, gestureMode: .holdOnly)
+
+        manager.syncRecordingMode(.persistent)
+
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskAlternate],
+                timestampMs: 1_000
+            ),
+            []
+        )
+        XCTAssertEqual(manager.startupDebounceElapsedForTesting(), [])
+
+        manager.resetToIdle(flags: [])
+        XCTAssertEqual(
+            manager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskAlternate],
+                timestampMs: 2_000
+            ),
+            [.scheduleStartupDebounce(milliseconds: FnKeyStateMachine.defaultStartupDebounceMs)]
+        )
+    }
+
     func testChordTriggerKeyUpPassesThroughWhenChordWasNotHandled() {
         let trigger = HotkeyTrigger.chord(modifiers: ["control", "shift"], keyCode: 15)
         let manager = HotkeyManager(trigger: trigger)

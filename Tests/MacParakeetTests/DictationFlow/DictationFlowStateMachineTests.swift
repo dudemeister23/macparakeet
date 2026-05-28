@@ -269,7 +269,7 @@ final class DictationFlowStateMachineTests: XCTestCase {
 
         let effects = m.handle(.recordingStarted(generation: gen))
         XCTAssertEqual(m.state, .recording(mode: .holdToTalk))
-        XCTAssertTrue(effects.isEmpty) // audio level loop starts externally
+        XCTAssertEqual(effects, [.syncHotkeyRecordingMode(mode: .holdToTalk)])
     }
 
     func testStartingServiceStartFailed() {

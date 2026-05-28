@@ -5,6 +5,26 @@ import XCTest
 
 @MainActor
 final class DictationFlowCoordinatorTests: XCTestCase {
+    func testPillStartedPersistentRecordingSyncsFnHotkeyToStop() async throws {
+        let harness = try await makeRecordingHarness()
+        let fnManager = HotkeyManager(trigger: .fn)
+        harness.coordinator.hotkeyManagers = [fnManager]
+
+        harness.coordinator.startDictation(mode: .persistent, trigger: .pillClick)
+
+        let started = await waitUntil { self.isRecording(harness.coordinator.overlayStateForTesting) }
+        XCTAssertTrue(started)
+        XCTAssertEqual(
+            fnManager.modifierFlagsChangedOutputsForTesting(
+                flags: [.maskSecondaryFn],
+                timestampMs: 1_000
+            ),
+            [.stopRecording]
+        )
+
+        harness.coordinator.cancelDictation()
+    }
+
     func testSuccessfulMicPermissionRequestDismissesStaleStartFailure() async throws {
         let harness = try await makeMicPermissionHarness(
             microphonePermission: .notDetermined,
@@ -192,12 +212,12 @@ final class DictationFlowCoordinatorTests: XCTestCase {
             dictationRepo: repo
         )
 
-        let settingsDefaults = UserDefaults(suiteName: "mic-permission-settings-\(UUID().uuidString)")!
+        let settingsDefaults = makeTestDefaults(prefix: "mic-permission-settings")
         settingsDefaults.set(false, forKey: UserDefaultsAppRuntimePreferences.showIdlePillKey)
         let settings = SettingsViewModel(defaults: settingsDefaults)
 
         let preferences = UserDefaultsAppRuntimePreferences(
-            defaults: UserDefaults(suiteName: "mic-permission-preferences-\(UUID().uuidString)")!
+            defaults: makeTestDefaults(prefix: "mic-permission-preferences")
         )
         let entitlements = EntitlementsService(
             config: LicensingConfig(checkoutURL: nil, expectedVariantID: nil),
@@ -230,6 +250,57 @@ final class DictationFlowCoordinatorTests: XCTestCase {
         )
     }
 
+    private func makeRecordingHarness() async throws -> RecordingHarness {
+        let dbManager = try DatabaseManager()
+        let audio = MockAudioProcessor()
+        let stt = MockSTTClient()
+        let repo = DictationRepository(dbQueue: dbManager.dbQueue)
+        let service = DictationService(
+            audioProcessor: audio,
+            sttTranscriber: stt,
+            dictationRepo: repo
+        )
+
+        let settingsDefaults = makeTestDefaults(prefix: "recording-settings")
+        settingsDefaults.set(false, forKey: UserDefaultsAppRuntimePreferences.showIdlePillKey)
+        let settings = SettingsViewModel(defaults: settingsDefaults)
+        let preferences = UserDefaultsAppRuntimePreferences(
+            defaults: makeTestDefaults(prefix: "recording-preferences")
+        )
+        let entitlements = EntitlementsService(
+            config: LicensingConfig(checkoutURL: nil, expectedVariantID: nil),
+            store: InMemoryKeyValueStore(),
+            api: StubLicenseAPI()
+        )
+
+        let coordinator = DictationFlowCoordinator(
+            dictationService: service,
+            clipboardService: MockClipboardService(),
+            entitlementsService: entitlements,
+            dictationRepo: repo,
+            settingsViewModel: settings,
+            sttRuntime: AlwaysReadySTTReadinessChecker(),
+            runtimePreferences: preferences,
+            permissionService: MockPermissionService(),
+            overlayControllerFactory: { MicPermissionSpyDictationOverlayController(viewModel: $0) },
+            onMenuBarIconUpdate: { _ in },
+            onHistoryReload: {},
+            onPresentEntitlementsAlert: { _ in }
+        )
+
+        return RecordingHarness(coordinator: coordinator)
+    }
+
+    private func makeTestDefaults(prefix: String) -> UserDefaults {
+        let suiteName = "\(prefix)-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
     private func waitUntil(
         timeoutMs: UInt64 = 1200,
         condition: @escaping @MainActor () -> Bool
@@ -242,10 +313,20 @@ final class DictationFlowCoordinatorTests: XCTestCase {
         return condition()
     }
 
+    private func isRecording(_ state: DictationOverlayViewModel.OverlayState?) -> Bool {
+        guard let state else { return false }
+        if case .recording = state { return true }
+        return false
+    }
+
     private struct MicPermissionHarness {
         let coordinator: DictationFlowCoordinator
         let audio: MockAudioProcessor
         let permissionService: MockPermissionService
+    }
+
+    private struct RecordingHarness {
+        let coordinator: DictationFlowCoordinator
     }
 }
 

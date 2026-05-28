@@ -409,27 +409,14 @@ final class AppHotkeyCoordinator {
         _ activeMode: FnKeyStateMachine.RecordingMode?,
         for gestureMode: HotkeyGestureController.Mode
     ) -> FnKeyStateMachine.RecordingMode? {
-        guard let activeMode else { return nil }
-        switch (activeMode, gestureMode) {
-        case (.persistent, .singleTapToggle),
-             (.persistent, .doubleTapOnly),
-             (.persistent, .doubleTapAndHold),
-             (.holdToTalk, .holdOnly),
-             (.holdToTalk, .doubleTapAndHold):
-            return activeMode
-        case (.persistent, .holdOnly),
-             (.holdToTalk, .singleTapToggle),
-             (.holdToTalk, .doubleTapOnly):
-            return nil
-        }
+        HotkeyManager.resumeMode(activeMode, for: gestureMode)
     }
 
     static func shouldSuppressPeer(
         _ activeMode: FnKeyStateMachine.RecordingMode?,
         for gestureMode: HotkeyGestureController.Mode
     ) -> Bool {
-        guard activeMode != nil else { return false }
-        return resumeMode(activeMode, for: gestureMode) == nil
+        HotkeyManager.shouldSuppressPeer(activeMode, for: gestureMode)
     }
 
     func refreshAllHotkeys() {
