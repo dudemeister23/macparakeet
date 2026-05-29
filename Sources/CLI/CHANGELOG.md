@@ -82,6 +82,13 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Added
 
+- `meeting-vad-sim <audio>` (dev tool) replays the meeting live-preview
+  chunking path on an audio file and compares the fixed 5s strategy against VAD
+  speech-boundary chunking (`--mode fixed|vad|both`). Reports chunk boundaries,
+  per-ingest latency, and the realtime factor used to decide whether VAD can run
+  inline in the capture task. `--json`, `--all-chunks`, and `--batch-ms`
+  supported. Headless verification for the VAD-guided live chunking work; does
+  not exercise live capture or the GUI.
 - LLM-backed commands now expose `--allow-insecure-http` for intentional
   non-loopback `http://` endpoints on non-local providers.
 - `spec --json` prints a machine-readable CLI contract for agents and scripts,
