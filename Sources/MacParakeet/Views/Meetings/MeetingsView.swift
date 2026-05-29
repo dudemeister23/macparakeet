@@ -259,7 +259,7 @@ struct MeetingsView: View {
                     localityIcon: isLocal ? "lock" : "cloud",
                     detail: isLocal
                         ? "Meeting summaries and chat use \(displayName) on this Mac."
-                        : "\(displayName) may receive transcript text when you run AI actions.",
+                        : nil,
                     tint: isLocal ? DesignSystem.Colors.successGreen : DesignSystem.Colors.textSecondary,
                     onOpenSettings: onOpenAISettings
                 )
@@ -341,7 +341,7 @@ struct MeetingsView: View {
                 } label: {
                     Label("Manage", systemImage: "slider.horizontal.3")
                 }
-                .parakeetAction(.subtle)
+                .parakeetAction(.secondary)
             }
         }
         .padding(DesignSystem.Spacing.md)
@@ -669,9 +669,9 @@ private struct CalendarInlineControlsRow: View {
                 Spacer(minLength: DesignSystem.Spacing.sm)
 
                 Button(action: onOpenCalendarSettings) {
-                    Label("Calendars", systemImage: "slider.horizontal.3")
+                    Label("Calendar Settings", systemImage: "gearshape")
                 }
-                .parakeetAction(.subtle)
+                .parakeetAction(.secondary)
                 .help("Open Calendar Settings")
             }
 
@@ -1091,11 +1091,15 @@ private struct IntelligenceReadyRow: View {
     let displayName: String
     let locality: String
     let localityIcon: String
-    let detail: String
+    let detail: String?
     let tint: Color
     var onOpenSettings: () -> Void
 
     var body: some View {
+        // Button beside the badge, vertically centered — matches the other
+        // Intelligence states (MeetingsInlineState). `.fixedSize()` keeps the
+        // button intact; a long provider name truncates gracefully rather than
+        // leaving a dead gap below it.
         HStack(alignment: .center, spacing: DesignSystem.Spacing.md) {
             Image(systemName: "sparkles")
                 .font(.system(size: 17, weight: .medium))
@@ -1103,39 +1107,45 @@ private struct IntelligenceReadyRow: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(displayName)
-                        .font(DesignSystem.Typography.body.weight(.semibold))
-                        .foregroundStyle(DesignSystem.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(locality)
-                        .font(DesignSystem.Typography.micro.weight(.semibold))
-                        .foregroundStyle(tint)
-                    Image(systemName: localityIcon)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(tint)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(tint.opacity(0.12)))
+                localityBadge
 
-                Text(detail)
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: DesignSystem.Spacing.sm)
 
             Button(action: onOpenSettings) {
-                Image(systemName: "gearshape")
+                Label("AI Settings", systemImage: "gearshape")
             }
             .parakeetAction(.secondary)
             .help("Open AI Settings")
-            .accessibilityLabel("Open AI Settings")
+            .fixedSize()
         }
         .padding(DesignSystem.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var localityBadge: some View {
+        HStack(spacing: 6) {
+            Text(displayName)
+                .font(DesignSystem.Typography.body.weight(.semibold))
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .lineLimit(1)
+            Text(locality)
+                .font(DesignSystem.Typography.micro.weight(.semibold))
+                .foregroundStyle(tint)
+            Image(systemName: localityIcon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(tint.opacity(0.12)))
     }
 }
 
