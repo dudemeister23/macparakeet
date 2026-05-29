@@ -37,9 +37,18 @@ struct MeetingLiveChunkingDiagnostics: Sendable {
 /// re-fed after a forced (max-duration) cut, because that cut lands mid-word;
 /// the assembler's dedup harmlessly discards the duplicated tail words.
 ///
-/// **Concurrency.** Methods mutate shared buffers across `await` points, so the
-/// owner must call them serially. `CaptureOrchestrator` (the only caller) is an
-/// actor that drives `addSamples`/`flush`/`reset` one at a time, satisfying this.
+/// **Concurrency.** Methods mutate `buffer`/`pendingVAD` across `await` points
+/// (the `vad.processStreamingChunk` hop), so a *second* concurrent caller would
+/// interleave and corrupt that state. Being an actor does **not** prevent this —
+/// actors are reentrant across `await`. Safety instead comes from there being
+/// exactly one caller in flight: `MeetingRecordingService` drains the capture
+/// stream with a single `for await event in events` task
+/// (`MeetingRecordingService.swift`), so `CaptureOrchestrator.ingest` — and
+/// therefore each chunker's `addSamples`/`flush`/`reset` — is only ever invoked
+/// one at a time. `configureChunkers`/`reset` (start) and `flush*` (stop) run
+/// outside that task's active window. If capture is ever parallelized per source
+/// (e.g. a `TaskGroup` or per-source tasks), this invariant breaks and the
+/// chunker needs its own serialization.
 ///
 /// This type does not depend on FluidAudio — it round-trips the opaque
 /// `MeetingVADStreamState` through a `MeetingVoiceActivityDetecting`.
