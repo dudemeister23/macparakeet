@@ -98,10 +98,12 @@ macparakeet-cli
 │   └── export <meeting> [--format md|json] [--stdout]
 ├── calendar
 │   └── upcoming [--days N] [--filter link|participants|all] [--json]
+├── meeting-vad-sim <audio> [--mode fixed|vad|both] [--json]
+│                                         Dev replay of fixed vs VAD live chunking
 └── feedback <message> [options]         Submit feedback
 ```
 
-`flow` is a compatibility alias for `vocab` in CLI 2.3.x. Use `vocab` in new
+`flow` is a compatibility alias for `vocab` in the CLI 2.x line. Use `vocab` in new
 scripts; the alias remains documented here only while the CLI still exposes it.
 
 > **JSON output convention**: any query command marked `[--json]` emits a single

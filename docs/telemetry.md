@@ -291,6 +291,7 @@ events remain useful for diarization-specific timing and failure analysis.
 | `meeting_recording_cancelled` | `duration_seconds` | How often recordings are intentionally discarded |
 | `meeting_recording_failed` | `error_type` | What blocks recording/finalization |
 | `meeting_operation` | `operation_id`, `workflow_id`, `parent_operation_id`, `outcome`, `trigger`, `stage`, `duration_seconds`, `live_word_count`, `live_transcript_lagged`, `microphone_track_present`, `system_track_present`, `notes_used`, `notes_length_bucket`, `error_type` | One wide outcome event for the full meeting capture + transcription flow |
+| `vad_model_prep` | `outcome` (`prepared`, `failed`) | Whether launch-time Silero VAD model prep is reaching the installed base in flag-on VAD live-chunking builds |
 
 `meeting_operation.stage` values are `permissions`, `start_recording`,
 `recording`, `stop_recording`, `transcription`, `complete_transcription`, and

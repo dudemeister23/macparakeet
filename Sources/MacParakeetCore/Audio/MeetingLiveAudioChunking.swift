@@ -13,9 +13,9 @@ protocol MeetingLiveAudioChunking: Sendable {
     func reset() async
 }
 
-/// Thin adapter that preserves the current fixed 5s / 1s-overlap behavior by
-/// delegating to `AudioChunker`. This is the fallback path and the default
-/// production behavior; it stays byte-identical to `AudioChunker`.
+/// Thin adapter that preserves the fixed 5s / 1s-overlap behavior by delegating
+/// to `AudioChunker`. This is the feature-off and VAD-unavailable fallback path;
+/// it stays byte-identical to `AudioChunker`.
 actor FixedMeetingLiveAudioChunker: MeetingLiveAudioChunking {
     private let chunker = AudioChunker()
 

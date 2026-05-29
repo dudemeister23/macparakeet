@@ -945,10 +945,10 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     }
 
     /// Pick the live-preview chunking strategy for this session and install it
-    /// on the orchestrator. Production default (flag off) is fixed 5s chunking,
-    /// byte-identical to the prior behavior. When enabled and the Silero VAD
-    /// model is already cached, both sources cut at speech boundaries for
-    /// Parakeet sessions; WhisperKit sessions and uncached VAD stay on fixed.
+    /// on the orchestrator. When the feature flag is off, the fixed 5s path is
+    /// byte-identical to the prior `AudioChunker` behavior. When enabled and
+    /// the Silero VAD model is cached, Parakeet sessions cut both sources at
+    /// speech boundaries; WhisperKit sessions and uncached VAD stay on fixed.
     /// See `plans/active/2026-05-meeting-vad-guided-live-chunking.md` §4.
     private func configureLiveChunkers(for session: Session) async {
         func useFixed(reason: String) async {
@@ -983,7 +983,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
 
     /// The shared VAD service, loaded lazily once per app session. Returns nil
     /// when the model is not cached — cheap to re-check (a file-existence test),
-    /// so a later session can still pick it up after onboarding fetches it.
+    /// so a later session can still pick it up after launch-time prep fetches it.
     private func liveVADService() async -> MeetingVADService? {
         if let sharedVADService { return sharedVADService }
         guard let service = await MeetingVADService.makeIfModelCached() else { return nil }

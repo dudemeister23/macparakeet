@@ -1095,9 +1095,9 @@ Dictation ready
 
 | Permission | Required For | User Flow |
 |------------|--------------|-----------|
-| Microphone | Dictation, onboarding mic test, meeting recording mic capture | Requested on first dictation/meeting use |
-| Accessibility | Global hotkey paste simulation | Requested on first dictation use |
-| Screen & System Audio Recording | ScreenCaptureKit system-audio capture for meeting recording | Requested on first meeting recording attempt; recording stays blocked until granted |
+| Microphone | Dictation, onboarding mic test, meeting recording mic capture | Requested during onboarding or first dictation/meeting use |
+| Accessibility | Global hotkey paste simulation | Requested during onboarding or first dictation use |
+| Screen & System Audio Recording | ScreenCaptureKit system-audio capture for meeting recording | Optional during onboarding; otherwise requested on first meeting recording attempt; recording stays blocked until granted |
 | Calendar | Calendar reminders and optional meeting auto-start | Requested from onboarding or Settings calendar controls |
 
 ### Sandboxing (App Store)

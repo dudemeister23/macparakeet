@@ -52,6 +52,12 @@ fan-out. There is exactly one instance per process, owned by
   folder and by `AppDelegate`'s boot marker.
 - `AudioChunker.swift` — actor that buffers resampled audio for
   incremental STT (live meeting transcription).
+- `MeetingLiveAudioChunking.swift`,
+  `SpeechBoundaryMeetingLiveAudioChunker.swift`,
+  `MeetingVADChunkingSimulator.swift` — meeting live-preview chunking
+  strategies. The fixed adapter preserves the original 5s / 1s-overlap
+  cadence; the VAD strategy cuts cached-model Parakeet sessions at
+  speech boundaries and falls back to fixed on VAD errors.
 - `AudioFileConverter.swift` — file-side converter (FFmpeg /
   AVFoundation) for file/YouTube/meeting transcription inputs.
 - `AudioProcessor.swift` + `AudioProcessorProtocol.swift` — thin

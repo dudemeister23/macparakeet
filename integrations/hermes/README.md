@@ -20,7 +20,7 @@ meeting artifacts, and store externally generated meeting results.
 
 ```bash
 brew install moona3k/tap/macparakeet-cli
-macparakeet-cli --version   # 2.3.1
+macparakeet-cli --version   # confirm the installed release
 macparakeet-cli health --json
 ```
 

@@ -1,15 +1,16 @@
 # Meeting VAD-Guided Live Chunking
 
-> Status: ACTIVE PLAN — Phases 1–4.5 IMPLEMENTED (flag-off)
+> Status: ACTIVE PLAN — Phases 1–4.5 IMPLEMENTED; flag-on release candidate under validation
 > Date: 2026-05-29
 > Scope: meeting live transcript chunk boundaries only.
 
-## Implementation Status (2026-05-28)
+## Implementation Status (2026-05-29)
 
-Phases 1–4 are implemented behind `AppFeatures.meetingVadLiveChunkingEnabled`,
-which defaults to **`false`** — production behavior is unchanged (fixed 5s / 1s
-live chunking via `FixedMeetingLiveAudioChunker`, byte-identical to
-`AudioChunker`). The VAD path is exercisable in dev builds and fully unit-tested.
+Phases 1–4 are implemented behind `AppFeatures.meetingVadLiveChunkingEnabled`.
+For the current release-candidate pass the flag is flipped **on** after Phase 0
+and corpus replay showed clean inline performance; the fallback path remains the
+fixed 5s / 1s live chunking via `FixedMeetingLiveAudioChunker`, byte-identical to
+`AudioChunker`. The VAD path is exercisable in dev builds and fully unit-tested.
 
 - **Phase 1** — `MeetingLiveAudioChunking` protocol + `MeetingLiveChunkingDiagnostics`
   + `FixedMeetingLiveAudioChunker`; `CaptureOrchestrator` now depends on the
@@ -48,9 +49,11 @@ live chunking via `FixedMeetingLiveAudioChunker`, byte-identical to
   - **Telemetry:** `vad_model_prep` outcome event (`prepared` / `failed` only;
     `already_cached` and feature-off are silent to avoid per-launch spam).
     Two-repo allowlist: `"vad_model_prep"` added to `ALLOWED_EVENTS` in the
-    website's `functions/api/telemetry.ts` — **must deploy the website before the
-    flag-flip build ships** or the Worker rejects the whole batch. (No production
-    risk while the flag is off: the event never fires.)
+    website's `functions/api/telemetry.ts` and deployed to Cloudflare Pages
+    production at website commit `65a32e9`
+    (`83d90b72-ba62-4c26-86a6-d7b292d3e597`). If this event is removed or
+    renamed later, keep the website Worker allowlist in lockstep or telemetry
+    batches containing the event will be rejected.
   - **Verified end-to-end (2026-05-28, headless):** `downloadModel()` fetches the
     Silero model to `Models/silero-vad/` (the `repo.folderName` path the pinned
     FluidAudio `VadManager` actually loads from — `isModelCached()` uses the same
@@ -106,13 +109,15 @@ isn't silently dropping speech.
 `MeetingRecordingService` now caches one `MeetingVADService` (`sharedVADService`,
 loaded lazily via `liveVADService()`), so the CoreML model loads at most once per
 app session instead of at every meeting start. Re-checks cheaply (file-existence)
-while still nil, so a later session picks it up after onboarding fetches the model.
+while still nil, so a later session picks it up after launch-time prep fetches the model.
 
 **Not yet done:**
 - **Phase 5** — subjective live-preview feel on a real call (eyeball the cadence)
-  and the default-on decision; only then update `spec/05-audio-pipeline.md` /
-  `spec/09-testing.md`. The sim data above strongly supports it (speech-aligned,
-  0 errors over 104 min × 2 streams), but the on-screen feel is still unverified.
+  is still the last human QA gate before tagging the flag-on build. The default
+  is flipped for the release candidate, and `spec/05-audio-pipeline.md` /
+  `spec/09-testing.md` now describe the VAD/fixed strategy split. The sim data
+  above strongly supports it (speech-aligned, 0 errors over 104 min × 2 streams
+  and the broader corpus), but the on-screen feel still needs a real-call smoke.
 - **Sub-minimum speech-end then prolonged silence.** A <2.0s utterance keeps
   `sawSpeechSinceLastEmit` set, so a following long silence force-emits a mostly
   silent 10s chunk to live STT. Bounded and not data-loss (timestamps stay
@@ -400,16 +405,14 @@ is added later, keep it aggregated and privacy-safe.
 **This is the gating enablement work — without it, turning VAD on reaches almost
 no one.**
 
-**The gap.** Today the Silero model is fetched *only* during the onboarding
-speech-engine warm-up (`OnboardingViewModel.prepareMeetingVADModelIfNeeded`, see
-Implementation Status). Onboarding runs once and never again — the coordinator
-gates on `onboarding.completedAtISO`. So the model reaches **new installs only**.
-Every already-onboarded user — essentially the entire installed base — never
-acquires it, and the runtime (`makeIfModelCached`, which *never* downloads by
-design) silently falls back to fixed chunking for them. Flipping
-`meetingVadLiveChunkingEnabled` on today would light VAD up for ~nobody who
-matters. The plan's own "flip → relaunch → model fetched" claim (Implementation
-Status) is only true for users who re-run onboarding.
+**The former gap.** Before Phase 4.5, the Silero model was fetched *only*
+during the onboarding speech-engine warm-up
+(`OnboardingViewModel.prepareMeetingVADModelIfNeeded`). Onboarding runs once
+and never again — the coordinator gates on `onboarding.completedAtISO` — so the
+model reached **new installs only**. Every already-onboarded user — essentially
+the entire installed base — never acquired it, and the runtime
+(`makeIfModelCached`, which *never* downloads by design) silently fell back to
+fixed chunking for them. That is why Phase 4.5 moved prep to launch.
 
 **Decision.** Prep the model in the **background on every launch, for all users**,
 whenever the feature is on and the model is missing. The model is tiny (verified
@@ -447,13 +450,14 @@ two; also fully detaches VAD from the dictation-first onboarding plan
 (`2026-05-dictation-first-onboarding.md`). (Leave `AppEnvironment`'s
 `meetingVADModelPreparer` — the launch hook now consumes it.)
 
-**Telemetry (recommended).** The whole point is reaching a population that's
-invisible by default, so instrument prep outcome to confirm field reach: a
-`vad_model_prep` event with an outcome (`already_cached` | `prepared` | `failed`).
-That is the difference between *believing* existing users got VAD and *seeing*
-that they did. **Two-repo change** — also add the event name to `ALLOWED_EVENTS`
-in `macparakeet-website/functions/api/telemetry.ts` and deploy that **before** the
-build ships, or the Worker rejects the whole batch.
+**Telemetry (implemented).** The whole point is reaching a population that's
+invisible by default, so prep emits `vad_model_prep` only for the transitions
+worth seeing: `prepared` (an install acquired the model) and `failed` (prep
+failed and the next launch will retry). `already_cached`, feature-off, and
+cancelled outcomes are intentionally silent to avoid per-launch telemetry spam.
+The event name must be present in `macparakeet-website/functions/api/telemetry.ts`
+`ALLOWED_EVENTS` before a flag-on build ships, or the Worker rejects the whole
+batch.
 
 **Network-awareness (optional, low priority).** A careful implementation skips the
 silent download on metered / Low Data Mode connections (`NWPathMonitor.isExpensive`
@@ -468,8 +472,8 @@ this is nice-to-have, not a blocker — acceptable to defer past first enablemen
 - Benchmark streaming VAD with `.cpuOnly` and `.cpuAndNeuralEngine`.
 - Measure added live-preview latency while a meeting live chunk is also being
   transcribed.
-- Decide whether first release is cached-only VAD or prepares VAD assets during
-  onboarding/model repair.
+- Decide whether first release is cached-only VAD, onboarding/model-repair prep,
+  or launch-time prep. **Resolved in Phase 4.5: launch-time prep.**
 
 Exit criteria:
 
@@ -529,7 +533,7 @@ Exit criteria:
 
 Exit criteria:
 
-- fixed mode remains current production behavior
+- fixed mode remains the feature-off and fallback behavior
 - VAD mode is exercisable in dev builds and tests
 - pause/resume and source-alignment tests pass in both modes
 
@@ -549,8 +553,9 @@ installs. Implements **Design §6**.
   and the injection through `OnboardingCoordinator` / `OnboardingWindowController`).
   `AppEnvironment.meetingVADModelPreparer` retained — the launch hook consumes it.
 - ✅ `vad_model_prep` telemetry outcome event (`prepared` / `failed`) +
-  `"vad_model_prep"` added to the website `ALLOWED_EVENTS`. Deploy the website
-  before the flag-flip build ships.
+  `"vad_model_prep"` added to the website `ALLOWED_EVENTS` and deployed to
+  Cloudflare Pages production at website commit `65a32e9`
+  (`83d90b72-ba62-4c26-86a6-d7b292d3e597`).
 
 Exit criteria:
 
@@ -657,7 +662,8 @@ Exit criteria:
 ## Risks
 
 - VAD model initialization could add hidden meeting-start latency.
-  Mitigation: cached-only or nonblocking initialization in the first release.
+  Mitigation: meeting start stays cached-only; launch-time prep is background,
+  idempotent, and silent-fail.
 - VAD inference could contend with Parakeet on ANE.
   Mitigation: benchmark compute units and prefer CPU-only if acceptable.
 - VAD false negatives could delay live preview.

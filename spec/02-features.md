@@ -77,6 +77,7 @@ See [00-vision.md](./00-vision.md) for positioning and market context.
 │  • Prompt library + multi-summary work automatically             │
 │  • Screen Recording permission flow                               │
 │  • Headphones guidance copy for cleanest speaker separation       │
+│  • VAD-guided live-preview chunking with fixed fallback           │
 │  • WhisperKit engine option for non-Parakeet languages           │
 │  • Settings engine picker + Whisper language picker              │
 │  • CLI --engine parakeet|whisper --language                      │
@@ -116,9 +117,10 @@ See [00-vision.md](./00-vision.md) for positioning and market context.
 2. Microphone permission
 3. Accessibility permission
 4. Meeting recording permission (optional Screen & System Audio Recording)
-5. Hotkey instructions (configurable trigger + Esc)
-6. Speech stack setup (Parakeet + speaker detection by default; locale-aware Whisper setup for CJK macOS languages)
-7. Ready
+5. Calendar meetings (optional EventKit access, when `AppFeatures.calendarEnabled`)
+6. Hotkey instructions (configurable trigger + Esc)
+7. Speech stack setup (Parakeet + speaker detection by default; locale-aware Whisper setup for CJK macOS languages)
+8. Ready
 
 **Model failure recovery:**
 - Before warm-up, onboarding runs lightweight preflight checks (runtime support + first-setup disk/network readiness for both STT and any required default-on speaker-detection assets).
@@ -1523,7 +1525,7 @@ exposes a terminal provider/model/token metadata envelope.
 
 ## v0.6 — Meeting Recording + Multilingual STT
 
-The v0.6 scope includes system audio + mic capture (ADR-014, ADR-015), the centralized STT runtime (ADR-016), optional WhisperKit multilingual STT (ADR-021), the live Ask tab (ADR-018), crash-resilient recording (ADR-019), and the live notepad plus `{{userNotes}}` plumbing from ADR-020. Calendar-driven auto-start (ADR-017) is implemented and enabled (`AppFeatures.calendarEnabled = true`), defaulting to opt-in mode `.off`. The full v0.6 backlog lives in `spec/README.md`; the F-numbered entries below cover the ADR-020 feature surface.
+The v0.6 scope includes system audio + mic capture (ADR-014, ADR-015), the centralized STT runtime (ADR-016), optional WhisperKit multilingual STT (ADR-021), VAD-guided live-preview chunking with fixed fallback, the live Ask tab (ADR-018), crash-resilient recording (ADR-019), and the live notepad plus `{{userNotes}}` plumbing from ADR-020. Calendar-driven auto-start (ADR-017) is implemented and enabled (`AppFeatures.calendarEnabled = true`), defaulting to opt-in mode `.off`. The full v0.6 backlog lives in `spec/README.md`; the F-numbered entries below cover the ADR-020 and meeting-hardening feature surface.
 
 Meeting transcription uses the current speech engine captured at recording start. Parakeet remains the default; WhisperKit can be selected before starting a meeting for languages outside Parakeet coverage.
 
@@ -1612,6 +1614,33 @@ Meeting transcription uses the current speech engine captured at recording start
 - [x] Pause/resume reachable from the floating pill's right-click menu, the Meeting Panel header (next to Stop), and the Transcribe-tab Meeting Recording tile
 - [x] Pill rosette dims and shows pause bars while paused; panel header swaps "Recording" for "Paused" and hides the dual-audio orb
 - [x] Capture-failure detection (USB mic unplug, etc.) fires when `pillViewModel.state` is `.recording` *or* `.paused`, so a failure during pause still routes to the existing stop+transcribe error path
+
+### F43: VAD-Guided Meeting Live Chunking
+
+> Status: **IMPLEMENTED; FLAG-ON RELEASE CANDIDATE**
+
+**What:** Meeting live-preview audio can be chunked at speech boundaries instead
+of rigid fixed windows. The final post-stop meeting transcript remains the
+authoritative transcript and is unchanged by this live-preview strategy.
+
+**Acceptance criteria:**
+- [x] `CaptureOrchestrator` depends on `MeetingLiveAudioChunking` strategies
+  rather than owning `AudioChunker` directly
+- [x] `FixedMeetingLiveAudioChunker` preserves the original 5s / 1s-overlap
+  cadence byte-for-byte for feature-off, non-Parakeet, uncached-model, and
+  fallback sessions
+- [x] `SpeechBoundaryMeetingLiveAudioChunker` cuts Parakeet live-preview chunks
+  on VAD speech-end events, drops silence-only windows, force-emits bounded
+  long speech at the 10s cap, and falls back to fixed after repeated VAD errors
+- [x] Meeting start never blocks on VAD model download; `MeetingVADService` loads
+  only when the Silero model is already cached
+- [x] Launch-time background prep (`MeetingVADLaunchPrep`) attempts to fetch the
+  Silero model for flag-on builds after speech warm-up, emits
+  `vad_model_prep` only for `prepared` / `failed`, and swallows failures so the
+  meeting path falls back to fixed
+- [x] The release-candidate flag is on in `AppFeatures` after offline corpus
+  replay showed clean inline performance; real-call cadence smoke remains the
+  last human QA gate before tagging a shipped flag-on build
 
 ### F41: Ask Quick Prompts
 

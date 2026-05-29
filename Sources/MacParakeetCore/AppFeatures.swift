@@ -47,14 +47,15 @@ public enum AppFeatures {
 
     /// VAD-guided meeting live chunking
     /// (`plans/active/2026-05-meeting-vad-guided-live-chunking.md`). When
-    /// `false` (current production behavior), meeting live-preview chunks use
-    /// the fixed 5s / 1s-overlap `AudioChunker` path. When `true` and the Silero
-    /// VAD model is already cached, live preview cuts at speech boundaries for
-    /// Parakeet sessions; each source independently falls back to fixed chunking
-    /// when VAD is unavailable or errors repeatedly. The final saved transcript
-    /// (post-stop full-file STT) is unaffected either way.
+    /// `false`, meeting live-preview chunks use the fixed 5s / 1s-overlap
+    /// `AudioChunker` path. When `true`, launch-time prep tries to cache the
+    /// Silero VAD model, and cached-model Parakeet sessions cut live-preview
+    /// chunks at speech boundaries. Each source independently falls back to
+    /// fixed chunking when VAD is unavailable or errors repeatedly. The final
+    /// saved transcript (post-stop full-file STT) is unaffected either way.
     ///
-    /// Default-off pending Phase 0 (compute-unit benchmark) and Phase 5
-    /// (real-meeting threshold tuning) in the plan.
-    public static let meetingVadLiveChunkingEnabled: Bool = false
+    /// Enabled for the VAD release candidate after Phase 0/corpus replay showed
+    /// clean inline performance and Phase 4.5 made model prep universal. Keep
+    /// `vad_model_prep` allowlisted and deployed before shipping flag-on builds.
+    public static let meetingVadLiveChunkingEnabled: Bool = true
 }

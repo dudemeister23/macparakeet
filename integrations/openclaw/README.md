@@ -28,7 +28,7 @@ Speech-to-text execution is local on the Apple Neural Engine. No cloud STT.
 
 ```bash
 brew install moona3k/tap/macparakeet-cli
-macparakeet-cli --version   # 2.3.1
+macparakeet-cli --version   # confirm the installed release
 macparakeet-cli health --json
 ```
 
@@ -82,7 +82,7 @@ fields and validation rules may have evolved.
 ````markdown
 ---
 name: macparakeet-stt
-version: 2.3.1
+version: <published-cli-version>
 author: <your-username>
 description: >
   Local Parakeet TDT speech-to-text and meeting artifact access on Apple

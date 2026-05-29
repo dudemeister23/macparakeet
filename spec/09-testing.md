@@ -95,6 +95,7 @@ The suite includes targeted regressions for progress behavior in URL transcripti
 - `MeetingTranscriptAssemblerTests`: Preview line assembly from chunk results
 - `MeetingRecordingPanelViewModelTests`: Live preview updates, elapsed time, audio levels
 - `AudioChunkerTests`: Chunk boundary timing, overlap handling, flush on stop
+- `FixedMeetingLiveAudioChunkerTests` and `SpeechBoundaryMeetingLiveAudioChunkerTests`: Fixed-cadence parity plus VAD speech-boundary chunking, silence drop, force emit, flush, reset, and fixed-fallback behavior
 - `MicrophoneCaptureTests`: Lightweight construction/lifecycle seam coverage for the mic capture wrapper
 - `MeetingAudioCaptureServiceTests`: Interleaved-buffer deep-copy correctness, VPIO policy success/fallback/required-fail behavior, runtime error emission, and burst buffering retention for high-rate system-capture callbacks
 - `MeetingAudioPairJoinerTests`: Pairing behavior, bounded-lag solo fallback, and overflow diagnostics
@@ -114,6 +115,7 @@ The suite includes targeted regressions for progress behavior in URL transcripti
 - Meeting finalization runs ahead of queued live preview and file transcription on the background slot
 - File transcription waits behind active meeting work without corrupting progress callbacks
 - Meeting live chunks are dropped when queue thresholds are exceeded or when meeting stop promotes finalization
+- VAD-guided meeting live chunking is covered as a live-preview strategy: deterministic chunker tests cover state transitions, `MeetingRecordingServiceTests` cover the flag gate/fallback decision, and `MeetingVADLaunchPrepTests` cover universal launch-time model prep without network-dependent assertions
 - Already-cancelled jobs never enter the scheduler
 - Saved meeting retranscribes prefer the archived dual-source `meetingFinalize` path when metadata is present, and legacy rows without that metadata fall back to the low-priority file-transcription path
 - App warm-up, shutdown, and cache-clearing hit one shared runtime only

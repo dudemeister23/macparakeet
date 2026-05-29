@@ -5,7 +5,7 @@
 > Branch: `test/dictation-stall-integration`
 > Related: `journal/2026-05-03-dictation-silent-stall.md`, ADR-015, PR #189 (shared-mic-engine), PR #210 (diagnostic package)
 
-## Status (2026-05-04)
+## Status (2026-05-04, amended 2026-05-27)
 
 - **Tier 1 shipped + expanded** — 9 tests in `Tests/MacParakeetTests/Audio/MicrophoneEngineRealPlatformTests.swift`. Run the normal hardware subset with `MACPARAKEET_HARDWARE_TESTS=1`.
 - **Normal hardware subset** — 6 tests: cold start, post-cycle, post-VPIO, active-VPIO + late non-VPIO subscriber, deferred-VPIO promotion, and 10-cycle raw stress.
@@ -39,6 +39,25 @@
 - **Tier 4 scaffolded**: `testDefaultInputSwitchWhileSharedStreamRunningKeepsDeliveringBuffers` programmatically toggles the default input device via `AudioObjectSetPropertyData(kAudioHardwarePropertyDefaultInputDevice)` mid-session and asserts the shared stream continues delivering buffers. It is gated by `MACPARAKEET_HAL_MUTATION_TESTS=1` because it mutates system audio state.
 - **Instrumentation gap closed in this branch**: `AVAudioEngineMicrophonePlatform` now installs a log-only Core Audio listener for `kAudioHardwarePropertyDefaultInputDevice` while the shared mic engine is running and emits `audio_default_input_changed ...` to `dictation-audio.log`. This completes the decision rule that separates HAL route churn from a fresh-engine attach failure on the next field stall.
 - **Tier 1 earns its keep** as permanent regression coverage for the healthy paths even though it didn't reproduce the bug. Any future change that breaks the contract on these paths fails immediately.
+
+### 2026-05-27 release-audit note: VPIO tests are not the shipped-path gate
+
+`MACPARAKEET_HARDWARE_TESTS=1 swift test --filter MicrophoneEngineRealPlatformTests`
+failed on macOS 26.5 with CoreAudio `-10868` in the VPIO teardown path,
+especially `testPostVPIODeliversBuffers` (start VPIO -> stop -> start raw).
+Raw cold start and the active-VPIO + late non-VPIO subscriber path still passed.
+
+Treat this as a retained/experimental VPIO-path signal, **not** as a release
+blocker for the default shipped meeting-recording path. The app-level meeting
+mic default was changed to `.raw` in `AppEnvironment` after the Zoom live-mic
+degradation report; VPIO remains in the codebase only as explicit plumbing for
+future experiments and regression forensics. A failed VPIO hardware test is
+therefore a false positive for raw meeting/dictation release readiness unless a
+release deliberately re-enables VPIO.
+
+Follow-up test hygiene: split the real-platform suite so raw-path hardware tests
+remain under `MACPARAKEET_HARDWARE_TESTS=1`, while VPIO teardown/promotion tests
+move behind a stricter opt-in such as `MACPARAKEET_VPIO_EXPERIMENT_TESTS=1`.
 
 ## Context
 

@@ -256,6 +256,11 @@ REQ-MEET-012:
   version: v0.6
   status: implemented
 
+REQ-MEET-013:
+  description: Meeting live-preview chunking can use Silero VAD speech boundaries for cached-model Parakeet sessions when AppFeatures.meetingVadLiveChunkingEnabled is true, while non-Parakeet, uncached-model, feature-off, and VAD-error paths fall back to the original fixed 5s / 1s chunker and final post-stop transcription remains unchanged
+  version: v0.6
+  status: implemented
+
 # --- v0.6 Multilingual Speech Recognition ---
 
 REQ-STT-002:

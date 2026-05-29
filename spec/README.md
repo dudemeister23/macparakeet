@@ -86,7 +86,7 @@ All ADRs live in `spec/adr/`. These are locked -- they record decisions already 
 | v0.3 | YouTube & Export | YouTube transcription, export formats | **Implemented** |
 | v0.4 | Polish & Launch | Diarization, custom hotkey, non-blocking progress, direct distribution | **Implemented** |
 | v0.5 | Data, UI & Prompts | Private dictation, favorites, video player, split-pane detail, library grid, prompt library, multi-summary | **Implemented** |
-| v0.6 | Meeting Recording + Multilingual STT + Transforms | System audio + mic capture, concurrent with dictation, local transcription, library integration, optional WhisperKit engine, system-wide selected-text rewrites, calendar auto-start | **Implemented** |
+| v0.6 | Meeting Recording + Multilingual STT + Transforms | System audio + mic capture, concurrent with dictation, local transcription, VAD-guided live-preview chunking, library integration, optional WhisperKit engine, system-wide selected-text rewrites, calendar auto-start | **Implemented** |
 | v0.7 | Post-v0.6 polish | Follow-up scope TBD after v0.6 ships | **Planned** |
 
 ## Version Progress
@@ -195,7 +195,8 @@ Dictation + transcription + history + settings. Get audio in, text out, pasted i
 - [x] Screen Recording permission handling (required, no mic-only fallback)
 - [x] Batch transcription after recording stops (local STT using the pinned engine)
 - [x] Meeting recordings get prompt library, multi-summary, chat, and export automatically
-- [x] Live transcript preview via AudioChunker (chunked transcription during recording)
+- [x] Live transcript preview (chunked transcription during recording)
+- [x] VAD-guided speech-boundary live-preview chunking with fixed 5s / 1s fallback (flag-on release candidate on `main`; final post-stop transcript unchanged)
 - [x] Joined mic/system frame pairing with raw meeting mic capture by default
 - [x] Dominant-system suppression gate for live mic chunk transcription while preserving recorded mic audio
 - [x] Joiner overflow diagnostics + sync-lag observability for long-running capture sessions

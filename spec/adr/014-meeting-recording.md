@@ -7,6 +7,7 @@
 > Amended: 2026-04-29 (replace Core Audio process taps with ScreenCaptureKit audio so optional VPIO no longer conflicts with system audio capture)
 > Amended: 2026-05-09 (pause/resume for active recordings — [issue #235](https://github.com/moona3k/macparakeet/issues/235))
 > Amended: 2026-05-14 (ship raw meeting mic capture by default after live-call testing showed VPIO can muffle the user's outgoing mic for other participants)
+> Amended: 2026-05-29 (permission timing clarification: Screen & System Audio Recording can be granted from the optional onboarding step or requested on first meeting use; denied/missing permission still blocks recording)
 
 ## Context
 
@@ -81,11 +82,17 @@ The existing `AudioProcessor` is a single-stream actor wrapping `AudioRecorder` 
 
 ### 6. Screen Recording permission required, no fallback
 
-If the user denies Screen Recording permission, meeting recording is blocked entirely. No mic-only fallback. This keeps the UX simple — the feature either works fully or doesn't. The permission is requested on first meeting recording attempt, not during onboarding.
+If the user denies Screen Recording permission, meeting recording is blocked entirely. No mic-only fallback. This keeps the UX simple — the feature either works fully or doesn't. First-run onboarding contains a skippable Meeting Recording card that can request Screen & System Audio Recording early. If the user skips it, the Transcribe tile/menu-bar/hotkey first-use path still checks and requests the permission before starting. The invariant is unchanged: no Screen & System Audio Recording permission means no meeting recording, and there is no mic-only fallback.
 
 ### 7. Batch transcription first; live preview implemented later
 
 Parakeet at 155x realtime transcribes 60 minutes of audio in ~23 seconds. Batch transcription (transcribe after recording stops) was the MVP. Real-time chunked transcription (5-second chunks during recording) shipped in Phase 2 and is best-effort; final post-stop transcription remains authoritative.
+
+2026-05 hardening: the live preview path now supports a `MeetingLiveAudioChunking`
+strategy layer. The fixed strategy preserves the original 5-second / 1-second
+overlap cadence, and flag-on Parakeet sessions can use Silero VAD speech
+boundaries when the model is cached. VAD missing/error paths fall back to fixed;
+the post-stop final transcription path is unchanged.
 
 ### 8. Source-aware meeting finalization
 

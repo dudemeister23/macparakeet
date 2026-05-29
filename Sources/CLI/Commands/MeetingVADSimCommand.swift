@@ -99,7 +99,7 @@ struct MeetingVADSimCommand: AsyncParsableCommand {
         print("── mode: \(r.mode) " + String(repeating: "─", count: max(0, 40 - r.mode.count)))
         if r.mode == "vad" && !r.vadAvailable {
             print("  VAD model not cached — live path would fall back to fixed.")
-            print("  (Run onboarding / download the Silero VAD model, then retry.)")
+            print("  (Launch MacParakeet with VAD enabled and let background prep fetch it, then retry.)")
             return
         }
         let durS = Double(r.audioDurationMs) / 1000.0

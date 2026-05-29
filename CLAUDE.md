@@ -17,7 +17,7 @@ A **fast, private, local-first voice app** for macOS. The v0.6 release ships sys
 | Channel | Agent Assumption | Features |
 |---------|------------------|----------|
 | Stable DMG | User-facing release, recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, optional WhisperKit, exports, vocabulary, AI features |
-| `main` | Development | v0.6 release scope plus productized Transforms and calendar auto-start enabled (`AppFeatures.calendarEnabled = true`); calendar auto-start defaults to mode `.off` (strictly opt-in) |
+| `main` | Development | v0.6 release scope plus productized Transforms, calendar auto-start enabled (`AppFeatures.calendarEnabled = true`; default `.off`), and VAD-guided meeting live-preview chunking enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) |
 
 When editing public-facing docs, preserve this release boundary: v0.6 includes
 meeting recording and WhisperKit. Calendar reminders and auto-start are
@@ -25,7 +25,11 @@ implemented and enabled on `main` (`AppFeatures.calendarEnabled = true`);
 calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
 driven auto-stop was removed (ADR-017 amendment, 2026-05) — scheduled end times
 are unreliable, so recordings are stopped manually (activity/audio-based auto-stop
-is a future ADR).
+is a future ADR). VAD-guided meeting live-preview chunking is flag-on on `main`
+as a release candidate: launch-time background prep fetches the Silero model,
+Parakeet meetings use speech-boundary live chunks when it is cached, and all
+missing/error paths fall back to the fixed 5s / 1s chunker; final meeting
+transcription is unchanged.
 
 ## Quick Navigation
 
@@ -131,14 +135,14 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 ## Current Phase
 
-**Current main branch** -- v0.6 release scope includes meeting recording, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in.
+**Current main branch** -- v0.6 release scope includes meeting recording, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) with fixed-chunker fallback and unchanged final transcription.
 
 - **v0.1** MVP -- System-wide dictation, file transcription, overlay, history, export, SQLite, CLI, STT engine
 - **v0.2** Clean Pipeline -- Text processing (filler removal, custom words, snippets), Vocabulary UI, feedback form
 - **v0.3** YouTube & Export -- YouTube URL transcription, multi-format export (TXT, MD, SRT, VTT, JSON, PDF, DOCX), drag-and-drop enhancements
 - **v0.4** Polish + Launch -- Diarization, custom hotkeys, Sparkle updates, LLM providers, voice stats, distribution
 - **v0.5** Data, UI & Prompts -- Private dictation, multi-conversation chat, favorites, video player, split-pane detail, library grid, prompt library, multi-summary, open-source release
-- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
+- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on release candidate on `main`), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
 - **Calendar auto-start** -- Implemented (ADR-017 Phases 1 + 2) and enabled via `AppFeatures.calendarEnabled = true` after the post-#318 reliability hardening. Defaults to mode `.off` (opt-in); Phase 3 (late-join/retro-link) remains proposed.
 
 ## Key Patterns
@@ -506,9 +510,9 @@ open Package.swift  # Select MacParakeet scheme
 
 | Permission | Reason | When Requested |
 |------------|--------|----------------|
-| Microphone | Dictation + meeting recording | First dictation use |
-| Accessibility | Global hotkey, paste simulation | First dictation use |
-| Screen & System Audio Recording | System audio capture for meeting recording (ScreenCaptureKit) | First meeting recording use |
+| Microphone | Dictation + meeting recording | Onboarding or first dictation/meeting use |
+| Accessibility | Global hotkey, paste simulation | Onboarding or first dictation use |
+| Screen & System Audio Recording | System audio capture for meeting recording (ScreenCaptureKit) | Optional onboarding step or first meeting recording use |
 
 1. **Offline-first** -- Dictation and file transcription work fully offline. Network is limited to user-triggered downloads/providers, update checks, retained purchase activation endpoints if explicitly invoked, and opt-out anonymous telemetry.
 2. **Temp files deleted** -- Audio removed after transcription (unless user saves)

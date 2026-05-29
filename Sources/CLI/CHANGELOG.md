@@ -80,6 +80,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [2.4.0] -- 2026-05-29
+
 ### Added
 
 - `meeting-vad-sim <audio>` (dev tool) replays the meeting live-preview

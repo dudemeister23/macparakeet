@@ -1,278 +1,243 @@
-# Onboarding use-case selection
+# Dictation-first onboarding
 
-> Status: **ACTIVE** (plan) · Created 2026-05-28 · ADR-005 amendment
+> Status: **ACTIVE** (plan) · Created 2026-05-28 · Rewritten 2026-05-29 · ADR-005 amendment
 
 ## Problem
 
-First-run onboarding is one linear path for everyone: `Welcome → Microphone →
-Accessibility → Meeting Recording → Calendar → Hotkey → Speech Model → Ready`
-(`OnboardingViewModel.Step`, `OnboardingViewModel.swift:22`). Meeting Recording
-and Calendar are shown to *every* new user with a "Skip — I'll set this up
-later" button (`OnboardingFlowView.swift:367`, `:502`).
+First-run onboarding is one linear path of 8 steps for everyone:
+`Welcome → Microphone → Accessibility → Meeting Recording → Calendar → Hotkey →
+Speech Model → Ready` (`OnboardingViewModel.Step`, `OnboardingViewModel.swift:22`).
 
-That means a user who only wants WisprFlow-style dictation still has to actively
-dismiss two of macOS's heaviest, scariest permission prompts (Screen & System
-Audio Recording, Calendar) that they will never use. And a user who only wants
-Granola-style meeting capture sits through the Accessibility prompt and a
-two-card push-to-talk hotkey tutorial that are irrelevant to them.
+Two of those steps — **Meeting Recording** and **Calendar** — are shown to *every*
+new user. They are skippable cards, not forced OS prompts: the system permission
+dialog only fires if the user clicks "Enable…", and the default action is
+"Skip — I'll set this up later", which advances without prompting anything
+(`OnboardingFlowView.swift:461,473,545`). So the cost is mild — but it is still
+real: every new user has to read and dismiss setup for two features they may
+never touch, at the exact moment they are forming a mental model of what the app
+*is*.
 
-The flow is *opt-out per step*. It should be *opt-in once*: ask what the user is
-here for, then show only the steps and request only the permissions that intent
-needs.
+MacParakeet's North Star is a fast, local-first **voice** app. Dictation is the
+headline, built-in mode; meeting recording and calendar are optional. Onboarding
+should reflect that: set up dictation, and let meeting recording + calendar be
+opt-in features the user discovers when they actually want them.
 
 ## Goal
 
-Add a single **use-case selection** step right after Welcome. The choice prunes
-the remaining steps and permission prompts so each user gets the shortest honest
-path to their first success, with no surprise prompts for features they didn't ask for.
+Two independent improvements to first-run, shippable separately:
 
-This is a **UI/UX change, not a download change.** Model-download behavior is
-deliberately left identical in Phase 1 (see Non-goals + Phase 2).
+**Part A — dictation-first subtraction.** Remove Meeting Recording and Calendar
+from the flow; they become opt-in features that set themselves up on first use.
+Add one quiet line on the Ready screen so meeting recording stays discoverable.
 
-### The three use cases
+New flow (everyone): `Welcome → Microphone → Accessibility → Hotkey →
+Speech Model → Ready` — **8 steps → 6**.
 
-| Use case | Value prop | Steps it unlocks | Permissions it requests |
-|---|---|---|---|
-| **Dictation** | "Type with your voice, anywhere." | Microphone, Accessibility, Hotkey, Speech Model | Microphone, Accessibility |
-| **Meetings** | "Record and transcribe meetings." | Microphone, Meeting Recording, Calendar*, Speech Model | Microphone, Screen & System Audio, Calendar* |
-| **Everything** | "Dictation + meetings." | all of the above | all of the above |
+**Part B — model-download head-start.** Kick off the ~6 GB speech-model warm-up
+when onboarding *opens*, not when the user reaches the (second-to-last) Speech
+Model step. By the time they finish the interactive steps the download is partly
+or fully done, so the Speech Model step is short or instant instead of a dead
+wait. This changes download **timing**, not download **contents** (see Non-goals).
 
-\* Calendar step only when `AppFeatures.calendarEnabled` is also true (unchanged gate).
+Part A is low-risk and stands alone. Part B is separable and carries the
+warm-up-machinery risk detailed in §5 — **ship A first** if you want to de-risk.
 
-**File / YouTube transcription is available in every mode** — it needs no
-permissions and rides on the speech model every path downloads. It is *not* a
-use case; it is a free rider, and the picker copy says so explicitly.
+## Why not a use-case picker?
 
-### Resulting step counts (all `AppFeatures` flags true today)
+We considered a use-case selection step (Dictation / Meetings / Everything radio
+choice that prunes the flow per intent) and **rejected it**:
 
-| Path | Steps | Permission prompts |
-|---|---|---|
-| Today (everyone) | 8 | up to 4 (mic, ax, screen, calendar) |
-| **Dictation** | 7 | **2** (mic, ax) |
-| **Meetings** | 7 | up to 3 (mic, screen, calendar) — **no accessibility, no hotkey tutorial** |
-| **Everything** | 9 | up to 4 |
+- Its value concentrated on a minority — meetings-primary users — while taxing
+  the dictation-majority with a decision step they don't need.
+- "Not onboarding meetings at all" is the truest expression of *"meetings is
+  optional"*: a picker forces every user to *confront* a meetings decision;
+  simply omitting it lets meetings be ignorable until wanted.
+- Simplicity is the product. This removes steps instead of adding a fork.
 
-The single-intent paths are shorter *and* drop the irrelevant scary prompts.
-"Everything" is one step longer than today (the picker), which is the correct
-cost for a user who genuinely wants all of it.
-
-## Non-goals (explicitly, to avoid overengineering)
-
-- **No change to what gets downloaded in Phase 1.** Parakeet (~6 GB) / Whisper
-  (CJK) and the diarization speaker models still download exactly as they do
-  today, on the same critical path, for all three use cases. Diarization also
-  powers file-transcription speaker labels, so a dictation user benefits from it
-  too; shaving ~130 MB is not worth coupling this UX change to the STT runtime.
-  Download optimization is Phase 2 and is independently shippable / skippable.
-- **No new "voice notes" / record-into-app mode.** MacParakeet dictation always
-  pastes; there is no no-paste capture mode and we are not building one here.
-- **No VAD onboarding work.** VAD live chunking is flag-off
-  (`meetingVadLiveChunkingEnabled = false`) and cached-only; it has its own plan
-  (`2026-05-meeting-vad-guided-live-chunking.md`). Forward hook only (see below).
-- **No persisted mid-flow resume.** Onboarding still restarts at Welcome if quit
-  before completion (current behavior); we don't add step-resume.
-- **Existing users are untouched.** The coordinator only shows onboarding when
-  `onboarding.completedAtISO` is absent (`OnboardingCoordinator.swift:41`).
+Do not re-propose the picker without new evidence (e.g. telemetry showing a large
+meetings-primary cohort that is failing to discover the feature).
 
 ## Design
 
-### 1. `OnboardingViewModel.UseCase`
+### 1. Drop `meetingRecording` + `calendar` from the onboarding flow
 
-New nested enum in `OnboardingViewModel`, mirroring the existing `Step` enum:
+- Remove the two steps onboarding shows. Recommended (delete, don't leave
+  dormant — CLAUDE.md "delete old code entirely"):
+  - `Step.meetingRecording` / `Step.calendar` enum cases.
+  - The step views `meetingRecordingStep` / `calendarStep`
+    (`OnboardingFlowView.swift:429,502`).
+  - Onboarding-only skip plumbing: `skipMeetingRecordingStep` /
+    `skipCalendarStep` and the persisted skip booleans
+    (`OnboardingViewModel.swift:107`).
+- **KEEP** the shared permission plumbing — `requestScreenRecordingAccess` /
+  `screenRecordingGranted` / `requestCalendarAccess` /
+  `calendarPermissionGranted` are consumed by Settings and the first-use
+  self-prompt paths. **Verify call sites before deleting anything.**
+- `visibleSteps` can revert to a simple static list (it no longer needs to gate
+  meeting/calendar on `AppFeatures`, because those steps are gone). The
+  `AppFeatures.meetingRecordingEnabled` / `calendarEnabled` flags still gate the
+  *features* (Transcribe tile, menu bar, Settings subsection) — they simply no
+  longer have an onboarding surface to hide. Update the flag doc-comments in
+  `AppFeatures.swift` accordingly (they currently claim to hide an onboarding
+  step).
+- Update every exhaustive switch that referenced the removed cases: `Step.title`,
+  `canContinueFromCurrentStep()` (`OnboardingViewModel.swift`), and the view's
+  `stepBody` / `stepIcon` / `stepIsCompleted` / `titleForStep` /
+  `subtitleForStep` / `primaryButtonTitle` / `continueHint`
+  (`OnboardingFlowView.swift`).
 
-```swift
-public enum UseCase: String, CaseIterable, Sendable {
-    case dictation
-    case meetings
-    case everything
+### 2. Ready-screen discoverability line
 
-    public var includesDictation: Bool { self == .dictation || self == .everything }
-    public var includesMeetings: Bool  { self == .meetings  || self == .everything }
-}
-```
+- Add **one quiet line** to `doneStep` (`OnboardingFlowView.swift:877`) — not a
+  card, not a CTA, so the dictation win the user just completed stays primary.
+  Copy (audience-friendly, concise):
 
-VM gains an observable property `public private(set) var useCase: UseCase` plus a
-setter `selectUseCase(_:)` that (a) updates the property, (b) persists it, and
-(c) emits the telemetry event (below). Default = `.dictation` (the modal,
-lowest-friction intent; revisit from telemetry). Persisted under a new key
-`onboarding.useCase`; read in `init`.
+  > Recording a meeting? Click **Record Meeting** in the Transcribe tab.
 
-### 2. Add `Step.useCase` between `.welcome` and `.microphone`
+- Gate it on `AppFeatures.meetingRecordingEnabled` so it disappears if the
+  feature is ever flagged off.
 
-`Step` raw values are ephemeral (never persisted — verified: only
-`completedAtISO` + the two skip booleans are stored, `OnboardingViewModel.swift:107`).
-Navigation walks `visibleSteps` by `rawValue` ordering, so inserting a case in
-declaration order is safe. Telemetry `.onboardingStep` keys off the title string,
-not the raw value.
+### 3. The self-prompt safety contract (verify, don't build)
 
-Exhaustive `switch`es that must gain a `.useCase` arm:
-- `Step.title` (`OnboardingViewModel.swift:34`)
-- `canContinueFromCurrentStep()` → `.useCase` returns `true` (`:256`)
-- View: `stepBody` (`OnboardingFlowView.swift:325`), `stepIcon` (`:189`),
-  `stepIsCompleted` (`:202`, completed when `step.rawValue > useCase.rawValue`),
-  `titleForStep` (`:1051`), `subtitleForStep` (`:1064`),
-  `primaryButtonTitle` (`:1088`), `continueHint` (`:1217`).
+Removing the steps is only safe because each feature sets itself up on first use.
+Confirm each path before considering this done:
 
-### 3. `visibleSteps` becomes use-case aware (the core change)
+- **Meeting recording later:** the Transcribe "Record Meeting" tile triggers the
+  Screen & System Audio prompt on first use.
+- **Calendar later:** the Settings calendar subsection requests access
+  (REQ-CAL-002); auto-start stays default `.off` (opt-in).
+- **Accessibility:** still onboarded for **everyone** (dictation paste needs it),
+  so it is *not* affected by this change — and that is load-bearing: the meeting
+  global hotkey uses a `CGEvent` session tap that *also* requires Accessibility
+  (`GlobalShortcutManager.swift:47`). Because the dictation-first flow grants AX
+  to every user, the meeting hotkey keeps working. (This is a concrete reason the
+  *picker* was the wrong design: a branched flow risked withholding AX from
+  meetings-only users and silently breaking their meeting hotkey.)
 
-Today `visibleSteps` is a **static** computed property gated only by
-`AppFeatures` (`OnboardingViewModel.swift:212`). Convert it to an **instance**
-property that also consults `useCase`:
+If any path does not self-prompt, closing that gap is in scope.
 
-```swift
-public var visibleSteps: [Step] {
-    Step.allCases.filter { step in
-        switch step {
-        case .welcome, .useCase, .microphone, .engine, .done:
-            return true
-        case .accessibility:
-            return useCase.includesDictation          // paste needs AX
-        case .hotkey:
-            return useCase.includesDictation          // dictation gesture tutorial
-        case .meetingRecording:
-            return AppFeatures.meetingRecordingEnabled && useCase.includesMeetings
-        case .calendar:
-            return AppFeatures.meetingRecordingEnabled
-                && AppFeatures.calendarEnabled
-                && useCase.includesMeetings
-        }
-    }
-}
-```
+### 4. Telemetry
 
-Call-site updates (static → instance):
-- `goNext()` / `goBack()` / use `self.visibleSteps` (`:226`, `:240`).
-- View: `private var visibleSteps` → `viewModel.visibleSteps` (`OnboardingFlowView.swift:55`).
+No new event. The per-step `onboarding_step` telemetry for the two removed steps
+simply stops firing; `onboarding_completed` is unchanged. We deliberately avoid
+the two-repo `ALLOWED_EVENTS` allowlist footgun — there is nothing to add to the
+website Worker.
 
-Because `visibleSteps` now derives from the observable `useCase`, the sidebar
-step list (`ForEach(visibleSteps)`, `:115`) and the "Step X of N" / progress
-strip recompute automatically when the user picks. Wrap the sidebar list +
-progress in `withAnimation` so rows slide in/out smoothly rather than popping.
+### 5. Model-download head-start (Part B — separable, test carefully)
 
-**Step normalization guard.** If the user advances, comes back to `.useCase`, and
-switches to a path that excludes their previous step, `step` could point at a
-now-hidden step. Add a small helper invoked from `selectUseCase` and `goBack`:
-if `step` is not in the new `visibleSteps`, clamp to the nearest visible step
-≥ current (else the last visible). In practice the user is *on* `.useCase` when
-they switch, so `step` is always still visible — but the guard makes the VM
-correct under jump()/back() and is cheap to unit-test.
+Today `startEngineWarmUp()` fires on `.onAppear` of the Speech Model step
+(`OnboardingFlowView.swift:376`), the second-to-last step. Move the *trigger*
+earlier — call it once when onboarding opens (top-level `.task`/`.onAppear` of
+`OnboardingFlowView`, or the coordinator) — so the download overlaps the
+interactive steps. Leave the engine step's existing `.onAppear` call in place as
+an idempotent fallback.
 
-### 4. The use-case step UI (`useCaseStep` in `OnboardingFlowView`)
+**Why this is safe at the core (the scary race is already neutralized).** The
+v0.4.22 race — a stale fire-and-forget progress `Task` overwriting terminal
+`.ready` with `.working`, causing 100% onboarding failure — was fixed with an
+`AsyncStream` observer loop fenced by a generation + observation-token guard
+(`OnboardingViewModel.swift:413-418`, `:440`, `:455`, `:468`…). Those same guards
+make `startEngineWarmUp()` **idempotent**: the early call starts it; the engine
+step's `.onAppear` call then no-ops via `if case .ready { return }` (download
+finished → step is instant) or `if warmUpObserverTask != nil { return }`
+(still running → existing observation continues). Calling it from two sites is
+exactly what those guards were built to tolerate.
 
-- Title: **"What do you want to do?"** Subtitle: **"Pick one — you can turn on
-  the rest anytime in Settings."**
-- Three **selectable rows** (radio semantics), stacked vertically (reads better
-  than a grid in the 480pt content column, and lets each row show its
-  consequence). Each row: SF Symbol + bold title + one-line value prop + a muted
-  footnote naming the permissions it will set up — so the user sees the cost
-  before any system prompt. Selected = accent border + filled check; reuse
-  `onboardingCard` styling and `DesignSystem` tokens.
+**Four bounded guards that ARE in scope for Part B:**
 
-  ```
-  ⌨  Dictation        Type with your voice, anywhere.
-                      Sets up: Microphone, Accessibility            ✓
-  ────────────────────────────────────────────────────────────────
-  👥  Meetings         Record and transcribe meetings.
-                      Sets up: Microphone, Screen & System Audio
-  ────────────────────────────────────────────────────────────────
-  ▦  Everything       Dictation + meetings.
-                      Sets up everything above
-  ```
+1. **Decouple warm-up from the permission steps' `isBusy`.** `startEngineWarmUp`
+   sets the shared `isBusy = true` (`OnboardingViewModel.swift:416`), and the
+   Microphone / Accessibility grant buttons are disabled on that same flag
+   (`OnboardingFlowView.swift:338`, `:358`). If the download starts at Welcome,
+   the user lands on Microphone with a greyed-out, "Requesting…" grant button held
+   by the *model download* — a deadlock. Warm-up already has its own `engineState`;
+   stop it from touching the permission `isBusy` (or split into a separate
+   `engineBusy`). **This is the one with user-visible failure potential — handle
+   first.**
+2. **Resolve the Whisper recommendation before kickoff.** `startEngineWarmUp`
+   forks to `startRecommendedWhisperSetup` when `whisperRecommendation` is set
+   (CJK Macs, `OnboardingViewModel.swift:408`). The early trigger must run *after*
+   that recommendation is resolved, or a CJK user starts downloading Parakeet and
+   then has to switch engines. Resolve-then-prefetch.
+3. **Don't surface the stall watchdog before the engine step is shown.**
+   `resetWarmUpStallWatchdog` flips to `.failed` on a progress timeout
+   (`OnboardingViewModel.swift:419`). If warm-up starts at Welcome on a dead
+   network, the flow could enter `.failed` on a step the user can't see yet, so
+   they hit a pre-failed engine step. Keep the failure invisible (or don't arm the
+   watchdog) until the engine step is actually presented.
+4. **Re-anchor or document the download-duration telemetry.**
+   `modelDownloadCompleted` measures from `warmUpStartedAt` to `.ready`
+   (`OnboardingViewModel.swift:479-484`). Starting earlier folds the user's
+   think-time on the interactive steps into that number, inflating "download
+   duration." Either re-anchor the metric to first-byte, or document the shift so
+   we don't misread the trend.
 
-- Reassurance line below the cards: **"Transcribing files & YouTube links works
-  in every mode."**
-- Pre-select **Dictation** so the default-action **Continue** works immediately.
-  Tap selects; Continue advances. (No auto-advance-on-tap — the choice is
-  consequential enough to confirm.)
-- A11y: each row is a `Button` with an accessibility label + `.isSelected`
-  trait; full keyboard navigation; honors `accessibilityReduceMotion` (no
-  required motion).
+## Non-goals (explicitly, to avoid scope creep)
 
-### 5. Tailored "Ready" step
+- **No use-case picker** (considered and rejected — see above).
+- **No change to what gets downloaded** (Part B changes *when*, not *what*).
+  Parakeet (~6 GB) / Whisper (CJK) and the diarization speaker models (~130 MB)
+  still download on the same critical path for everyone, exactly as today.
+  Diarization also powers file-transcription speaker labels, so a dictation user
+  benefits from it. Lazy diarization is a separate, STT-runtime-risky idea (real
+  regression surface) — out of scope here, may ship later or never.
+- **No live "try it" dictation step.** Tempting (tier-1 voice apps do it), but
+  redundant *here*: dictation pastes into whatever app you're in, so the "it
+  works!" moment happens for free ~5 s after onboarding in the user's real app.
+  An in-onboarding practice field adds a step, adds the most build complexity
+  (live overlay + paste target inside the onboarding window), and duplicates that
+  aha. Deliberately declined.
+- **No new "voice notes" / no-paste capture mode.**
+- **No VAD onboarding work.** The opposite, in fact: the former onboarding VAD
+  prep (`OnboardingViewModel.prepareMeetingVADModelIfNeeded`) has been removed
+  and replaced by universal launch-time prep — see
+  `2026-05-meeting-vad-guided-live-chunking.md` §6 / Phase 4.5. If Part B touches
+  the warm-up sequence here, coordinate so the two changes don't collide (the VAD
+  prep deletion lands with that plan, not this one).
+- **No persisted mid-flow resume** (onboarding still restarts at Welcome if quit
+  before completion — current behavior).
+- **Existing users are untouched** — the coordinator only shows onboarding when
+  `onboarding.completedAtISO` is absent (`OnboardingCoordinator.swift:41`).
 
-`doneStep` quick tips become use-case aware (`OnboardingFlowView.swift:903`):
-- Dictation: hotkey tip + "Drop a file to transcribe" + Settings.
-- Meetings: "Click **Record Meeting** in the Transcribe tab" + file tip + Settings.
-- Everything: hotkey + meeting + file tips.
-
-Post-onboarding routing (`onOpenMainApp`) stays on the Transcribe tab — already
-the shared hub for all three modes — so no routing change is required.
-
-### 6. Telemetry
-
-New event `onboarding_use_case_selected` with one property `use_case`
-(`dictation` | `meetings` | `everything`), emitted from `selectUseCase`. This
-captures intent even for users who don't finish. Honors the global opt-out;
-carries no content.
-
-**Two-repo change (known footgun):** add the case to `TelemetryEventName`
-(`TelemetryEvent.swift:78`) *and* to `ALLOWED_EVENTS` in
-`macparakeet-website/functions/api/telemetry.ts`. The Worker rejects the entire
-batch if any event name is unknown, silently dropping co-batched valid events.
-Deploy the website allowlist **before** shipping the build.
-
-### 7. Re-enabling a skipped feature later (verify, don't build)
-
-The choice never hard-locks anything. Confirm these "enable later" paths exist so
-a single-intent user can grow into the others without re-onboarding:
-- **Meetings later:** the Transcribe Meeting Recording tile starts a meeting and
-  triggers the Screen & System Audio prompt on first use (post-IA-overhaul tile).
-- **Accessibility later:** Settings → Dictation hotkey config / first dictation
-  prompts for Accessibility.
-- **Calendar later:** Settings calendar subsection (REQ-CAL-002).
-
-If any path does *not* self-prompt for its permission, that gap is in scope for
-Phase 1 (it's the contract that makes pruning safe).
-
-## Phase 2 (separable, optional) — lazy diarization
-
-Independent follow-up, only if we decide the download trim is worth it:
-- Skip `prepareDiarizationModelsIfNeeded` during onboarding for **dictation-only**
-  (`OnboardingViewModel.swift:704`, called from both Parakeet warm-up `:479` and
-  Whisper `:544`); keep it for meetings/everything.
-- Make the file-transcription and meeting-start paths lazily prepare diarization
-  on first use when not ready (with clear "Preparing speaker detection… one-time
-  ~130 MB" progress), since diarization also serves file speaker labels.
-- Revisit the 7 GB preflight disk message (`:103`, `:834`).
-
-This touches the STT runtime / transcription flows and carries real regression
-risk, so it is **deliberately decoupled** from the Phase 1 UX win and can ship
-later or never.
-
-## Forward hook — VAD (not this plan)
-
-When `meetingVadLiveChunkingEnabled` eventually ships, the meetings/everything
-onboarding path is the natural place to pre-fetch the Silero VAD model. Tracked
-in `2026-05-meeting-vad-guided-live-chunking.md` (Phase 0 pending). No code here.
-
-## Files touched (Phase 1)
+## Files touched
 
 | File | Change |
 |---|---|
-| `Sources/MacParakeetViewModels/OnboardingViewModel.swift` | `UseCase` enum, `useCase` property + `selectUseCase`, `onboarding.useCase` key, `Step.useCase`, instance `visibleSteps`, normalization guard, `.useCase` arms |
-| `Sources/MacParakeet/Views/Onboarding/OnboardingFlowView.swift` | `useCaseStep` UI, `viewModel.visibleSteps`, animated sidebar, tailored `doneStep`, `.useCase` arms in all step switches |
-| `Sources/MacParakeetCore/Services/Telemetry/TelemetryEvent.swift` | `onboardingUseCaseSelected` event + name |
-| `macparakeet-website/functions/api/telemetry.ts` | add `onboarding_use_case_selected` to `ALLOWED_EVENTS` (deploy first) |
-| `spec/adr/005-onboarding-first-run.md` | amendment: use-case step + per-intent gating |
-| `spec/02-features.md`, `spec/README.md` | onboarding progress note |
-| `spec/kernel/requirements.yaml` | new `REQ-ONB-001` (use-case-aware onboarding) |
-| `spec/kernel/traceability.md` | map REQ-ONB-001 → VM/Flow + tests |
+| `Sources/MacParakeetViewModels/OnboardingViewModel.swift` | **[A]** Remove `.meetingRecording` / `.calendar` `Step` cases, skip methods + skip booleans; simplify `visibleSteps` to a static list; update exhaustive switches. Keep shared permission plumbing. **[B]** Decouple warm-up from permission `isBusy` (own `engineBusy`); resolve Whisper recommendation before early kickoff; gate stall-watchdog surfacing on engine-step visibility; re-anchor download-duration telemetry. |
+| `Sources/MacParakeet/Views/Onboarding/OnboardingFlowView.swift` | **[A]** Remove `meetingRecordingStep` / `calendarStep`; add the Ready-screen meetings line; update step switches. **[B]** Add the early one-shot `startEngineWarmUp()` trigger (top-level `.task`/`.onAppear`); keep the engine-step `.onAppear` call as idempotent fallback. |
+| `Sources/MacParakeetCore/AppFeatures.swift` | Update `meetingRecordingEnabled` / `calendarEnabled` doc-comments (they no longer hide an onboarding step). |
+| `spec/adr/005-onboarding-first-run.md` | Amendment: 6-step dictation-first flow; meeting recording + calendar are opt-in post-onboarding. |
+| `spec/02-features.md`, `spec/README.md` | Onboarding progress note. |
+| `spec/kernel/requirements.yaml` | New `REQ-ONB-001`: dictation-first onboarding; meeting recording & calendar are opt-in and self-prompt on first use. |
+| `spec/kernel/traceability.md` | Map `REQ-ONB-001` → VM/Flow + tests. |
+
+No website / `telemetry.ts` change. No new telemetry event.
 
 ## Testing (ViewModel/logic only — no SwiftUI view tests)
 
 Extend `Tests/MacParakeetTests/ViewModels/OnboardingViewModelTests.swift`:
-- `UseCase.includesDictation/includesMeetings` truth table.
-- `visibleSteps` for each use-case × `AppFeatures` combination: dictation hides
-  meetingRecording/calendar; meetings hides accessibility/hotkey; everything
-  shows all enabled steps; calendar still requires both flags.
-- `goNext`/`goBack` walk the gated list with no no-ops or skips.
-- `selectUseCase` + normalization clamps a now-hidden `step`.
-- `canContinueFromCurrentStep()` is `true` on `.useCase`.
-- `onboarding.useCase` persists and is re-read on init.
-- Telemetry: `selectUseCase` emits `onboardingUseCaseSelected` (via existing
-  telemetry spy pattern).
-- Regression: diarization is still prepared in Phase 1 (existing warm-up tests
-  unchanged) — guards against accidentally pulling Phase 2 forward.
+
+**Part A:**
+- `visibleSteps` == `[welcome, microphone, accessibility, hotkey, engine, done]`
+  (no `meetingRecording` / `calendar`) regardless of `AppFeatures` flag values.
+- `goNext` / `goBack` walk the 6-step list with no no-ops or skips.
+- `canContinueFromCurrentStep()` is correct for each remaining step.
+- Speech-model / diarization warm-up is still prepared (regression guard —
+  downloads are unchanged by this plan).
+- Existing users (`completedAtISO` present) do not re-onboard.
+
+**Part B:**
+- Idempotency: an early `startEngineWarmUp()` followed by the engine-step call
+  does **not** bump `engineGeneration` / start a second download (it no-ops on
+  `.ready` or on `warmUpObserverTask != nil`).
+- Permission requests are not blocked by an in-flight warm-up — i.e. the warm-up
+  busy state and the permission `isBusy` are independent (assert via the
+  decoupled flag the buttons read).
+- A CJK `whisperRecommendation` makes the early kickoff take the Whisper path,
+  not Parakeet.
+- A warm-up failure before the engine step is presented is not surfaced as a
+  terminal `.failed` to earlier steps (assert the VM exposes the suppression the
+  view gates on).
 
 Run focused VM tests, then full `swift test`.
 
@@ -280,63 +245,71 @@ Run focused VM tests, then full `swift test`.
 
 - Existing users never re-onboard.
 - Speech-model download stays mandatory on every path (engine step never gated).
-- No feature is hard-locked; every un-chosen feature stays enableable later.
+- No feature is hard-locked; meeting recording & calendar stay enableable later
+  and self-prompt on first use.
+- Accessibility stays onboarded for everyone (keeps dictation paste **and** the
+  meeting hotkey working).
 - Local-first / no-content-telemetry unchanged.
+- (Part B) Warm-up never blocks permission grants, and the engine step never
+  triggers a second download — `startEngineWarmUp()` stays idempotent across its
+  early and engine-step call sites.
 
-## Open question
-
-- Default selection: **Dictation** (assumed modal intent). Revisit once
-  `onboarding_use_case_selected` data lands.
-
-## Handoff (Phase 1)
+## Handoff
 
 For the agent picking this up.
 
 **Read first:** this plan top-to-bottom, `spec/adr/005-onboarding-first-run.md`,
-and the `README.md` in any `Sources/MacParakeetCore/<subsystem>/` you touch (per
-CLAUDE.md). The Design section has the file:line references.
+and `Sources/MacParakeetCore/STT/README.md` if you touch warm-up. The Design
+section has the file:line references.
 
-**Scope — Phase 1 only. Do NOT pull Phase 2 (lazy diarization) forward.**
+**Scope:** two parts. **Part A** (steps 1–5) = remove two onboarding steps + add
+one Ready-screen line; low-risk, ship-on-its-own. **Part B** (steps 6–9) = start
+the model download earlier; separable and touches the warm-up state machine, so
+**land Part A first, then do Part B as its own commit/PR.** Do **not** reintroduce
+a use-case picker, and do **not** change *what* gets downloaded (Part B is timing
+only).
 
-1. Add `OnboardingViewModel.UseCase` (`dictation`/`meetings`/`everything`) +
-   observable `useCase` property + `selectUseCase(_:)`, persisted under
-   `onboarding.useCase`, default `.dictation`. (Design §1.)
-2. Insert `Step.useCase` after `.welcome` — raw values are ephemeral, so this is
-   safe. (Design §2.)
-3. Convert `visibleSteps` from **static** to **instance**, gating accessibility/
-   hotkey on `includesDictation` and meetingRecording/calendar on
-   `includesMeetings` (+ existing `AppFeatures` flags). Update call sites:
-   `goNext`/`goBack` and `OnboardingFlowView.swift:55`. (Design §3.)
-4. Build the `useCaseStep` UI — 3 selectable rows, pre-select Dictation, tap
-   selects / Continue advances, footnotes name the permissions each sets up.
-   (Design §4.)
-5. Tailor `doneStep` per use-case. (Design §5.)
-6. Add `.useCase` arms to **every** exhaustive `Step` switch listed in §2.
-7. Add the `onboarding_use_case_selected` telemetry event. **Two-repo change:**
-   also add it to `ALLOWED_EVENTS` in
-   `macparakeet-website/functions/api/telemetry.ts` and **deploy that before**
-   the app build ships — the Worker rejects the whole batch on an unknown event
-   name. (Design §6.)
+### Part A — dictation-first subtraction
 
-**Leave model downloads untouched** — diarization stays on the critical path for
-all three use cases in Phase 1.
+1. Remove `Step.meetingRecording` / `Step.calendar` and their step views, skip
+   methods, and persisted skip booleans. Keep the shared screen-recording /
+   calendar permission plumbing (Settings + first-use self-prompts use it —
+   verify call sites first). (Design §1.)
+2. Simplify `visibleSteps` to the static 6-step list; update `AppFeatures`
+   doc-comments. (Design §1.)
+3. Add `.useCase`-free arms: fix every exhaustive `Step` switch in the VM and the
+   view so it compiles without the removed cases. (Design §1.)
+4. Add the quiet Ready-screen meetings line, gated on
+   `AppFeatures.meetingRecordingEnabled`. (Design §2.)
+5. **Verify the self-prompt safety contract** (Design §3) — first Record Meeting
+   → screen prompt; Settings → calendar; Accessibility still onboarded for all.
+   If a path doesn't self-prompt, fixing it is in scope.
 
-**Load-bearing safety contract (Design §7):** pruning is only safe because every
-un-chosen feature self-prompts for its permission later — Transcribe meeting tile
-→ screen-recording prompt; Settings/pill → accessibility; Settings → calendar.
-**Verify each works.** If one does not self-prompt, closing that gap is in
-Phase 1 scope.
+**No telemetry change. No website change.** (Design §4.)
 
-**Tests:** extend `Tests/MacParakeetTests/ViewModels/OnboardingViewModelTests.swift`
-per the Testing section — ViewModel/logic only, no SwiftUI view tests. Run focused
-VM tests, then full `swift test`.
+### Part B — model-download head-start (separate commit; do after A)
 
-**Docs on completion:** ADR-005 amendment, `spec/02-features.md` + `spec/README.md`
-progress, new `REQ-ONB-001` in `spec/kernel/requirements.yaml`, traceability map,
-then archive this plan to `plans/completed/`.
+Do these in order — guard 6 first, it's the only one that can deadlock the user.
 
-**For the user, not the agent:** default selection is Dictation — revisit from
-telemetry, don't change it unprompted.
+6. **Decouple warm-up from permission `isBusy`** so a background download can't
+   grey out the Microphone/Accessibility grant buttons. (Design §5.1.)
+7. Add the **early one-shot `startEngineWarmUp()`** trigger at onboarding open,
+   *after* the Whisper recommendation is resolved; keep the engine-step
+   `.onAppear` call as the idempotent fallback. (Design §5.1–5.2.)
+8. **Suppress the stall watchdog's failure** until the engine step is actually
+   presented. (Design §5.3.)
+9. **Re-anchor (or document) the download-duration telemetry** so the earlier
+   start doesn't silently inflate it. (Design §5.4.)
+
+Verify the idempotency by hand: reach the engine step on a fast connection — it
+should already be `.ready` (instant), with no second download kicked off.
+
+**Tests:** extend `OnboardingViewModelTests.swift` per the Testing section —
+ViewModel/logic only. Run focused VM tests, then full `swift test`.
+
+**Docs on completion:** ADR-005 amendment, `spec/02-features.md` +
+`spec/README.md` progress, new `REQ-ONB-001`, traceability map, then archive this
+plan to `plans/completed/`.
 
 **Do not touch** unrelated in-flight work in the tree (dictation-stall plan,
-`MeetingVADLatencyBenchmark.swift`, silent-buffer plan).
+`meeting-vad-sim` / VAD replay tooling, silent-buffer plan).

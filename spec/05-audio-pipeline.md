@@ -167,7 +167,7 @@ Mic Input    → SharedMicrophoneStream (+ Voice Processing I/O when active)┘ 
 - **System audio** is captured via ScreenCaptureKit `SCStream` audio (`SCStreamConfiguration.capturesAudio = true`), which avoids owning or clocking a HAL aggregate output device.
 - **Mic audio** is captured by subscribing to `SharedMicrophoneStream` with a typed policy (`MeetingMicProcessingMode`): `raw` (default), `vpioPreferred`, or `vpioRequired`.
 - MacParakeet ships meeting capture with raw mic capture and ScreenCaptureKit for system audio. VPIO remains available for explicit experiments, but it is not the shipped default because live-call testing showed that engaging it can muffle the user's outgoing mic in Zoom/Meet. The older Core Audio process-tap path also remains out of production because it does not reliably coexist with VPIO in-process. See `docs/research/vpio-process-tap-conflict.md`.
-- Both streams are captured within the same meeting session and aligned by host time. `CaptureOrchestrator` owns join + offset + chunk boundaries via `MeetingAudioPairJoiner` + `AudioChunker`.
+- Both streams are captured within the same meeting session and aligned by host time. `CaptureOrchestrator` owns join + offset + live-preview chunk boundaries via `MeetingAudioPairJoiner` plus per-source `MeetingLiveAudioChunking` strategies.
 - Mic conditioning is pass-through. Raw capture applies no capture-time AEC/noise suppression/AGC; transcript-layer system-dominance suppression remains the default guard against obvious speaker bleed. When VPIO is explicitly requested and engages, macOS applies AEC/noise suppression/AGC before buffers reach `MeetingRecordingService`.
 - Audio is stored as separate M4A files (AAC 64kbps, 48kHz mono) per source
 - Source audio is written as fragmented M4A with 1-second movie fragments so kill-9 recovery can keep playable audio through the last committed fragment.
@@ -254,7 +254,7 @@ The primary concurrency use case remains meeting recording + dictation. File tra
 
 ### Live Preview
 
-`AudioChunker` buffers audio into chunks with overlap and sends them through the scheduler using the meeting's captured speech engine during recording. This provides:
+`CaptureOrchestrator` buffers audio into live-preview chunks and sends them through the scheduler using the meeting's captured speech engine during recording. The fixed fallback keeps the original 5s / 1s-overlap `AudioChunker` cadence. When `AppFeatures.meetingVadLiveChunkingEnabled` is true, launch-time prep tries to cache the Silero VAD model; if it is cached and the meeting uses Parakeet, the live path cuts chunks at speech boundaries per source. VAD unavailable/error cases fall back to the fixed cadence, and the final post-stop transcript is unchanged. This provides:
 - Live transcript preview in the recording pill
 - Source-aware labels: mic chunks → "Me", system chunks → "Them"
 - Raw mic capture plus a residual safeguard that suppresses clearly system-dominant mic chunks in live preview windows
@@ -266,9 +266,9 @@ The primary concurrency use case remains meeting recording + dictation. File tra
 
 | Permission | Why | When Requested | Fallback |
 |------------|-----|----------------|----------|
-| Microphone | Dictation recording | First dictation attempt | Show permission dialog with instructions |
-| Accessibility | Global shortcut detection + text insertion | First dictation attempt | Show System Settings deep link |
-| Screen & System Audio Recording | Meeting recording (system audio capture via ScreenCaptureKit) | First meeting recording attempt | Show error + "Open System Settings" button, block recording |
+| Microphone | Dictation recording | Onboarding or first dictation attempt | Show permission dialog with instructions |
+| Accessibility | Global shortcut detection + text insertion | Onboarding or first dictation attempt | Show System Settings deep link |
+| Screen & System Audio Recording | Meeting recording (system audio capture via ScreenCaptureKit) | Optional onboarding step or first meeting recording attempt | Show error + "Open System Settings" button, block recording |
 
 ### Permission Flow
 

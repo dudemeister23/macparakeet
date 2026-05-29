@@ -20,6 +20,12 @@ Transforms on `main`. Calendar reminders and auto-start are
 implemented and enabled on `main` (`AppFeatures.calendarEnabled = true`);
 calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
 driven auto-stop was removed (ADR-017 amendment) — recordings stop manually.
+Current `main` also has VAD-guided meeting live-preview chunking enabled as a
+release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`):
+launch-time prep fetches the Silero VAD model in the background, Parakeet
+meetings cut live-preview chunks at speech boundaries when the model is cached,
+and missing/erroring VAD falls back to the fixed 5s / 1s-overlap chunker without
+affecting the final post-stop transcript.
 
 Free and open-source (GPL-3.0). Apple Silicon only. Requires macOS 14.2+.
 
