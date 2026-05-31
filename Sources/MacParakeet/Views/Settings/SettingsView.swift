@@ -406,7 +406,9 @@ struct SettingsView: View {
     }
 
     /// A downloaded model awaiting delete confirmation. `parakeet` carries the
-    /// specific build; Whisper has a single variant so it needs no payload.
+    /// specific build; Whisper deletion follows the configured Whisper variant
+    /// from `SettingsViewModel.deleteWhisperModel()`, so the alert copy stays
+    /// variant-agnostic here.
     private enum PendingModelDeletion: Identifiable, Equatable {
         case parakeet(ParakeetModelVariant)
         case whisper
@@ -434,7 +436,7 @@ struct SettingsView: View {
         case .parakeet(let variant):
             return "This frees \(variant.approximateDownloadSize). You can download \(variant.modelName) again at any time."
         case .whisper:
-            return "This frees about 632 MB. You can download the Whisper model again at any time."
+            return "This removes the configured Whisper model download from this Mac. You can download it again at any time."
         }
     }
 
@@ -2248,7 +2250,7 @@ struct SettingsView: View {
                     label: "Delete download…",
                     isProminent: false,
                     isDestructive: true,
-                    help: "Remove the downloaded Whisper model from this Mac to free disk space."
+                    help: "Remove the configured Whisper model download from this Mac."
                 ) {
                     pendingModelDeletion = .whisper
                 })
