@@ -48,9 +48,9 @@ If MacParakeet.app is already installed, the bundled CLI is also available at
 | Discover core contract | `macparakeet-cli spec --json` |
 | Transcribe a file | `macparakeet-cli transcribe <path> --format json` |
 | Transcribe a YouTube URL | `macparakeet-cli transcribe <url> --format json` |
-| Use GUI/default preferences | `macparakeet-cli transcribe <path> --engine app-default --speaker-detection app-default --mode app-default --downloaded-audio app-default --youtube-audio-quality app-default --format json` |
-| Inspect/select speech models | `macparakeet-cli models list --json` / `macparakeet-cli models select parakeet --json` |
-| Configure shared defaults | `macparakeet-cli config set speaker-detection off --json` |
+| Use GUI/default preferences | `macparakeet-cli transcribe <path> --engine app-default --parakeet-model app-default --speaker-detection app-default --mode app-default --downloaded-audio app-default --youtube-audio-quality app-default --format json` |
+| Inspect/select speech models | `macparakeet-cli models list --json` / `macparakeet-cli models select parakeet-v3 --json` / `macparakeet-cli models select parakeet-v2 --json` |
+| Configure shared defaults | `macparakeet-cli config set speaker-detection off --json`; `macparakeet-cli config set parakeet-model v3 --json` |
 | List recent transcriptions | `macparakeet-cli history transcriptions --json` |
 | Search transcriptions | `macparakeet-cli history search-transcriptions "<query>" --json` |
 | Search dictations | `macparakeet-cli history search "<query>" --json` |

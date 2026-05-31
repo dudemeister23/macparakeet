@@ -13,8 +13,8 @@ Related: [GitHub issue #397](https://github.com/moona3k/macparakeet/issues/397)
 
 ## Problem
 
-A master student needs to transcribe 40+ one-hour local recordings. Today the
-file-transcription flow is strictly one-at-a-time: the file picker is
+A master student needs to transcribe 40+ one-hour local recordings. Before this
+change, the file-transcription flow was strictly one-at-a-time: the file picker was
 `allowsMultipleSelection = false`, and the drop handler accepts a multi-file
 drop but deliberately processes only the first supported file and discards the
 rest (`TranscriptionViewModel.handleFileDrop`, guarded by `dropAccepted` +

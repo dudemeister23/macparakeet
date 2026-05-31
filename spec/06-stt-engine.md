@@ -2,7 +2,7 @@
 
 > Status: **ACTIVE** - Authoritative, current
 
-MacParakeet's default speech engine is Parakeet TDT 0.6B-v3 via FluidAudio CoreML on Apple's Neural Engine (ANE). WhisperKit is available as an optional local secondary engine for languages Parakeet does not cover. Both engines run on-device; there is no cloud STT path.
+MacParakeet's default speech engine family is Parakeet TDT 0.6B via FluidAudio CoreML on Apple's Neural Engine (ANE). Multilingual v3 is the default build; English-only v2 is an opt-in Parakeet build for users who want a faster no-auto-detect path. WhisperKit is available as an optional local secondary engine for languages Parakeet does not cover. Both engines run on-device; there is no cloud STT path.
 
 ---
 
@@ -12,7 +12,7 @@ MacParakeet's default speech engine is Parakeet TDT 0.6B-v3 via FluidAudio CoreM
 
 | Property | Value |
 |----------|-------|
-| Model | Parakeet TDT 0.6B-v3 |
+| Model | Parakeet TDT 0.6B (`v3` default, `v2` opt-in) |
 | Runtime | FluidAudio SDK (CoreML on ANE) |
 | Word Error Rate | ~2.5% (v3 multilingual) / ~2.1% (v2 English-only) |
 | Speed | ~155x realtime on Apple Silicon |
@@ -79,7 +79,8 @@ Transcription in native Swift async/await:
 ```swift
 import FluidAudio
 
-let models = try await AsrModels.downloadAndLoad(version: .v3)
+let selectedVersion: AsrModelVersion = .v3 // or .v2 for English-only
+let models = try await AsrModels.downloadAndLoad(version: selectedVersion)
 let manager = AsrManager(config: .default)
 try await manager.initialize(models: models)
 
@@ -334,13 +335,13 @@ Saved meeting retranscription from the library:
 
 ### Parakeet CoreML Model Bundle
 
-The `parakeet-tdt-0.6b-*-coreml` HuggingFace repos host several precision/encoder variants, but MacParakeet only fetches the components it loads (the int8 encoder for v3), so the **actual download is ~465 MB per build**. v2 and v3 cache independently, so a user who installs both pays the ~465 MB once each:
+The `parakeet-tdt-0.6b-*-coreml` HuggingFace repos host several precision/encoder variants, but MacParakeet only fetches the components it loads for the selected build, so the **actual download is ~465 MB per build**. v2 and v3 cache independently, so a user who installs both pays the ~465 MB once each:
 
 | Component | Format |
 |-----------|--------|
-| ParakeetEncoder (int8 for v3) | `.mlmodelc` |
+| ParakeetEncoder (int8 for selected build) | `.mlmodelc` |
 | Decoder | `.mlmodelc` |
-| JointDecision (v3: `JointDecisionv3`) | `.mlmodelc` |
+| JointDecision (build-specific) | `.mlmodelc` |
 | Preprocessor | `.mlmodelc` |
 | Vocab file (`parakeet_vocab.json`) | `.json` |
 

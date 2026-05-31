@@ -4,7 +4,7 @@
 
 ## What is MacParakeet?
 
-A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, and productized Transforms on `main`.
+A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, Parakeet v3/v2 model selection, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, and productized Transforms on `main`.
 
 **North Star:** Fast, local-first voice app for Mac.
 
@@ -49,6 +49,7 @@ transcription is unchanged.
 | AI coding methodology | `spec/10-ai-coding-method.md` |
 | LLM integration | `spec/11-llm-integration.md` |
 | Processing layer (prompts, actions, workflows) | `spec/12-processing-layer.md` |
+| Agent workflows | `spec/13-agent-workflows.md` |
 | ADRs (locked decisions) | `spec/adr/` -> individual decision records |
 | CLI testing guide | `docs/cli-testing.md` |
 | Brand identity | `docs/brand-identity.md` |
@@ -76,9 +77,9 @@ from grep. Folders with READMEs today: `Audio/`, `STT/`,
 | Layer | Choice | Notes |
 |-------|--------|-------|
 | Platform | macOS 14.2+ | Apple Silicon only |
-| Language | Swift 6.0 | SwiftUI for UI |
+| Language | Swift 5.9 (tools-version) | `Package.swift` declares `swift-tools-version: 5.9`; first-party code is kept Swift 6 language-mode / concurrency clean (separate CI compile check). SwiftUI for UI |
 | Database | SQLite | GRDB (single file, dictation history + transcriptions + meeting recordings) |
-| STT | Parakeet TDT 0.6B-v3 + optional WhisperKit | Parakeet via FluidAudio CoreML/ANE is default (~2.5% WER, 155x realtime, 25 European languages); WhisperKit adds broader local multilingual coverage |
+| STT | Parakeet TDT 0.6B (v3 default, v2 opt-in) + optional WhisperKit | Parakeet via FluidAudio CoreML/ANE is default (v3 multilingual: ~2.5% WER, 155x realtime, 25 European languages; v2 English-only: ~2.1% WER and no language auto-detect); WhisperKit adds broader local multilingual coverage |
 | Audio | AVAudioEngine + ScreenCaptureKit | Mic capture for dictation; ScreenCaptureKit system audio + AVAudioEngine mic for meeting recording; FFmpeg (bundled) for video file conversion |
 | YouTube | yt-dlp | Standalone macOS binary, weekly non-blocking auto-update via `--update` |
 | Auto-Update | Sparkle 2 | In-app updates via EdDSA-signed appcast (non-App Store) |
@@ -111,7 +112,7 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 | ADR | Decision | File |
 |-----|----------|------|
-| ADR-001 | Parakeet TDT 0.6B-v3 as primary STT | `spec/adr/001-parakeet-stt.md` |
+| ADR-001 | Parakeet TDT 0.6B-v3 as primary/default STT; v2 English-only opt-in added by amendment | `spec/adr/001-parakeet-stt.md` |
 | ADR-002 | Local-first processing (amended: opt-in LLM providers, opt-out telemetry) | `spec/adr/002-local-only.md` |
 | ADR-004 | Deterministic text processing pipeline | `spec/adr/004-deterministic-pipeline.md` |
 | ADR-005 | First-run onboarding flow | `spec/adr/005-onboarding-first-run.md` |
@@ -135,15 +136,11 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 ## Current Phase
 
-**Current main branch** -- v0.6 release scope includes meeting recording, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) with fixed-chunker fallback and unchanged final transcription.
+**Current main branch** -- v0.6 release scope includes meeting recording, Parakeet v3/v2 model selection, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) with fixed-chunker fallback and unchanged final transcription.
 
-- **v0.1** MVP -- System-wide dictation, file transcription, overlay, history, export, SQLite, CLI, STT engine
-- **v0.2** Clean Pipeline -- Text processing (filler removal, custom words, snippets), Vocabulary UI, feedback form
-- **v0.3** YouTube & Export -- YouTube URL transcription, multi-format export (TXT, MD, SRT, VTT, JSON, PDF, DOCX), drag-and-drop enhancements
-- **v0.4** Polish + Launch -- Diarization, custom hotkeys, Sparkle updates, LLM providers, voice stats, distribution
-- **v0.5** Data, UI & Prompts -- Private dictation, multi-conversation chat, favorites, video player, split-pane detail, library grid, prompt library, multi-summary, open-source release
-- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on release candidate on `main`), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
-- **Calendar auto-start** -- Implemented (ADR-017 Phases 1 + 2) and enabled via `AppFeatures.calendarEnabled = true` after the post-#318 reliability hardening. Defaults to mode `.off` (opt-in); Phase 3 (late-join/retro-link) remains proposed.
+- **v0.1–v0.5** MVP → Clean Pipeline → YouTube/Export → Polish/Launch → Data/UI/Prompts (open-source release). See the `spec/README.md` roadmap and git tags for the full per-version feature history.
+- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on release candidate on `main`), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), Parakeet model selection (`v3` multilingual default, `v2` English-only opt-in) across Settings/CLI, optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language --parakeet-model`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
+- **Calendar auto-start** -- ADR-017 Phases 1 + 2, enabled with `.off` default (see "Current main branch" above for live flag state); Phase 3 (late-join/retro-link) remains proposed.
 
 ## Key Patterns
 
@@ -177,11 +174,12 @@ ADR-016 defines the STT architecture as one process-wide scheduler path with a r
 ### STT Integration (Parakeet default, Whisper optional)
 
 - Native Swift SDK via FluidAudio (CoreML on the Neural Engine)
-- Parakeet TDT 0.6B-v3 returns word-level timestamps + confidence scores
+- Parakeet TDT 0.6B-v3 is the multilingual default; v2 is an English-only opt-in selected through Settings, `config set parakeet-model`, `models select parakeet-v2`, or `transcribe --parakeet-model v2`
+- Both Parakeet builds return word-level timestamps + confidence scores
 - ~155x realtime on Apple Silicon (60 min audio in ~23 seconds)
 - ~2.5% Word Error Rate
 - ~66 MB working memory per active Parakeet inference slot (vs ~2 GB+ on GPU/MLX)
-- ~465 MB CoreML speech model bundle downloaded during onboarding
+- ~465 MB CoreML speech model bundle per Parakeet build; v2 and v3 cache independently
 - ~130 MB diarization asset bundle prepared alongside onboarding/default speaker-detection readiness
 - WhisperKit is available as a local secondary engine for broader language coverage; default model variant is `large-v3-v20240930_turbo_632MB`
 - Whisper language hints are optional (`auto` means detect); persisted default is stored in `UserDefaults` and exposed in Settings
@@ -218,7 +216,7 @@ CPU/GPU/CoreML as selected by WhisperKit: optional multilingual STT
 - `macparakeet.db` (GRDB): Dictation history + transcription records in a single file
 - No vector search or embeddings needed (unlike Oatmeal)
 - One repository per table (GRDB pattern)
-- `lifetime_dictation_stats` (v0.7.4): singleton counter row keeping headline voice stats (total words, total time, total count, longest dictation) alive through history deletion. Incremented in the same transaction as each completed dictation save. See `spec/01-data-model.md` and issue #124.
+- `lifetime_dictation_stats` (DB migration `v0.7.4-lifetime-dictation-stats` — migration markers are internal schema versions, *not* the public app version, which is v0.6): singleton counter row keeping headline voice stats (total words, total time, total count, longest dictation) alive through history deletion. Incremented in the same transaction as each completed dictation save. See `spec/01-data-model.md` and issue #124.
 
 ### Audio Capture
 
@@ -293,6 +291,8 @@ View files organized by feature in `Sources/MacParakeet/Views/`:
 - `Transcription/` -- Transcribe tab, drop zone, YouTube card, **Meeting Recording tile**, transcript display, export, library grid + meetings list
 - `Dictation/` -- Overlay, waveform, recording state
 - `MeetingRecording/` -- Floating pill, dual audio levels, live notes/transcript/Ask panel, row card + date headers (consumed by Library Meetings filter)
+- `Meetings/` -- Library Meetings browse list (`MeetingsView`)
+- `Transforms/` -- Transforms management + editor sheet + floating result/progress pill (ADR-022)
 - `Discover/` -- Discover sidebar, curated content cards
 - `Vocabulary/` -- Processing mode, custom words, text snippets
 - `Feedback/` -- Feedback form, category selection, community link
@@ -340,7 +340,8 @@ macparakeet/
 │   ├── CLI/                    # macparakeet-cli (ArgumentParser, imports MacParakeetCore)
 │   │   └── CHANGELOG.md        # CLI semver + compatibility policy (public contract)
 │   ├── MacParakeetCore/        # Shared library (no SwiftUI views)
-│   └── MacParakeetViewModels/  # ViewModels (testable, depends on Core)
+│   ├── MacParakeetViewModels/  # ViewModels (testable, depends on Core)
+│   └── MacParakeetObjCShims/   # ObjC @try/@catch trampoline for NSException (issue #91)
 ├── Tests/
 │   ├── MacParakeetTests/   # Unit, database, integration, ViewModel tests
 │   └── CLITests/           # CLI parsing, output, and helper tests
@@ -555,9 +556,9 @@ open Package.swift  # Select MacParakeet scheme
 `macparakeet-cli` serves two audiences from one codebase:
 
 1. **Dev/testing tool** -- Agents working on MacParakeet use the CLI to verify features headlessly (database CRUD, pipeline runs, health checks, config). Not GUI parity -- just fast feedback loops where agents can't drive the GUI. Be flexible about what to include.
-2. **Real CLI surface** -- Agent operators and power users running headless STT on Apple Silicon. Core commands: `transcribe`, `export`, `llm`, `transforms`, `vocab`, `health`, `config`. `transcribe` accepts multiple inputs (files, folders, YouTube URLs) and `--output-dir` for walk-away batch jobs (continue-on-error, one transcript file per input); a single input with no `--output-dir` is unchanged (stdout). Semver tracked in `Sources/CLI/CHANGELOG.md`.
+2. **Real CLI surface** -- Agent operators and power users running headless STT on Apple Silicon. ~17 top-level subcommands; the externally-supported core is `transcribe`, `export`, `llm`, `transforms`, `vocab`, `prompts`, `quick-prompts`, `meetings`, `history`, `stats`, `models`, `health`, `config`. `transcribe` accepts multiple inputs (files, folders, YouTube URLs) and `--output-dir` for walk-away batch jobs (continue-on-error, one transcript file per input); a single input with no `--output-dir` is unchanged (stdout). Semver tracked in `Sources/CLI/CHANGELOG.md`.
 
-Both audiences share the same command tree. Dev-only commands (e.g. `calendar`, `audio-input-diagnostics`) don't hurt external users by being visible. When adding CLI commands, decide which audience it primarily serves -- that determines how much polish and JSON contract work it needs.
+Both audiences share the same command tree. Dev/auxiliary commands (e.g. `calendar`, `meeting-vad-sim`, `spec`, `feedback`) don't hurt external users by being visible. Audio-input diagnostics are surfaced via `macparakeet-cli health`, not a standalone command. When adding CLI commands, decide which audience it primarily serves -- that determines how much polish and JSON contract work it needs.
 
 ---
 

@@ -5,6 +5,7 @@
 > Runtime Note (2026-02-13): Runtime/mechanism details in this ADR are historical and superseded by ADR-007. ADR-001 remains authoritative for STT model choice.
 > Note: GPU/LLM references (Qwen3-8B, "three-chip") are historical — the old on-device mlx-swift-lm path was removed 2026-02-23. Current LLM features use external providers or local CLI, while the speech runtime remains a two-chip architecture (CPU + ANE).
 > Amendment (2026-04-28): Parakeet remains the **primary/default** STT engine. It is no longer the only engine. ADR-021 adds WhisperKit as an optional local multilingual engine for languages outside Parakeet's coverage.
+> Amendment (2026-05-30): The Parakeet family now exposes both FluidAudio builds. Multilingual v3 remains the default/primary model chosen by this ADR; English-only v2 is an opt-in Parakeet model for users who want a faster no-auto-detect English path.
 
 ## Context
 
@@ -23,7 +24,7 @@ Whisper has broader ecosystem support and language coverage (100+ languages incl
 
 Use **Parakeet TDT 0.6B-v3** as the primary/default STT engine.
 
-The original runtime described here used a Python daemon. ADR-007 superseded that runtime with FluidAudio CoreML/ANE. ADR-021 later added WhisperKit as an optional secondary engine. The durable decision in this ADR is the Parakeet model's default/primary status.
+The original runtime described here used a Python daemon. ADR-007 superseded that runtime with FluidAudio CoreML/ANE. ADR-021 later added WhisperKit as an optional secondary engine. A 2026-05 update exposed FluidAudio's v2 English-only Parakeet build as an opt-in variant. The durable decision in this ADR is v3's default/primary status.
 
 ## Rationale
 
@@ -88,7 +89,7 @@ At 0.6B parameters (quantized to ~600MB on disk, ~1.5GB downloaded with tokenize
 | Speed | ~300x realtime | ~155x realtime |
 | WER | ~6.3% | ~2.5% (improved decoding) |
 | Working RAM | ~1.5-2 GB (GPU pool) | ~66 MB |
-| Model download | ~1.5-2.5 GB (MLX weights) | ~6 GB (CoreML compiled bundles) |
+| Model download | ~1.5-2.5 GB (MLX weights) | ~465 MB fetched components per Parakeet build (current); full CoreML repos are larger |
 | Dependencies | Python + uv + venv | SwiftPM (FluidAudio) |
 | IPC | JSON-RPC over stdin/stdout | In-process async/await |
 
@@ -102,7 +103,7 @@ At 0.6B parameters (quantized to ~600MB on disk, ~1.5GB downloaded with tokenize
 
 ### Consequences Update
 
-The "Requires Python daemon" negative consequence from the original ADR is resolved. The new negative consequence is a larger model download (~6 GB vs ~2.5 GB) due to CoreML's pre-compiled hardware-optimized model graphs.
+The "Requires Python daemon" negative consequence from the original ADR is resolved. The pre-implementation concern about a very large full CoreML repo download is mitigated in current FluidAudio usage: MacParakeet fetches only the loaded components, roughly ~465 MB per Parakeet build.
 
 See `docs/research/fluidaudio-stt-migration.md` for the full evaluation.
 

@@ -49,12 +49,14 @@ commands:
   transcribe_app_defaults: |
     macparakeet-cli transcribe "{path}" \
       --engine app-default \
+      --parakeet-model app-default \
       --speaker-detection app-default \
       --mode app-default \
       --downloaded-audio app-default \
       --youtube-audio-quality app-default \
       --format json
   list_models: macparakeet-cli models list --json
+  set_parakeet_model: macparakeet-cli config set parakeet-model "{v3_or_v2}" --json
   set_speaker_detection: macparakeet-cli config set speaker-detection "{value}" --json
   list_transcriptions: macparakeet-cli history transcriptions --json
   search_transcriptions: macparakeet-cli history search-transcriptions "{query}" --json

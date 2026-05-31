@@ -55,7 +55,7 @@
 
 ---
 
-MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The current stable release includes system-wide dictation, file/URL transcription, meeting recording, meeting calendar support, optional local WhisperKit recognition for languages Parakeet does not cover, and Transforms for selected-text rewrites. All speech recognition happens on your Mac.
+MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The current stable release includes system-wide dictation, file/URL transcription, meeting recording, meeting calendar support, Parakeet v3/v2 model selection, optional local WhisperKit recognition for languages Parakeet does not cover, and Transforms for selected-text rewrites. All speech recognition happens on your Mac.
 
 ## Release status
 
@@ -72,7 +72,7 @@ Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming m
 
 **Dictation** — Press a hotkey in any app, speak, text gets pasted. Hold for push-to-talk, or tap the hands-free shortcut to start and stop longer dictations. Works system-wide. A beta setting can pause supported Now Playing media while you dictate and resume it when capture stops.
 
-**File transcription** — Drag audio or video files, or paste a YouTube URL. Full transcript with word-level timestamps, speaker labels, and export to 7 formats (TXT, Markdown, SRT, VTT, DOCX, PDF, JSON). Assign global hotkeys to trigger File or YouTube transcription from anywhere.
+**File transcription** — Drag one or many audio/video files, drop a folder, use the multi-select picker, or paste a YouTube URL. Local-file batches run sequentially, keep finished results in the Library, and can be cancelled as a group. Full transcript with word-level timestamps, speaker labels, a completion chime/banner, and export to 7 formats (TXT, Markdown, SRT, VTT, DOCX, PDF, JSON). Assign global hotkeys to trigger File or YouTube transcription from anywhere.
 
 **Meeting recording** — Record system audio and microphone together, see a live local transcript preview, take notes during the call, then save the finalized transcript to the library with export, prompts, and chat.
 
@@ -85,7 +85,8 @@ Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming m
 ### Performance
 
 - ~155x realtime — 60 min of audio in ~23 seconds
-- ~2.5% word error rate (Parakeet TDT 0.6B-v3)
+- ~2.5% word error rate with the default Parakeet TDT 0.6B-v3 model
+- Optional English-only Parakeet v2 model (~2.1% WER) for users who do not want v3 language auto-detect
 - ~66 MB working memory per active Parakeet inference slot
 - 25 European languages with Parakeet auto-detection
 - Optional local WhisperKit engine for Korean, Japanese, Chinese, and many other languages
@@ -100,7 +101,7 @@ Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming m
 
 **Download:** Grab the [notarized DMG](https://downloads.macparakeet.com/MacParakeet.dmg) or visit [macparakeet.com](https://macparakeet.com). Drag to Applications, done.
 
-First launch downloads the speech model (~6 GB) plus speaker-detection assets (~130 MB). Everything works fully offline after that.
+First launch downloads the default Parakeet CoreML build (~465 MB) plus speaker-detection assets (~130 MB) as needed. Parakeet v2 and v3 cache independently if you install both. Everything works fully offline after that.
 
 The DMG is the stable release.
 
@@ -132,9 +133,11 @@ The dev script creates a signed `.app` bundle so macOS grants mic and accessibil
 ```bash
 macparakeet-cli transcribe /path/to/audio.mp3
 macparakeet-cli transcribe /path/to/audio.mp3 --format transcript --no-history
+macparakeet-cli transcribe lecture1.m4a lecture2.m4a --output-dir Transcripts --format transcript
 macparakeet-cli models download whisper-large-v3-v20240930-turbo-632MB
 macparakeet-cli models list
-macparakeet-cli models select parakeet
+macparakeet-cli models select parakeet-v3
+macparakeet-cli config set parakeet-model v2
 macparakeet-cli transcribe /path/to/korean.mp3 --engine whisper --language ko --format json
 macparakeet-cli models status
 macparakeet-cli history
@@ -142,16 +145,18 @@ macparakeet-cli history
 
 Use `--format transcript` for transcript-only stdout in shell pipelines. Add
 `--no-history` when you want a one-off transcription without saving a completed
-row to MacParakeet history. `models list` and `models select` inspect or update
-the shared speech default used by the app and `--engine app-default`. The
-Whisper CLI commands above require a downloaded local WhisperKit model. When
-developing from source, prefix the same commands with `swift run`.
+row to MacParakeet history. Multiple inputs or `--output-dir` write one transcript
+file per input. `models list` and `models select` inspect or update the shared
+speech default used by the app and `--engine app-default`; Parakeet rows are
+`parakeet-v3` and `parakeet-v2`. The Whisper CLI commands above require a
+downloaded local WhisperKit model. When developing from source, prefix the same
+commands with `swift run`.
 
 ## Tech stack
 
 | Layer | Choice |
 |-------|--------|
-| STT | Parakeet TDT 0.6B-v3 via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML (default) + optional local WhisperKit engine |
+| STT | Parakeet TDT 0.6B via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML (`v3` multilingual default, `v2` English-only opt-in) + optional local WhisperKit engine |
 | STT orchestration | Shared runtime + explicit scheduler with a reserved dictation slot and a shared meeting/file slot; speech-engine routing and meeting-session pinning |
 | Language | Swift 6.0 + SwiftUI |
 | Database | SQLite via GRDB |

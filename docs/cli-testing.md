@@ -24,9 +24,10 @@ This script builds the latest debug binary, stops stale `/Applications`/`dist` a
 
 ```
 macparakeet-cli
-├── transcribe <input> [options]         Transcribe a file or YouTube URL
+├── transcribe <input...> [options]      Transcribe files, folders, or YouTube URLs
 │   ├── --format text|transcript|json [--no-history]
 │   └── --engine app-default|parakeet|whisper [--language <code>]
+│       --parakeet-model app-default|v3|v2 [--output-dir DIR]
 │       --speaker-detection app-default|on|off
 │       --youtube-audio-quality app-default|m4a|best-available
 ├── history                              View and manage history
@@ -134,6 +135,7 @@ commands.
 ```bash
 swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" \
   --engine app-default \
+  --parakeet-model app-default \
   --speaker-detection app-default \
   --mode app-default \
   --downloaded-audio app-default \
@@ -147,6 +149,7 @@ Explicitly pins behavior.
 ```bash
 swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" \
   --engine parakeet \
+  --parakeet-model v3 \
   --speaker-detection off \
   --mode raw \
   --downloaded-audio delete \
@@ -158,6 +161,7 @@ Or clean mode with retained downloads:
 ```bash
 swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" \
   --engine parakeet \
+  --parakeet-model v3 \
   --speaker-detection on \
   --mode clean \
   --downloaded-audio keep \
@@ -172,10 +176,13 @@ the STT input.
 ### Speech Engine Selection
 
 Parakeet remains the no-flag default for semver stability and ignores
-`--language`. Use `--engine app-default` when you want the CLI to follow the
-GUI's saved speech engine and Whisper language defaults. Use Whisper explicitly
-for languages outside Parakeet coverage after downloading the local Whisper
-model:
+`--language`. Within Parakeet, v3 is the multilingual default and v2 is the
+English-only opt-in. Use `--parakeet-model app-default|v3|v2` for a single run,
+or `config set parakeet-model v2` / `models select parakeet-v2` to persist it.
+Use `--engine app-default` when you want the CLI to follow the GUI's saved
+speech engine, Parakeet model, and Whisper language defaults. Use Whisper
+explicitly for languages outside Parakeet coverage after downloading the local
+Whisper model:
 
 ```bash
 swift run macparakeet-cli models download whisper-large-v3-v20240930-turbo-632MB
@@ -217,6 +224,7 @@ in-app change.
 swift run macparakeet-cli config list
 swift run macparakeet-cli config set processing-mode raw
 swift run macparakeet-cli config set speech-engine whisper
+swift run macparakeet-cli config set parakeet-model v3
 swift run macparakeet-cli config set whisper-language ko
 swift run macparakeet-cli config set speaker-detection off
 swift run macparakeet-cli config set save-transcription-audio off
@@ -224,9 +232,10 @@ swift run macparakeet-cli config set youtube-audio-quality m4a
 ```
 
 Supported keys: `telemetry`, `processing-mode`, `speech-engine`,
-`whisper-language`, `speaker-detection`, `save-transcription-audio`,
-`youtube-audio-quality`. Underscore aliases such as `youtube_audio_quality`
-are accepted on input; JSON output uses canonical hyphenated keys.
+`parakeet-model`, `whisper-language`, `speaker-detection`,
+`save-transcription-audio`, `youtube-audio-quality`. Underscore aliases such as
+`youtube_audio_quality` are accepted on input; JSON output uses canonical
+hyphenated keys.
 
 ### Output Formats
 
@@ -242,6 +251,11 @@ swift run macparakeet-cli transcribe "<FILE>" --format transcript
 
 # Transient transcription: no completed row in Library/history
 swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" --format transcript --no-history
+
+# Batch mode: writes one transcript file per resolved input
+swift run macparakeet-cli transcribe lecture1.m4a lectures/ \
+  --output-dir Transcripts \
+  --format transcript
 ```
 
 `--format transcript` prints only `cleanTranscript` when present, otherwise
@@ -257,14 +271,17 @@ the shared audio-retention default.
 ```bash
 swift run macparakeet-cli models list
 swift run macparakeet-cli models list --json
-swift run macparakeet-cli models select parakeet
+swift run macparakeet-cli models select parakeet-v3
+swift run macparakeet-cli models select parakeet-v2
+swift run macparakeet-cli models download parakeet-v2
 swift run macparakeet-cli models select whisper-large-v3-v20240930-turbo-632MB
 ```
 
 `models list` reports the selectable speech engines MacParakeet exposes today:
-Parakeet and the configured WhisperKit variant. `models select` writes the same
-shared default used by the GUI and `transcribe --engine app-default`; Whisper
-selection requires the local Whisper model to be downloaded first.
+Parakeet v3, Parakeet v2, and the configured WhisperKit variant. `models select`
+writes the same shared default used by the GUI and `transcribe --engine
+app-default`; Whisper selection requires the local Whisper model to be
+downloaded first.
 
 ## Retained Entitlements Parity
 
@@ -383,7 +400,9 @@ swift run macparakeet-cli calendar upcoming --days 7 --filter all --json
 # Non-invasive status (does not force downloads)
 swift run macparakeet-cli models status
 
-# Explicit Whisper download
+# Explicit Parakeet / Whisper downloads
+swift run macparakeet-cli models download parakeet-v3
+swift run macparakeet-cli models download parakeet-v2
 swift run macparakeet-cli models download whisper-large-v3-v20240930-turbo-632MB
 
 # Warm-up (single attempt by default)
@@ -397,7 +416,9 @@ swift run macparakeet-cli models repair --attempts 5
 swift run macparakeet-cli models clear
 ```
 
-`models warm-up` and `models repair` prepare the Parakeet + diarization speech stack. Whisper is downloaded explicitly with `models download`.
+`models warm-up` and `models repair` prepare the selected Parakeet build plus
+the diarization speech stack. Whisper is downloaded explicitly with
+`models download`.
 
 ## Text Pipeline
 

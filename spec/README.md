@@ -43,7 +43,7 @@ These decisions are final. Do not second-guess them.
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Local STT | Parakeet TDT 0.6B-v3 via FluidAudio CoreML/ANE by default; WhisperKit optional | Parakeet gives 155x realtime and low RAM for supported languages; Whisper adds broad multilingual coverage locally |
+| Local STT | Parakeet TDT 0.6B via FluidAudio CoreML/ANE (`v3` multilingual default, `v2` English-only opt-in); WhisperKit optional | Parakeet gives 155x realtime and low RAM for supported languages; v2 avoids language auto-detect for English-only use; Whisper adds broad multilingual coverage locally |
 | Database | SQLite via GRDB | Single file, embedded, zero config |
 | Platform | macOS 14.2+ (Apple Silicon only) | FluidAudio requires Apple Silicon; Swift 6.0 |
 | Business model | Current public build free/GPL/unlocked; official paid distribution/support remains possible | Originally $49 one-time (ADR-003), went free with open-source release in v0.5; retained purchase activation plumbing is future-option code |
@@ -54,7 +54,7 @@ All ADRs live in `spec/adr/`. These are locked -- they record decisions already 
 
 | ADR | Decision |
 |-----|----------|
-| [ADR-001](adr/001-parakeet-stt.md) | Parakeet TDT 0.6B-v3 as primary STT engine |
+| [ADR-001](adr/001-parakeet-stt.md) | Parakeet TDT 0.6B-v3 as primary/default STT engine; v2 English-only opt-in by amendment |
 | [ADR-002](adr/002-local-only.md) | Local processing with optional external AI/telemetry surfaces |
 | [ADR-003](adr/003-one-time-purchase.md) | Historical one-time purchase pricing; paid official distribution reference |
 | [ADR-004](adr/004-deterministic-pipeline.md) | Deterministic text processing pipeline |
@@ -230,10 +230,10 @@ Calendar-related code is implemented and **enabled** (`AppFeatures.calendarEnabl
 ### v0.6 Optional WhisperKit STT
 
 - [x] WhisperKit dependency and `WhisperEngine` wrapper with local model cache at `~/Library/Application Support/MacParakeet/models/stt/whisper/`
-- [x] `SpeechEnginePreference` and `SpeechEngineSelection` persisted through `UserDefaults`
-- [x] Settings → Speech Recognition segmented engine picker plus Whisper language picker
+- [x] `SpeechEnginePreference`, `SpeechEngineSelection`, and `ParakeetModelVariant` persisted through `UserDefaults`
+- [x] Settings → Speech Recognition segmented engine picker plus Parakeet Model and Whisper Language cards
 - [x] Engine switching blocked while jobs are queued/running or a meeting speech-engine lease is active
-- [x] CLI `transcribe --engine parakeet|whisper --language <code>` and `models download whisper-large-v3-v20240930-turbo-632MB`
+- [x] CLI `transcribe --engine parakeet|whisper --language <code> --parakeet-model app-default|v3|v2`, `config set parakeet-model`, and `models download parakeet-v2|parakeet-v3|whisper-large-v3-v20240930-turbo-632MB`
 - [x] Meeting recordings capture the active engine/language at start and preserve it through metadata, lock files, crash recovery, and final transcription
 
 ### v0.6 Productized Transforms

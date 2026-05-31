@@ -1,8 +1,9 @@
 # STT
 
 > One process-wide speech-to-text control plane. Parakeet (FluidAudio /
-> CoreML) is default; WhisperKit is optional for languages outside
-> Parakeet's coverage.
+> CoreML) is default, with v3 multilingual as the default build and v2
+> English-only as an opt-in Parakeet variant; WhisperKit is optional for
+> languages outside Parakeet's coverage.
 
 ## Entry point
 
@@ -49,7 +50,8 @@ minor historical wart, not a design statement.
 
 ## Cross-references
 
-- ADR-001 — Parakeet TDT 0.6B-v3 as primary STT.
+- ADR-001 — Parakeet TDT 0.6B-v3 as primary/default STT, amended to expose
+  v2 English-only as an opt-in Parakeet build.
 - ADR-007 — FluidAudio CoreML migration; Parakeet runs on the Apple
   Neural Engine via CoreML.
 - ADR-016 — centralized STT runtime + 2-slot scheduler; this folder
@@ -78,10 +80,13 @@ background slot, with explicit priority: meeting finalize
 > meeting live chunk > file transcription. Backpressure on the
 shared slot drops the lowest-priority pending work.
 
-**Engine routing is per-job.** Parakeet stays default. A subscriber
-can request WhisperKit globally (Settings) or per call (CLI
-`--engine whisper --language ko`). When set globally, dictation
-also routes there; when set per-job, only that job uses Whisper.
+**Engine routing is per-job.** Parakeet stays default. The selected Parakeet
+build is `v3` unless the user opts into `v2` through Settings or the CLI
+(`config set parakeet-model`, `models select parakeet-v2`, or
+`transcribe --parakeet-model v2`). A subscriber can request WhisperKit globally
+(Settings) or per call (CLI `--engine whisper --language ko`). When set
+globally, dictation also routes there; when set per-job, only that job uses
+Whisper.
 
 **Active meetings hold an engine lease.** Once a meeting recording
 starts, its engine selection is captured for the session's duration.

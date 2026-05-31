@@ -399,7 +399,7 @@ protocol AudioProcessorProtocol: Sendable {
 
 #### 2.5 STT Runtime + Scheduler
 
-**Responsibility:** The shared STT stack owns one process-wide runtime actor plus one explicit scheduler. `STTRuntime` owns FluidAudio model lifecycle, the slot-scoped Parakeet `AsrManager` set, optional `WhisperEngine` lifecycle, and engine dispatch. `STTScheduler` owns admission, slot assignment, in-slot priority, backpressure, cancellation, request-scoped progress, and speech-engine leases. `STTClient` remains as a compatibility facade, not as an app-owned second runtime.
+**Responsibility:** The shared STT stack owns one process-wide runtime actor plus one explicit scheduler. `STTRuntime` owns FluidAudio model lifecycle, the slot-scoped Parakeet `AsrManager` set for the selected Parakeet build (`v3` default, `v2` opt-in), optional `WhisperEngine` lifecycle, and engine dispatch. `STTScheduler` owns admission, slot assignment, in-slot priority, backpressure, cancellation, request-scoped progress, speech-engine leases, and guarded Parakeet model-variant switching. `STTClient` remains as a compatibility facade, not as an app-owned second runtime.
 
 **Key Types/Protocols:**
 ```swift
@@ -452,6 +452,11 @@ public enum SpeechEnginePreference: String, CaseIterable, Codable, Sendable {
     case whisper
 }
 
+public enum ParakeetModelVariant: String, CaseIterable, Codable, Sendable {
+    case v3
+    case v2
+}
+
 public struct SpeechEngineSelection: Codable, Equatable, Sendable {
     let engine: SpeechEnginePreference
     let language: String?
@@ -464,6 +469,7 @@ public struct SpeechEngineLease: Equatable, Sendable {
 
 public protocol SpeechEngineSwitching: Sendable {
     func setSpeechEngine(_ preference: SpeechEnginePreference) async throws
+    func setParakeetModelVariant(_ variant: ParakeetModelVariant) async throws
 }
 
 public protocol SpeechEngineSessionManaging: Sendable {
@@ -498,7 +504,8 @@ CPU/GPU/CoreML as selected by WhisperKit: optional multilingual STT
 ```swift
 import FluidAudio
 
-let models = try await AsrModels.downloadAndLoad(version: .v3)
+let selectedVersion: AsrModelVersion = .v3 // or .v2 for English-only
+let models = try await AsrModels.downloadAndLoad(version: selectedVersion)
 let manager = AsrManager(config: .default)
 try await manager.initialize(models: models)
 
@@ -676,7 +683,7 @@ protocol TranscriptionRepositoryProtocol: Sendable {
 
 ### 3. Local STT Engines
 
-Speech recognition runs in the app process. Parakeet via FluidAudio CoreML on the Neural Engine is the default engine; WhisperKit is an optional local engine for broader language coverage.
+Speech recognition runs in the app process. Parakeet via FluidAudio CoreML on the Neural Engine is the default engine family: v3 is the multilingual default and v2 is an English-only opt-in. WhisperKit is an optional local engine for broader language coverage.
 
 **Responsibility:** Speech-to-text transcription using the user's selected local engine.
 
@@ -684,14 +691,14 @@ Speech recognition runs in the app process. Parakeet via FluidAudio CoreML on th
 
 | Property | Value |
 |----------|-------|
-| Model | Parakeet TDT 0.6B-v3 |
-| WER | ~2.5% |
+| Model | Parakeet TDT 0.6B (`v3` multilingual default, `v2` English-only opt-in) |
+| WER | ~2.5% (v3) / ~2.1% (v2) |
 | Speed | ~155x realtime on Apple Silicon |
 | Working RAM | ~66 MB (~130 MB with vocab boosting) |
 | Runs on | Neural Engine (ANE) via CoreML |
 | Input | 16kHz mono Float32 samples |
 | Output | Text + word-level timestamps + confidence |
-| Model download | ~465 MB CoreML bundle per build |
+| Model download | ~465 MB CoreML bundle per build; v2 and v3 cache independently |
 
 | Optional Engine | Value |
 |-----------------|-------|
@@ -713,7 +720,7 @@ Speech recognition runs in the app process. Parakeet via FluidAudio CoreML on th
         └── stt/
             └── whisper/        # WhisperKit model cache
 
-Parakeet's FluidAudio cache is managed by FluidAudio. `models/stt/whisper/` is the MacParakeet-owned cache for WhisperKit downloads.
+Parakeet's FluidAudio cache is managed by FluidAudio per selected build. `models/stt/whisper/` is the MacParakeet-owned cache for WhisperKit downloads.
 ```
 
 ---
@@ -1172,7 +1179,7 @@ After initial warm-up, subsequent dictations are near-instant because the shared
 | 1 hour | ~23 seconds | ~12 seconds |
 | 4 hours (max) | ~93 seconds | ~46 seconds |
 
-Parakeet TDT 0.6B-v3 throughput varies by device class: approximately 155x realtime on baseline M1 and up to ~300x on M1 Pro+ hardware via FluidAudio CoreML/ANE.
+Parakeet TDT 0.6B throughput varies by device class: v3 is approximately 155x realtime on baseline M1 and up to ~300x on M1 Pro+ hardware via FluidAudio CoreML/ANE; v2 is slightly faster on English-only audio.
 
 ### Memory Management
 

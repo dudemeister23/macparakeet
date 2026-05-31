@@ -10,13 +10,16 @@
 MacParakeet is a fast, private, local-first voice app for macOS. The v0.6
 release has three co-equal capture modes: system-wide dictation, file
 transcription, and meeting recording, plus productized Transforms on `main`
-for selected-text rewrites. Parakeet TDT 0.6B v3 via FluidAudio CoreML on the
-Apple Neural Engine is the default STT engine. WhisperKit is also available as
-an optional local multilingual engine for languages Parakeet does not cover.
+for selected-text rewrites. Parakeet TDT 0.6B via FluidAudio CoreML on the
+Apple Neural Engine is the default STT family: multilingual v3 is the default,
+and English-only v2 is an opt-in Parakeet model for users who want the fastest
+English path without v3 auto-detect. WhisperKit is also available as an optional
+local multilingual engine for languages Parakeet does not cover.
 
-**Release status:** v0.6 ships system-wide dictation, file/URL transcription,
-meeting recording, optional WhisperKit multilingual STT, and productized
-Transforms on `main`. Calendar reminders and auto-start are
+**Release status:** v0.6 ships system-wide dictation, file/URL transcription
+including local-file batches, meeting recording, Parakeet v3/v2 model
+selection, optional WhisperKit multilingual STT, and productized Transforms on
+`main`. Calendar reminders and auto-start are
 implemented and enabled on `main` (`AppFeatures.calendarEnabled = true`);
 calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
 driven auto-stop was removed (ADR-017 amendment) — recordings stop manually.
@@ -60,7 +63,8 @@ code-change work complete.
 
 ## Code Style
 
-- Swift 6.0 with SwiftUI for UI and GRDB for SQLite.
+- Swift package tools-version 5.9; first-party Swift is kept Swift 6
+  language-mode / concurrency clean. SwiftUI for UI and GRDB for SQLite.
 - One repository per database table (see
   [`Sources/MacParakeetCore/Database/`](./Sources/MacParakeetCore/Database/)).
 - Comments explain *why*, not *what* -- well-named identifiers carry the what.

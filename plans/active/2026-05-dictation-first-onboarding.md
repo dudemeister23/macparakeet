@@ -33,11 +33,12 @@ Add one quiet line on the Ready screen so meeting recording stays discoverable.
 New flow (everyone): `Welcome → Microphone → Accessibility → Hotkey →
 Speech Model → Ready` — **8 steps → 6**.
 
-**Part B — model-download head-start.** Kick off the ~6 GB speech-model warm-up
-when onboarding *opens*, not when the user reaches the (second-to-last) Speech
-Model step. By the time they finish the interactive steps the download is partly
-or fully done, so the Speech Model step is short or instant instead of a dead
-wait. This changes download **timing**, not download **contents** (see Non-goals).
+**Part B — model-download head-start.** Kick off the ~465 MB Parakeet
+speech-model warm-up when onboarding *opens*, not when the user reaches the
+(second-to-last) Speech Model step. By the time they finish the interactive
+steps the download is partly or fully done, so the Speech Model step is short or
+instant instead of a dead wait. This changes download **timing**, not download
+**contents** (see Non-goals).
 
 Part A is low-risk and stands alone. Part B is separable and carries the
 warm-up-machinery risk detailed in §5 — **ship A first** if you want to de-risk.
@@ -176,8 +177,9 @@ exactly what those guards were built to tolerate.
 
 - **No use-case picker** (considered and rejected — see above).
 - **No change to what gets downloaded** (Part B changes *when*, not *what*).
-  Parakeet (~6 GB) / Whisper (CJK) and the diarization speaker models (~130 MB)
-  still download on the same critical path for everyone, exactly as today.
+  Parakeet (~465 MB per selected build) / Whisper (CJK, ~632 MB) and the
+  diarization speaker models (~130 MB) still download on the same critical path
+  for everyone, exactly as today.
   Diarization also powers file-transcription speaker labels, so a dictation user
   benefits from it. Lazy diarization is a separate, STT-runtime-risky idea (real
   regression surface) — out of scope here, may ship later or never.

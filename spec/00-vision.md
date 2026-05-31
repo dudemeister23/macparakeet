@@ -54,7 +54,7 @@ No existing app nails all four: **Speed + Privacy + Simplicity + Fair Pricing**.
 
 Cloud services send your voice to remote servers, create accounts, charge monthly, and add server latency. Local apps either bury you in settings (MacWhisper has 50+ features) or charge a premium (Superwhisper at $250). Apple Dictation is free but slow, inaccurate, and has no custom vocabulary, no file transcription.
 
-**MacParakeet's answer:** Built from the ground up around Parakeet TDT for speed, with optional local WhisperKit for languages Parakeet does not cover. Fully local speech by default, with optional networked features. Three capture modes, plus Transforms for selected text. Simple and GPL open-source. Done.
+**MacParakeet's answer:** Built from the ground up around Parakeet TDT for speed, with multilingual v3 as the default and English-only v2 as an opt-in Parakeet build, plus optional local WhisperKit for languages Parakeet does not cover. Fully local speech by default, with optional networked features. Three capture modes, plus Transforms for selected text. Simple and GPL open-source. Done.
 
 ---
 
@@ -62,7 +62,7 @@ Cloud services send your voice to remote servers, create accounts, charge monthl
 
 ### 1. Speed Is the Feature
 
-Parakeet TDT 0.6B-v3 transcribes 60 minutes of audio in ~23 seconds (155x realtime on the Neural Engine via FluidAudio CoreML). Dictation latency is under 500ms. This is not incremental improvement -- it is a category shift.
+Parakeet TDT 0.6B-v3 transcribes 60 minutes of audio in ~23 seconds (155x realtime on the Neural Engine via FluidAudio CoreML). English-only v2 is available for users who prefer a faster no-auto-detect Parakeet path. Dictation latency is under 500ms. This is not incremental improvement -- it is a category shift.
 
 Speed changes behavior. When transcription takes 30 seconds, you think about whether it is worth doing. When it takes 0.5 seconds, you just talk. MacParakeet makes voice the faster input method for everything: emails, messages, code comments, documents, notes.
 
@@ -313,7 +313,7 @@ Writers who think better out loud. Podcasters who need episode transcripts. Cont
 
 ### 1. Parakeet-First Architecture
 
-We are not a Whisper app that added Parakeet. We built the entire product around Parakeet TDT 0.6B-v3 from day one, then added WhisperKit explicitly for language coverage.
+We are not a Whisper app that added Parakeet. We built the entire product around Parakeet TDT 0.6B-v3 from day one, later exposed v2 as an English-only Parakeet option, then added WhisperKit explicitly for language coverage.
 
 - **155x realtime** on the Neural Engine vs Whisper's 15-30x. Not an incremental improvement -- an order of magnitude.
 - **~2.5% WER** -- lower error rate than Whisper large-v3 at a fraction of the compute.
@@ -473,9 +473,10 @@ Ship-quality polish. Direct distribution via notarized DMG.
 - System audio + mic capture with fragmented source files and crash recovery
 - Live meeting pill + Notes / Transcript / Ask panel
 - Source-aware final transcription with prompt results and chat in the library
+- Parakeet model selection: v3 multilingual default and v2 English-only opt-in
 - Optional local WhisperKit engine for languages outside Parakeet coverage
-- Settings speech-engine picker and Whisper language picker
-- CLI `transcribe --engine parakeet|whisper --language`
+- Settings speech-engine picker, Parakeet model picker, and Whisper language picker
+- CLI `transcribe --engine parakeet|whisper --language --parakeet-model`
 - Meeting recordings pin engine/language for live preview, recovery, and finalization
 - Calendar auto-start is implemented and enabled (`AppFeatures.calendarEnabled = true`); defaults to opt-in mode `.off`. Calendar-driven auto-stop was removed (ADR-017 amendment); recordings stop manually
 
@@ -490,7 +491,7 @@ Ship-quality polish. Direct distribution via notarized DMG.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | **Platform** | macOS 14.2+, Apple Silicon only | FluidAudio CoreML requires Apple Silicon. |
-| **STT engine** | Parakeet TDT 0.6B-v3 by default; optional WhisperKit | Parakeet gives the latency target for supported languages; WhisperKit keeps broader multilingual speech local. |
+| **STT engine** | Parakeet TDT 0.6B-v3 by default; Parakeet v2 English-only opt-in; optional WhisperKit | Parakeet gives the latency target for supported languages; v2 avoids language auto-detect for English-only users; WhisperKit keeps broader multilingual speech local. |
 | **YouTube downloads** | Standalone yt-dlp | macOS binary, auto-updates via `--update`. No Python needed. |
 | **UI framework** | SwiftUI | Native Mac experience. Menu bar + window. |
 | **Database** | SQLite (GRDB) | Single file. No server. Dictation history, custom words, settings. |

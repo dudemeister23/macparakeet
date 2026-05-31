@@ -50,7 +50,8 @@ sitting at a keyboard, it lives in the .app.
 
 ## What `macparakeet-cli` gives your agent
 
-- **Local Parakeet TDT speech-to-text** at ~155x realtime on Apple Silicon
+- **Local Parakeet TDT speech-to-text** at ~155x realtime on Apple Silicon,
+  with v3 multilingual default and v2 English-only opt-in
   with ~2.5% WER, running on the Neural Engine. No cloud, no API keys, no
   per-minute charges.
 - **Audio + video file transcription** -- accepts MP3 / WAV / MP4 / MOV /
@@ -157,7 +158,9 @@ MacParakeet history. For YouTube inputs, downloaded audio is temporary when
 `--no-history` is set.
 
 Parakeet is the default engine for compatibility with existing scripts. Use
-Whisper per invocation for Korean or other non-Parakeet languages:
+`--parakeet-model v2` or `config set parakeet-model v2` for the English-only
+Parakeet build. Use Whisper per invocation for Korean or other non-Parakeet
+languages:
 
 Whisper requires a local model download before first use:
 
@@ -169,7 +172,8 @@ Agents can inspect and switch the shared default speech model:
 
 ```bash
 macparakeet-cli models list --json
-macparakeet-cli models select parakeet --json
+macparakeet-cli models select parakeet-v3 --json
+macparakeet-cli models select parakeet-v2 --json
 macparakeet-cli models select whisper-large-v3-v20240930-turbo-632MB --json
 ```
 
@@ -186,6 +190,7 @@ exercise GUI-only UI, playback, hotkey, export, or optional AI formatter output.
 ```bash
 macparakeet-cli transcribe /path/to/audio.mp3 \
   --engine app-default \
+  --parakeet-model app-default \
   --speaker-detection app-default \
   --mode app-default \
   --downloaded-audio app-default \
@@ -199,6 +204,7 @@ in-app change.
 
 ```bash
 macparakeet-cli config set speech-engine whisper
+macparakeet-cli config set parakeet-model v3
 macparakeet-cli config set whisper-language ko
 macparakeet-cli config set processing-mode raw
 macparakeet-cli config set speaker-detection off
@@ -371,10 +377,12 @@ macparakeet-cli transcribe "<path-or-youtube-url>" --format json
 macparakeet-cli transcribe "<path-or-youtube-url>" --format transcript --no-history
 macparakeet-cli models download whisper-large-v3-v20240930-turbo-632MB
 macparakeet-cli models list --json
-macparakeet-cli models select parakeet --json
+macparakeet-cli models select parakeet-v3 --json
+macparakeet-cli config set parakeet-model v3 --json
 macparakeet-cli transcribe "<path-or-youtube-url>" --engine whisper --language ko --format json
 macparakeet-cli transcribe "<path-or-youtube-url>" \
   --engine app-default \
+  --parakeet-model app-default \
   --speaker-detection app-default \
   --mode app-default \
   --downloaded-audio app-default \
@@ -418,10 +426,10 @@ macparakeet-cli prompts run "<prompt-name>" \
 - Prefer meeting ID or UUID prefix over title when mutating notes.
 - Keep API keys in environment variables; do not put literal keys in commands.
 - Use the full app-default group (`--engine app-default`,
-  `--speaker-detection app-default`, `--mode app-default`,
-  `--downloaded-audio app-default`, and `--youtube-audio-quality app-default`)
-  when you are intentionally checking GUI-default behavior. Pin explicit flags
-  for reproducible agent tests.
+  `--parakeet-model app-default`, `--speaker-detection app-default`,
+  `--mode app-default`, `--downloaded-audio app-default`, and
+  `--youtube-audio-quality app-default`) when you are intentionally checking
+  GUI-default behavior. Pin explicit flags for reproducible agent tests.
 - `config get speaker-detection` reports the saved app-default value. Bare
   `transcribe` and `--speaker-detection app-default` use that value; pass
   `--speaker-detection on` or `off` to override it for one run.
