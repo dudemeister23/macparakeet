@@ -57,6 +57,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct MainWindowView: View {
     @Bindable var state: MainWindowState
+    @State private var showGlobalCancelConfirmation = false
 
     let transcriptionViewModel: TranscriptionViewModel
     let historyViewModel: DictationHistoryViewModel
@@ -278,6 +279,14 @@ struct MainWindowView: View {
             minWidth: 860,
             minHeight: DesignSystem.Layout.windowMinHeight
         )
+        .alert("Cancel All Transcriptions?", isPresented: $showGlobalCancelConfirmation) {
+            Button("Cancel All", role: .destructive) {
+                transcriptionViewModel.cancelBatch()
+            }
+            Button("Continue", role: .cancel) {}
+        } message: {
+            Text("This stops the remaining files in the batch. Files already transcribed are kept in your Library.")
+        }
         .onChange(of: transcriptionViewModel.isTranscribing) { _, isTranscribing in
             if !isTranscribing {
                 state.showingProgressDetail = false
@@ -292,7 +301,7 @@ struct MainWindowView: View {
 
     /// Show the global bottom bar when transcribing on any tab except Transcribe (which has its own detailed view)
     private var showGlobalProgressBar: Bool {
-        transcriptionViewModel.isTranscribing
+        (transcriptionViewModel.isTranscribing || transcriptionViewModel.isBatchActive)
             && state.selectedItem != .transcribe
     }
 
@@ -345,7 +354,9 @@ struct MainWindowView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text(transcriptionViewModel.progressHeadline)
+                    Text(transcriptionViewModel.isBatchActive
+                        ? transcriptionViewModel.batchStatusHeadline
+                        : transcriptionViewModel.progressHeadline)
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -377,21 +388,38 @@ struct MainWindowView: View {
 
             Spacer()
 
-            Button {
-                transcriptionViewModel.currentTranscription = nil
-                state.selectedItem = .transcribe
-            } label: {
-                Text("View")
-                    .font(DesignSystem.Typography.caption.weight(.semibold))
-                    .foregroundStyle(DesignSystem.Colors.accent)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignSystem.Layout.buttonCornerRadius)
-                            .fill(DesignSystem.Colors.accent.opacity(0.1))
-                    )
+            if transcriptionViewModel.isBatchActive {
+                Button {
+                    showGlobalCancelConfirmation = true
+                } label: {
+                    Text("Cancel all")
+                        .font(DesignSystem.Typography.caption.weight(.semibold))
+                        .foregroundStyle(DesignSystem.Colors.errorRed)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: DesignSystem.Layout.buttonCornerRadius)
+                                .fill(DesignSystem.Colors.errorRed.opacity(0.1))
+                        )
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    transcriptionViewModel.currentTranscription = nil
+                    state.selectedItem = .transcribe
+                } label: {
+                    Text("View")
+                        .font(DesignSystem.Typography.caption.weight(.semibold))
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: DesignSystem.Layout.buttonCornerRadius)
+                                .fill(DesignSystem.Colors.accent.opacity(0.1))
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)
         .padding(.vertical, DesignSystem.Spacing.sm)

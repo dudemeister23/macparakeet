@@ -237,6 +237,14 @@ final class AppEnvironmentConfigurer {
             callbacks.onMenuBarIconUpdate()
         }
 
+        transcriptionViewModel.onTranscriptionCompleted = { content in
+            // Invoked synchronously from the ViewModel's @MainActor completion
+            // funnel, so the chime/banner fire immediately (no run-loop hop).
+            MainActor.assumeIsolated {
+                TranscriptionCompletionPresenter.present(content)
+            }
+        }
+
         let coordinatorRefs = CoordinatorRefs()
         let mediaPauseCoordinator = DictationMediaPauseCoordinator(
             settingsViewModel: settingsViewModel,

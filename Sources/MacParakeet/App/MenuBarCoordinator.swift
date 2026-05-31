@@ -300,9 +300,9 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
         button.image = BreathWaveIcon.menuBarIcon(pointSize: 18)
 
         let dropView = MenuBarDropView(frame: button.bounds)
-        dropView.onDrop = { [weak self] url in
+        dropView.onDrop = { [weak self] urls in
             Task { @MainActor in
-                self?.handleDroppedFile(url)
+                self?.handleDroppedFiles(urls)
             }
         }
         button.addSubview(dropView)
@@ -596,15 +596,16 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
 
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.message = "Choose one or more audio/video files, or a folder, to transcribe."
         panel.allowedContentTypes = AudioFileConverter.supportedExtensions.compactMap {
             UTType(filenameExtension: $0)
         }
 
-        if panel.runModal() == .OK, let url = panel.url {
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
             onOpenMainWindow()
-            transcriptionViewModel.transcribeFile(url: url)
+            transcriptionViewModel.transcribeFiles(urls: panel.urls)
             SoundManager.shared.play(.fileDropped)
         }
     }
@@ -651,10 +652,14 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
 
     }
 
-    private func handleDroppedFile(_ url: URL) {
+    private func handleDroppedFiles(_ urls: [URL]) {
         onOpenMainWindow()
-        transcriptionViewModel.transcribeFile(url: url)
-        SoundManager.shared.play(.fileDropped)
+        // Route through the guarded batch entry point: it expands folders,
+        // chooses single vs. batch, and no-ops while a transcription/batch is
+        // already running (so an icon drop can't corrupt an active batch).
+        if transcriptionViewModel.transcribeFiles(urls: urls) {
+            SoundManager.shared.play(.fileDropped)
+        }
     }
 
     /// Resign menu-bar focus, wait for the target app to regain focus, then paste.
