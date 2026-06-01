@@ -485,6 +485,40 @@ final class MicrophoneCaptureTests: XCTestCase {
         XCTAssertEqual(platform.lastSucceededAttempt, .implicitSystemDefault(resolvedDeviceID: 20))
     }
 
+    func testPlatformFallsBackToImplicitSystemDefaultWhenExplicitDefaultStartFails() throws {
+        let recorder = MicrophoneCaptureInputDeviceSetterRecorder()
+        let startAttempts = MicrophoneCaptureTestCounter()
+        let platform = AVAudioEngineMicrophonePlatform(
+            deviceAttemptsBuilder: {
+                [
+                    MeetingInputDeviceAttempt(source: .systemDefault, deviceID: 20),
+                    .implicitSystemDefault(resolvedDeviceID: 20),
+                ]
+            },
+            inputDeviceSetter: { deviceID, _ in
+                recorder.record(deviceID)
+                return true
+            },
+            engineStarter: { _, _, _, _ in
+                startAttempts.increment()
+                if startAttempts.value == 1 {
+                    throw MicrophoneCaptureMockError.simulatedFailure
+                }
+            }
+        )
+
+        try platform.configureAndStart(
+            vpioEnabled: false,
+            bufferSize: 1024,
+            tapHandler: { _, _ in }
+        )
+        defer { platform.stopEngine() }
+
+        XCTAssertEqual(recorder.deviceIDs, [20])
+        XCTAssertEqual(startAttempts.value, 2)
+        XCTAssertEqual(platform.lastSucceededAttempt, .implicitSystemDefault(resolvedDeviceID: 20))
+    }
+
     private func makeSharedTestBuffer() -> AVAudioPCMBuffer {
         let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 256)!
