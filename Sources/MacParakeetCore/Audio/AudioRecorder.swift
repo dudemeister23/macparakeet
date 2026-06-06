@@ -100,7 +100,7 @@ public actor AudioRecorder {
     private var outputURL: URL?
     private var recording = false
     private var starting = false
-    private var recordingStartedAt: Date?
+    private var recordingStartedAt: TimeInterval?
     private var _lastCaptureHealth: AudioCaptureHealth?
     /// Bumped on every `start()` entry that passes the entry guard. Each call
     /// captures its value as `myStartCallGeneration`; the `defer` only clears
@@ -258,7 +258,7 @@ public actor AudioRecorder {
                 self.runtimeMetrics.withLock { metrics in
                     metrics.maxRMS = max(metrics.maxRMS, rmsValue)
                     metrics.maxAudioLevel = max(metrics.maxAudioLevel, normalizedValue)
-                    if normalizedValue >= 0.02 {
+                    if normalizedValue >= AudioCaptureHealth.silentInputMaximumLevel {
                         metrics.nonSilentBufferCount += 1
                     }
                 }
@@ -406,6 +406,11 @@ public actor AudioRecorder {
                 )
                 break
             } catch {
+                if error is CancellationError {
+                    try? FileManager.default.removeItem(at: url)
+                    throw error
+                }
+
                 let startWasCancelled = preSubscribeGeneration != self.sessionGeneration.withLock { $0 }
                     || !self.starting
                     || self.startCallGeneration != myStartCallGeneration
@@ -422,7 +427,12 @@ public actor AudioRecorder {
                         "dictation_capture_start_retry attempt=\(subscribeAttempt + 1) reason=engine_start_failed \(AudioCaptureDiagnostics.errorFields(error))"
                     )
                     subscribeAttempt += 1
-                    try? await Task.sleep(for: .milliseconds(100))
+                    do {
+                        try await Task.sleep(for: .milliseconds(100))
+                    } catch {
+                        try? FileManager.default.removeItem(at: url)
+                        throw error
+                    }
                     continue
                 }
 
@@ -463,7 +473,7 @@ public actor AudioRecorder {
         self.audioFile = file
         self.outputURL = url
         self.recording = true
-        self.recordingStartedAt = Date()
+        self.recordingStartedAt = ProcessInfo.processInfo.systemUptime
         self.sharedSubscriberToken = token
 
         let liveFormat = sharedStream.inputFormat
@@ -493,6 +503,7 @@ public actor AudioRecorder {
                 generation: tapGeneration,
                 reason: "no_first_buffer"
             )
+            try Task.checkCancellation()
             throw AudioProcessorError.inputUnavailable(.noInputBuffers)
         }
     }
@@ -547,7 +558,7 @@ public actor AudioRecorder {
         let metrics = runtimeMetrics.withLock { $0 }
         let fileBytes = Self.fileSizeBytes(at: url)
         let duration = Double(sampleCount) / Double(Self.outputSampleRate)
-        let wallDuration = startedAt.map { Date().timeIntervalSince($0) } ?? duration
+        let wallDuration = startedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? duration
         let health = AudioCaptureHealth(
             sampleCount: sampleCount,
             audioDurationSeconds: duration,
@@ -603,8 +614,11 @@ public actor AudioRecorder {
         generation: Int,
         timeoutSeconds: TimeInterval
     ) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeoutSeconds
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if Task.isCancelled {
+                return false
+            }
             if captureDiagnosticsTimers.withLock({ $0.firstBufferSeenGeneration == generation }) {
                 return true
             }
