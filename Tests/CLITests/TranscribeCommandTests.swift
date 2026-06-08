@@ -428,6 +428,24 @@ final class TranscribeCommandTests: XCTestCase {
         )
     }
 
+    func testTelemetryInputKindUsesPodcastForApplePodcastsURL() {
+        XCTAssertEqual(
+            TranscribeCommand.telemetryInputKind(
+                for: "https://podcasts.apple.com/us/podcast/the-daily/id1200361736?i=1000654321987"
+            ),
+            .podcast
+        )
+    }
+
+    func testDownloadableURLInputAcceptsApplePodcastsURL() {
+        let podcast = "https://podcasts.apple.com/us/podcast/the-daily/id1200361736?i=1000654321987"
+
+        XCTAssertEqual(
+            TranscribeCommand.downloadableURLInput("  \(podcast)\n"),
+            podcast
+        )
+    }
+
     func testDownloadableURLInputAcceptsGenericHTTPURL() {
         XCTAssertTrue(TranscribeCommand.isDownloadableURLInput(
             "https://www.facebook.com/reel/1998924354042801"
@@ -530,16 +548,18 @@ final class TranscribeCommandTests: XCTestCase {
         }
         let youtube = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         let facebook = "https://www.facebook.com/reel/1998924354042801"
+        let podcast = "https://podcasts.apple.com/us/podcast/the-daily/id1200361736?i=1000654321987"
 
-        let resolved = TranscribeCommand.expandInputs([dir.path, youtube, facebook, facebook, youtube])
+        let resolved = TranscribeCommand.expandInputs([dir.path, youtube, facebook, podcast, facebook, podcast, youtube])
 
         // Folder expands to its supported files (name-sorted), txt excluded,
         // media URLs pass through once.
-        XCTAssertEqual(resolved.count, 4)
+        XCTAssertEqual(resolved.count, 5)
         XCTAssertTrue(resolved[0].hasSuffix("lecture01.m4a"))
         XCTAssertTrue(resolved[1].hasSuffix("lecture02.mp3"))
         XCTAssertEqual(resolved[2], youtube)
         XCTAssertEqual(resolved[3], facebook)
+        XCTAssertEqual(resolved[4], podcast)
     }
 
     func testDisplayNameKeepsGenericMediaURLReadable() {

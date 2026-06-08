@@ -365,7 +365,8 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
     static func downloadableURLInput(_ input: String) -> String? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard YouTubeURLValidator.isYouTubeURL(trimmed)
+        guard PodcastURLValidator.isApplePodcastsURL(trimmed)
+            || YouTubeURLValidator.isYouTubeURL(trimmed)
             || DownloadableMediaURLValidator.isDownloadableMediaURL(trimmed)
         else {
             return nil
