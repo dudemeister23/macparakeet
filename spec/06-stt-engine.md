@@ -262,6 +262,11 @@ The app does not treat "one service = one STT runtime" as a valid long-term arch
 `STTClient` remains only as a standalone compatibility facade for the CLI and tests; app code uses the shared `STTRuntime` + `STTScheduler` from `AppEnvironment`.
 The GUI uses the persisted `speechRecognitionEngine` preference; the CLI can override per invocation.
 
+Future per-capture engine defaults (for example, Parakeet for dictation and
+Nemotron Beta for meetings) should stay a routing-policy layer on top of this
+shared control plane, not a separate runtime per feature. See
+`docs/planning/2026-06-per-capture-speech-engine-routing.md`.
+
 ### Lifecycle
 
 - **Lazy init**: The shared runtime owner is not loaded at app launch; loaded on first STT request or warm-up
