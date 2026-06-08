@@ -249,6 +249,10 @@ curl -s "https://macparakeet.com/appcast.xml?ts=$(date +%s)" | grep "sparkle:ver
 1. Confirm R2 file size matches appcast `length`
 2. Confirm appcast `sparkle:version` is newer than the installed app's build number
 3. Launch the app → "Check for Updates..." from the menu bar → should find and validate the update
+4. Confirm the GitHub release has a versioned DMG asset named
+   `MacParakeet-X.Y.Z.dmg`. The official Homebrew cask URL is versioned as
+   `MacParakeet-#{version}.dmg`, and BrewTestBot cannot autobump the cask until
+   that GitHub asset URL exists.
 
 ## Standalone CLI Homebrew release
 
@@ -293,6 +297,7 @@ npx wrangler r2 object put macparakeet-downloads/MacParakeet.dmg \
 # → cd ~/code/macparakeet-website && git add -A && git commit && git push
 # → npx astro build && npx wrangler pages deploy dist --project-name macparakeet-website --branch main
 # → Verify: curl -s "https://macparakeet.com/appcast.xml?ts=$(date +%s)" | grep sparkle:version
+# → Upload/copy the GitHub release asset as MacParakeet-X.Y.Z.dmg for Homebrew
 ```
 
 ### Common pitfalls
@@ -302,6 +307,7 @@ npx wrangler r2 object put macparakeet-downloads/MacParakeet.dmg \
 | App crashes at launch (dyld) | Sparkle.framework missing from bundle | Build script should catch this. If bypassed, re-run `build_app_bundle.sh` |
 | "Improperly signed" update error | R2 file doesn't match appcast signature, OR Cloudflare CDN cached an old DMG | Re-upload the **exact same DMG** you ran `sign_update` on. Verify sizes match. **Always use `?v={BUILD_NUMBER}` in the appcast enclosure URL** to bust Cloudflare's CDN cache |
 | Appcast not updating | Cloudflare Pages cache / build not triggered | Deploy manually: `npx wrangler pages deploy dist --project-name macparakeet-website` |
+| Homebrew cask stays behind appcast | GitHub release is missing `MacParakeet-X.Y.Z.dmg`, even if `MacParakeet.dmg` exists | Upload the exact shipped DMG to the GitHub release with the versioned filename, then wait for BrewTestBot's autobump cycle |
 | `notarytool` auth failure | Keychain profile missing | Run `xcrun notarytool store-credentials "AC_PASSWORD"` (see Step 2 above) |
 | Update found but same version | Build number in appcast ≤ installed build | Ensure `sparkle:version` (build number) is strictly greater |
 | `notarytool` bus error / crash | Using `--wait` flag | **Never use `xcrun notarytool submit --wait`.** Submit without `--wait`, then poll with `xcrun notarytool info <submission-id>`. See gotcha #1 below. |
