@@ -1301,7 +1301,7 @@ public final class SettingsViewModel {
             let parakeetName = activeVariant.modelName
             if activeEngine == .parakeet, activeEngineIsLoaded {
                 self.parakeetStatus = .ready
-                self.parakeetStatusDetail = "\(parakeetName) · Loaded on Neural Engine."
+                self.parakeetStatusDetail = "\(parakeetName) · Loaded locally with Core ML."
             } else if modelDiskState.parakeetDownloaded.contains(activeVariant) {
                 self.parakeetStatus = .notLoaded
                 self.parakeetStatusDetail = "\(parakeetName) · Installed locally, loads when selected."
@@ -1988,9 +1988,9 @@ public final class SettingsViewModel {
     ) -> String {
         switch preference {
         case .parakeet:
-            "Loading Parakeet model on Neural Engine..."
+            "Loading Parakeet with Core ML..."
         case .nemotron:
-            "Loading Nemotron 3.5 Beta on Neural Engine..."
+            "Loading Nemotron 3.5 Beta with Core ML..."
         case .whisper:
             "Optimizing Whisper for this Mac..."
         }

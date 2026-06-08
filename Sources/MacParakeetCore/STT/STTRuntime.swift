@@ -477,7 +477,7 @@ public actor STTRuntime: STTRuntimeProtocol {
 
         switch preference {
         case .parakeet:
-            onProgress?("Loading Parakeet model on Neural Engine...")
+            onProgress?("Loading Parakeet with Core ML...")
             try await ensureInitialized()
         case .nemotron:
             let engine = try await ensureNemotronEngine(
@@ -562,7 +562,7 @@ public actor STTRuntime: STTRuntimeProtocol {
             onProgress?("Preparing \(variant.modelName)...")
             try await downloadParakeetModels(version: targetVersion, onProgress: onProgress)
 
-            onProgress?("Loading \(variant.modelName) on Neural Engine...")
+            onProgress?("Loading \(variant.modelName) with Core ML...")
             await unloadParakeet()
             modelVersion = targetVersion
             try await ensureInitialized()

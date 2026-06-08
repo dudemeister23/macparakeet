@@ -440,7 +440,7 @@ struct SettingsView: View {
     /// Engine tab — speech recognition stack, decomposed into three cards
     /// so each surface owns one decision the user makes:
     ///
-    /// 1. `engineSelectorCard` — which engine? (Parakeet vs Whisper)
+    /// 1. `engineSelectorCard` — which engine? (Parakeet vs Nemotron vs Whisper)
     /// 2. `engineParakeetModelCard` — which Parakeet build? (Parakeet only —
     ///    multilingual `v3` vs English-only `v2`)
     /// 3. `engineLanguageCard` — which language? (Whisper only — Parakeet
@@ -1969,9 +1969,9 @@ struct SettingsView: View {
                         strengths: [
                             "English + 24 European languages",
                             "155× realtime on Apple Silicon",
-                            "Runs on the Neural Engine"
+                            "Best default for everyday dictation"
                         ],
-                        helpText: "Best for English and other European languages including Spanish, French, German, and Italian. Runs on the Neural Engine for the lowest latency on Apple Silicon.",
+                        helpText: "Best default for English and supported European languages including Spanish, French, German, and Italian. Runs locally with Core ML acceleration on Apple Silicon for the lowest-latency path.",
                         modelStatus: displayedParakeetModelStatus,
                         isSelected: viewModel.speechEnginePreference == .parakeet,
                         isBusy: viewModel.speechEngineSwitching,
@@ -1981,14 +1981,14 @@ struct SettingsView: View {
 
                     EngineOptionTile(
                         icon: "sparkles",
-                        name: "Nemotron",
-                        tagline: "Frontier multilingual Beta",
+                        name: "Nemotron 3.5",
+                        tagline: "Latest multilingual (Beta)",
                         strengths: [
-                            "Nemotron 3.5 ASR Streaming",
-                            "Multilingual auto detection",
-                            "Runs locally on Apple Silicon"
+                            "English + many European languages",
+                            "Korean, Mandarin, Japanese, Hindi",
+                            "Cache-aware low-latency streaming"
                         ],
-                        helpText: "Beta engine for trying Nemotron 3.5 locally. Best for users who want to compare the newest multilingual model while MacParakeet benchmarks quality and edge cases.",
+                        helpText: "Newest local NVIDIA ASR option. It supports 40 language-locales with auto detection, including Korean, Mandarin, Japanese, Hindi, Spanish, French, German, Arabic, Vietnamese, and more. It stays Beta while real-world quality is benchmarked.",
                         modelStatus: displayedNemotronModelStatus,
                         isSelected: viewModel.speechEnginePreference == .nemotron,
                         isBusy: viewModel.speechEngineSwitching,
@@ -1999,13 +1999,13 @@ struct SettingsView: View {
                     EngineOptionTile(
                         icon: "globe",
                         name: "Whisper",
-                        tagline: "Multilingual coverage",
+                        tagline: "Broad language fallback",
                         strengths: [
                             "Korean, Japanese, Chinese, Thai +95 more",
-                            "Auto language detection",
-                            "Whisper Large v3 Turbo (632 MB)"
+                            "Mature mixed-language recognition",
+                            "Local Whisper Large v3 Turbo"
                         ],
-                        helpText: "Best for languages outside Parakeet's coverage. Adds Korean, Japanese, Chinese, Thai, Hindi, Arabic, Vietnamese, and 80+ more — any language Whisper supports.",
+                        helpText: "Best for languages outside Parakeet's coverage or when a mature broad-language fallback matters more than speed. Runs locally with WhisperKit.",
                         modelStatus: displayedWhisperModelStatus,
                         isSelected: viewModel.speechEnginePreference == .whisper,
                         isBusy: viewModel.speechEngineSwitching,
@@ -2309,7 +2309,7 @@ struct SettingsView: View {
               currentSpeechEngineSwitchTarget == .parakeet else {
             return viewModel.parakeetStatusDetail
         }
-        return viewModel.speechEngineSwitchDetail ?? "Loading Parakeet model on Neural Engine..."
+        return viewModel.speechEngineSwitchDetail ?? "Loading Parakeet with Core ML..."
     }
 
     private var displayedWhisperModelStatus: SettingsViewModel.LocalModelStatus {
@@ -2341,7 +2341,7 @@ struct SettingsView: View {
               currentSpeechEngineSwitchTarget == .nemotron else {
             return viewModel.nemotronModelStatusDetail
         }
-        return viewModel.speechEngineSwitchDetail ?? "Loading Nemotron 3.5 Beta on Neural Engine..."
+        return viewModel.speechEngineSwitchDetail ?? "Loading Nemotron 3.5 Beta with Core ML..."
     }
 
     private func speechEngineSwitchBanner(title: String, detail: String) -> some View {

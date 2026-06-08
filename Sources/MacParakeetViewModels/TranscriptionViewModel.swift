@@ -898,12 +898,12 @@ public final class TranscriptionViewModel {
         case .transcribing:
             switch engine {
             case .parakeet:
-                return "Parakeet TDT \u{00B7} Neural Engine"
+                return "Parakeet TDT \u{00B7} Local Core ML"
             case .nemotron:
-                return "Nemotron 3.5 Beta \u{00B7} Neural Engine"
+                return "Nemotron 3.5 Beta \u{00B7} Local Core ML"
             case .whisper:
                 let friendly = SpeechEnginePreference.friendlyVariantName(whisperVariant)
-                return "Whisper \(friendly) \u{00B7} Neural Engine"
+                return "Whisper \(friendly) \u{00B7} Local Core ML"
             }
         case .identifyingSpeakers:
             return "May take several minutes per hour of audio. Speaker labels are approximate \u{2014} click to rename."
