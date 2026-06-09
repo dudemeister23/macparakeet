@@ -166,7 +166,7 @@ final class TranscriptionViewModelTests: XCTestCase {
         viewModel.urlInput = link
 
         viewModel.transcribeURL()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { !self.viewModel.isTranscribing }
 
         XCTAssertEqual(viewModel.errorMessage, "Download failed: ERROR: [generic] HTTP Error 404: Not Found")
         let detail = try XCTUnwrap(viewModel.errorDetail)
@@ -183,7 +183,7 @@ final class TranscriptionViewModelTests: XCTestCase {
         viewModel.configure(transcriptionService: mockService, transcriptionRepo: mockRepo)
         viewModel.urlInput = "https://www.tiktok.com/@tiktok/video/7647963131938901278"
         viewModel.transcribeURL()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { !self.viewModel.isTranscribing }
         XCTAssertNotNil(viewModel.errorDetail)
 
         // ...and a later non-URL error (here: an unsupported-file drop, which sets
