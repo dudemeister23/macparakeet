@@ -1,6 +1,6 @@
 # URL Transcription — Any Platform (multi-platform) + Recognition UI
 
-> Status: **ACTIVE** · Branch `feat/url-multi-platform` · Follow-up to PR #457 (X support)
+> Status: **IMPLEMENTED** · Shipped in PR #467 (squash-merged 2026-06-09, `1c27de8`) · Follow-up to PR #457 (X support)
 
 ## Goal
 
