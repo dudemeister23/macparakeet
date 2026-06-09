@@ -277,7 +277,7 @@ struct TranscribeView: View {
     /// heading names the platform ("Transcribe TikTok"), so logo, title, and caption
     /// move together. Falls back to the general invitation while idle or on an
     /// unrecognized (but still transcribable) link.
-    private var urlCardTitle: String {
+    private var urlCardTitle: LocalizedStringKey {
         if let platform = recognizedURLPlatform {
             return "Transcribe \(platform.displayName)"
         }

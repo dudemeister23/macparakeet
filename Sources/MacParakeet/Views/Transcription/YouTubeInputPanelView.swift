@@ -37,7 +37,7 @@ struct YouTubeInputPanelView: View {
     /// Mirrors the brand glyph beside it: once a link is recognized the header
     /// names the platform ("Transcribe Vimeo"), so logo and title move together.
     /// Falls back to the general invitation while idle or on an unrecognized link.
-    private var headerTitle: String {
+    private var headerTitle: LocalizedStringKey {
         if let platform = draftPlatform {
             return "Transcribe \(platform.displayName)"
         }
@@ -83,7 +83,7 @@ struct YouTubeInputPanelView: View {
                     .font(DesignSystem.Typography.sectionTitle)
                     .accessibilityAddTraits(.isHeader)
                     .contentTransition(.opacity)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: draftPlatform)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: headerTitle)
 
                 Spacer()
             }
