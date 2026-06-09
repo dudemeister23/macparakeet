@@ -63,6 +63,22 @@ final class TranscriptionSourceDisplayTests: XCTestCase {
         XCTAssertNil(display.symbolText)
     }
 
+    func testSoundCloudURLDisplaysAsAudio() {
+        let transcription = Transcription(
+            fileName: "track.m4a",
+            sourceURL: "https://soundcloud.com/artist/some-track",
+            sourceType: .youtube
+        )
+
+        let display = TranscriptionSourceDisplay.resolve(for: transcription)
+
+        // SoundCloud is audio-first — it must not show the generic Video badge.
+        XCTAssertEqual(display, .audioURL)
+        XCTAssertEqual(display.collapsedText, "Audio")
+        XCTAssertEqual(display.expandedText, "Audio source")
+        XCTAssertNil(display.symbolText)
+    }
+
     func testNonURLSourcesKeepExistingLabels() {
         let local = Transcription(fileName: "local.m4a", sourceType: .file)
         let meeting = Transcription(fileName: "Team Sync", sourceType: .meeting)
