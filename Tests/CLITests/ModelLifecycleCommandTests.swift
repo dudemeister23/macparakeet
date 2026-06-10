@@ -454,16 +454,25 @@ final class ModelLifecycleCommandTests: XCTestCase {
         XCTAssertEqual(diarizationCalls, 1)
     }
 
-    func testLoadSpeechStackStatusReflectsSpeechAndSpeakerReadinessSeparately() async {
+    func testLoadSpeechStackStatusReflectsSpeechAndSpeakerReadinessSeparately() async throws {
         let stt = StubSTTClient()
         let diarization = StubDiarizationService()
         await stt.setReady(true)
         await diarization.setCachedModels(false)
         await diarization.setReady(false)
 
+        // Isolated suite: without it the status reads the live app's
+        // preferences, so the test result depends on whichever speech
+        // engine the developer's MacParakeet install has selected.
+        let suiteName = "com.macparakeet.tests.cli.models.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         let status = await loadSpeechStackStatus(
             sttClient: stt,
             diarizationService: diarization,
+            defaults: defaults,
             isParakeetModelCached: { $0 == .v3 },
             nemotronModelVariant: .multilingual1120,
             isNemotronModelDownloaded: { $0 == .multilingual1120 },
