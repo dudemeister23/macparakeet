@@ -743,9 +743,13 @@ public actor AudioRecorder {
         to destinationURL: URL
     ) throws {
         let source = try AVAudioFile(forReading: sourceURL)
+        // fileFormat, not processingFormat: the copy must preserve the
+        // on-disk format. Identical for today's Float32 mono WAVs, but
+        // processingFormat would silently reformat the copy if the recording
+        // format ever changed (e.g. Int16).
         let writer = try AVAudioFile(
             forWriting: destinationURL,
-            settings: source.processingFormat.settings
+            settings: source.fileFormat.settings
         )
         source.framePosition = AVAudioFramePosition(frames)
         var remaining = max(0, source.length - AVAudioFramePosition(frames))
