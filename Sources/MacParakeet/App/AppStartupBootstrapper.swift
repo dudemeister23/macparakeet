@@ -11,13 +11,6 @@ final class AppStartupBootstrapper {
 
             let manager = try DatabaseManager(path: AppPaths.databasePath)
             try Task.checkCancellation()
-
-            // Keep one-time launch cleanup off the main actor.
-            let dictationRepo = DictationRepository(dbQueue: manager.dbQueue)
-            _ = try? dictationRepo.deleteEmpty()
-            try? dictationRepo.clearMissingAudioPaths()
-
-            try Task.checkCancellation()
             return manager
         }
 
@@ -28,6 +21,24 @@ final class AppStartupBootstrapper {
         }
 
         try Task.checkCancellation()
-        return try AppEnvironment(databaseManager: databaseManager)
+        let environment = try AppEnvironment(databaseManager: databaseManager)
+        scheduleLaunchCleanup(databaseManager: databaseManager)
+        return environment
+    }
+
+    /// One-time launch cleanup, deliberately fire-and-forget: it used to run
+    /// inside the awaited bootstrap task, where per-row `fileExists` checks
+    /// over a large dictation history delayed app readiness. Nothing
+    /// downstream consumes its result (failures were already swallowed); the
+    /// only visible effect of deferring it is that a dictation whose audio
+    /// file was deleted externally may briefly keep its stale path until the
+    /// sweep lands.
+    private nonisolated func scheduleLaunchCleanup(databaseManager: DatabaseManager) {
+        let dbQueue = databaseManager.dbQueue
+        Task.detached(priority: .utility) {
+            let dictationRepo = DictationRepository(dbQueue: dbQueue)
+            _ = try? dictationRepo.deleteEmpty()
+            try? dictationRepo.clearMissingAudioPaths()
+        }
     }
 }

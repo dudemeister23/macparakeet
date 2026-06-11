@@ -382,4 +382,43 @@ final class DictationRepositoryTests: XCTestCase {
         XCTAssertEqual(before.totalWords, after.totalWords)
         XCTAssertEqual(before.longestDurationMs, after.longestDurationMs)
     }
+
+    // MARK: - Launch cleanup (clearMissingAudioPaths)
+
+    func testClearMissingAudioPathsClearsOnlyDanglingPaths() throws {
+        let existingFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clear-missing-\(UUID().uuidString).wav")
+        FileManager.default.createFile(atPath: existingFile.path, contents: Data([0x00]))
+        defer { try? FileManager.default.removeItem(at: existingFile) }
+
+        let kept = Dictation(
+            durationMs: 1000,
+            rawTranscript: "audio still on disk",
+            audioPath: existingFile.path
+        )
+        let dangling = Dictation(
+            durationMs: 1000,
+            rawTranscript: "audio deleted externally",
+            audioPath: "/nonexistent/\(UUID().uuidString).wav"
+        )
+        let pathless = Dictation(
+            durationMs: 1000,
+            rawTranscript: "never had audio"
+        )
+        try repo.save(kept)
+        try repo.save(dangling)
+        try repo.save(pathless)
+
+        try repo.clearMissingAudioPaths()
+
+        XCTAssertEqual(try repo.fetch(id: kept.id)?.audioPath, existingFile.path)
+        XCTAssertNil(try repo.fetch(id: dangling.id)?.audioPath)
+        XCTAssertNil(try repo.fetch(id: pathless.id)?.audioPath)
+        XCTAssertEqual(
+            try repo.fetch(id: dangling.id)?.rawTranscript,
+            "audio deleted externally",
+            "Clearing the path must not disturb the rest of the row"
+        )
+    }
+
 }

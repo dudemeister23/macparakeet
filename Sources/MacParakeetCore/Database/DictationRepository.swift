@@ -251,18 +251,32 @@ public final class DictationRepository: DictationRepositoryProtocol {
     }
 
     public func clearMissingAudioPaths() throws {
-        try dbQueue.write { db in
-            let dictations = try Dictation
+        // Launch-time cleanup: project just (id, audioPath) in a read
+        // transaction so the per-row file-system checks below never decode
+        // full transcripts or hold the write lock.
+        struct AudioPathRow: Decodable, FetchableRecord {
+            var id: UUID
+            var audioPath: String
+        }
+
+        let candidates = try dbQueue.read { db in
+            try Dictation
                 .filter(Dictation.Columns.audioPath != nil)
                 .filter(Dictation.Columns.hidden == false)
+                .select(Dictation.Columns.id, Dictation.Columns.audioPath)
+                .asRequest(of: AudioPathRow.self)
                 .fetchAll(db)
+        }
 
-            for var dictation in dictations {
-                guard let path = dictation.audioPath,
-                      !FileManager.default.fileExists(atPath: path) else { continue }
-                dictation.audioPath = nil
-                try dictation.update(db)
-            }
+        let missingIDs = candidates
+            .filter { !FileManager.default.fileExists(atPath: $0.audioPath) }
+            .map(\.id)
+        guard !missingIDs.isEmpty else { return }
+
+        try dbQueue.write { db in
+            _ = try Dictation
+                .filter(missingIDs.contains(Dictation.Columns.id))
+                .updateAll(db, Dictation.Columns.audioPath.set(to: nil))
         }
     }
 
