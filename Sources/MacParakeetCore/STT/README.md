@@ -43,7 +43,10 @@ to one `STTRuntime`; callers do not own model lifecycles directly.
   app's hotkey driver and scopes behavior to combined, hands-free-only,
   or push-to-talk-only roles.
 - `HotkeyTrigger.swift` — value types describing trigger kinds.
-- `KeyCodeNames.swift` — display strings for keys.
+- `KeyCodeNames.swift` — display strings for keys, plus the
+  function-family classification used to tell a genuinely held Fn
+  modifier from the phantom `.function` flag macOS sets on F-key,
+  arrow, and nav-cluster presses.
 - `OnboardingProgressParser.swift` — parses FluidAudio model-download
   progress lines for the onboarding UI.
 
