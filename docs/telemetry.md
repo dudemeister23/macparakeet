@@ -606,6 +606,16 @@ but every emitted app event must be accepted by the Worker before release.
 Schema-drift checks should compare the Swift enum, this document, and the
 Worker allowlist together.
 
+**Automated guard:** `scripts/ci/check-telemetry-allowlist.sh` diffs every
+`TelemetryEventName` case against the Worker's `ALLOWED_EVENTS` and fails when
+a Swift event is missing (the failure mode that silently destroyed telemetry
+batches three times; AUDIT-073 was the third). It runs in CI (reading the
+private website repo via the `WEBSITE_REPO_TOKEN` secret; skips with a warning
+when no token is available, e.g. fork PRs) and locally against a sibling
+`../macparakeet-website` checkout or authenticated `gh`. Run it whenever you
+add a `TelemetryEventName` case. Established order: add the event to the
+website allowlist and deploy first, then merge the app change.
+
 ### CORS
 
 Not technically needed for native HTTP clients, but included for consistency with existing workers.
