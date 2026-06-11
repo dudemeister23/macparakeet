@@ -1,0 +1,5 @@
+# Normalize all text files to LF in the repository. Added 2026-06-11 after
+# repeated whole-file CRLF/LF flips polluted diffs and blame (~100 files had
+# drifted to CRLF or mixed endings; see the renormalize commit recorded in
+# .git-blame-ignore-revs). Binary files are auto-detected and left untouched.
+* text=auto
