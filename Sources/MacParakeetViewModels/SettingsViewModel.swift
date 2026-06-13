@@ -559,11 +559,13 @@ public final class SettingsViewModel {
     private var isApplyingSpeechEngineState = false
     private var isApplyingParakeetVariantState = false
     private var modelStatusRefreshGeneration = 0
+    private var storageStatsRefreshGeneration = 0
     // `deinit` is nonisolated even though this type is `@MainActor`.
     // These handles are only mutated on the main actor during the view
     // model lifetime; unsafe access lets deinit cancel/unregister.
     @ObservationIgnored nonisolated(unsafe) private var permissionPollingTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var microphoneTestTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var storageStatsTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var calendarSettingsObserver: NSObjectProtocol?
     /// Re-entrancy guard so `observeCalendarSettings()` doesn't fire `didSet`
     /// → notification → re-resolve → `didSet` → … on every user toggle.
@@ -706,6 +708,7 @@ public final class SettingsViewModel {
     deinit {
         permissionPollingTask?.cancel()
         microphoneTestTask?.cancel()
+        storageStatsTask?.cancel()
         if let calendarSettingsObserver {
             NotificationCenter.default.removeObserver(calendarSettingsObserver)
         }
@@ -1176,13 +1179,7 @@ public final class SettingsViewModel {
         do { snippetCount = try snippetRepo?.fetchAll().count ?? 0 }
         catch { logger.error("Failed to load snippet count: \(error.localizedDescription)") }
 
-        let (count, sizeBytes) = youtubeDownloadStats()
-        youtubeDownloadCount = count
-        youtubeDownloadStorageMB = Double(sizeBytes) / (1024.0 * 1024.0)
-
-        let (meetingCount, meetingSizeBytes) = meetingAudioStats()
-        meetingAudioRecordingCount = meetingCount
-        meetingAudioStorageMB = Double(meetingSizeBytes) / (1024.0 * 1024.0)
+        refreshStorageStats()
     }
 
     public func refreshSpeechEngineSwitchAvailability() {
@@ -2226,7 +2223,7 @@ public final class SettingsViewModel {
         }
 
         do {
-            try transcriptionRepo?.clearStoredAudioPathsForMeetingTranscriptions()
+            try transcriptionRepo?.clearStoredAudioPathsForMeetingTranscriptions(under: dir)
         } catch {
             logger.error("Failed to clear stored meeting audio paths error=\(error.localizedDescription, privacy: .public)")
             storageCleanupError = "Could not detach meeting audio from transcripts: \(error.localizedDescription)"
@@ -2235,8 +2232,46 @@ public final class SettingsViewModel {
         refreshPendingMeetingRecoveries()
     }
 
-    private func youtubeDownloadStats() -> (count: Int, sizeBytes: Int64) {
-        let dirURL = URL(fileURLWithPath: youtubeDownloadsDirPath(), isDirectory: true)
+    private func refreshStorageStats() {
+        storageStatsRefreshGeneration += 1
+        let generation = storageStatsRefreshGeneration
+        let youtubeDownloadsDir = youtubeDownloadsDirPath()
+        let meetingRecordingsDir = meetingRecordingsDirPath()
+
+        storageStatsTask?.cancel()
+        storageStatsTask = Task { @MainActor [weak self, generation, youtubeDownloadsDir, meetingRecordingsDir] in
+            let stats = await Task.detached(priority: .utility) {
+                StorageStatsSnapshot(
+                    youtubeDownloads: Self.youtubeDownloadStats(in: youtubeDownloadsDir),
+                    meetingAudio: Self.meetingAudioStats(in: meetingRecordingsDir)
+                )
+            }.value
+
+            guard
+                !Task.isCancelled,
+                let self,
+                self.storageStatsRefreshGeneration == generation
+            else { return }
+
+            self.youtubeDownloadCount = stats.youtubeDownloads.count
+            self.youtubeDownloadStorageMB = Double(stats.youtubeDownloads.sizeBytes) / (1024.0 * 1024.0)
+            self.meetingAudioRecordingCount = stats.meetingAudio.count
+            self.meetingAudioStorageMB = Double(stats.meetingAudio.sizeBytes) / (1024.0 * 1024.0)
+        }
+    }
+
+    private struct StorageDirectoryStats: Sendable {
+        var count: Int
+        var sizeBytes: Int64
+    }
+
+    private struct StorageStatsSnapshot: Sendable {
+        var youtubeDownloads: StorageDirectoryStats
+        var meetingAudio: StorageDirectoryStats
+    }
+
+    nonisolated private static func youtubeDownloadStats(in dirPath: String) -> StorageDirectoryStats {
+        let dirURL = URL(fileURLWithPath: dirPath, isDirectory: true)
         let fm = FileManager.default
 
         guard let enumerator = fm.enumerator(
@@ -2244,7 +2279,7 @@ public final class SettingsViewModel {
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else {
-            return (0, 0)
+            return StorageDirectoryStats(count: 0, sizeBytes: 0)
         }
 
         var count = 0
@@ -2260,11 +2295,11 @@ public final class SettingsViewModel {
             sizeBytes += Int64(values.fileSize ?? 0)
         }
 
-        return (count, sizeBytes)
+        return StorageDirectoryStats(count: count, sizeBytes: sizeBytes)
     }
 
-    private func meetingAudioStats() -> (count: Int, sizeBytes: Int64) {
-        let dirURL = URL(fileURLWithPath: meetingRecordingsDirPath(), isDirectory: true)
+    nonisolated private static func meetingAudioStats(in dirPath: String) -> StorageDirectoryStats {
+        let dirURL = URL(fileURLWithPath: dirPath, isDirectory: true)
         let fm = FileManager.default
 
         guard let contents = try? fm.contentsOfDirectory(
@@ -2272,7 +2307,7 @@ public final class SettingsViewModel {
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else {
-            return (0, 0)
+            return StorageDirectoryStats(count: 0, sizeBytes: 0)
         }
 
         let count = contents.reduce(into: 0) { total, url in
@@ -2283,10 +2318,10 @@ public final class SettingsViewModel {
             total += 1
         }
 
-        return (count, directorySizeBytes(dirURL))
+        return StorageDirectoryStats(count: count, sizeBytes: directorySizeBytes(dirURL))
     }
 
-    private func directorySizeBytes(_ rootURL: URL) -> Int64 {
+    nonisolated private static func directorySizeBytes(_ rootURL: URL) -> Int64 {
         let fm = FileManager.default
 
         guard let enumerator = fm.enumerator(

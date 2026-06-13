@@ -1085,7 +1085,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     // MARK: - YouTube Audio Storage
 
-    func testRefreshStatsIncludesYouTubeDownloadStorage() throws {
+    func testRefreshStatsIncludesYouTubeDownloadStorage() async throws {
         let fileA = youtubeDownloadsTestDir.appendingPathComponent("a.m4a")
         let fileB = youtubeDownloadsTestDir.appendingPathComponent("b.webm")
         XCTAssertTrue(FileManager.default.createFile(atPath: fileA.path, contents: Data(repeating: 0x1, count: 1024)))
@@ -1099,11 +1099,11 @@ final class SettingsViewModelTests: XCTestCase {
             checkoutURL: nil
         )
 
-        XCTAssertEqual(viewModel.youtubeDownloadCount, 2)
+        try await waitUntil { viewModel.youtubeDownloadCount == 2 }
         XCTAssertGreaterThan(viewModel.youtubeDownloadStorageMB, 0)
     }
 
-    func testClearDownloadedYouTubeAudioRemovesFilesAndClearsStoredPaths() throws {
+    func testClearDownloadedYouTubeAudioRemovesFilesAndClearsStoredPaths() async throws {
         let file = youtubeDownloadsTestDir.appendingPathComponent("a.m4a")
         XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: Data(repeating: 0x1, count: 512)))
 
@@ -1122,17 +1122,18 @@ final class SettingsViewModelTests: XCTestCase {
             entitlementsService: entitlements,
             checkoutURL: nil
         )
+        try await waitUntil { viewModel.youtubeDownloadCount == 1 }
 
         viewModel.clearDownloadedYouTubeAudio()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
-        XCTAssertEqual(viewModel.youtubeDownloadCount, 0)
+        try await waitUntil { viewModel.youtubeDownloadCount == 0 }
         XCTAssertEqual(mockTranscriptionRepo.transcriptions.first?.filePath, nil)
     }
 
     // MARK: - Meeting Audio Storage
 
-    func testRefreshStatsIncludesMeetingAudioStorage() throws {
+    func testRefreshStatsIncludesMeetingAudioStorage() async throws {
         let folder = meetingRecordingsTestDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appendingPathComponent("meeting.m4a")
@@ -1146,11 +1147,11 @@ final class SettingsViewModelTests: XCTestCase {
             checkoutURL: nil
         )
 
-        XCTAssertEqual(viewModel.meetingAudioRecordingCount, 1)
+        try await waitUntil { viewModel.meetingAudioRecordingCount == 1 }
         XCTAssertGreaterThan(viewModel.meetingAudioStorageMB, 0)
     }
 
-    func testClearMeetingAudioRemovesFilesAndClearsMeetingStoredPaths() throws {
+    func testClearMeetingAudioRemovesFilesAndClearsMeetingStoredPaths() async throws {
         let folder = meetingRecordingsTestDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appendingPathComponent("meeting.m4a")
@@ -1168,7 +1169,13 @@ final class SettingsViewModelTests: XCTestCase {
             status: .completed,
             sourceType: .file
         )
-        mockTranscriptionRepo.transcriptions = [meeting, local]
+        let externalMeeting = Transcription(
+            fileName: "external meeting",
+            filePath: "/tmp/external-meeting-\(UUID().uuidString).m4a",
+            status: .completed,
+            sourceType: .meeting
+        )
+        mockTranscriptionRepo.transcriptions = [meeting, local, externalMeeting]
 
         viewModel.configure(
             permissionService: mockPermissions,
@@ -1177,15 +1184,20 @@ final class SettingsViewModelTests: XCTestCase {
             entitlementsService: entitlements,
             checkoutURL: nil
         )
+        try await waitUntil { viewModel.meetingAudioRecordingCount == 1 }
 
         viewModel.clearMeetingAudio()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: meetingRecordingsTestDir.path))
         XCTAssertNil(viewModel.storageCleanupError)
-        XCTAssertEqual(viewModel.meetingAudioRecordingCount, 0)
+        try await waitUntil { viewModel.meetingAudioRecordingCount == 0 }
         XCTAssertNil(mockTranscriptionRepo.transcriptions.first(where: { $0.id == meeting.id })?.filePath)
         XCTAssertEqual(mockTranscriptionRepo.transcriptions.first(where: { $0.id == local.id })?.filePath, local.filePath)
+        XCTAssertEqual(
+            mockTranscriptionRepo.transcriptions.first(where: { $0.id == externalMeeting.id })?.filePath,
+            externalMeeting.filePath
+        )
     }
 
     func testClearMeetingAudioLeavesStoredPathsWhenDirectoryCannotBePrepared() throws {
