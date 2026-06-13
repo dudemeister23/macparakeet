@@ -274,7 +274,7 @@ REQ-MEET-013:
 # --- v0.6 Multilingual Speech Recognition ---
 
 REQ-STT-002:
-  description: Nemotron Beta and WhisperKit are available as optional local speech recognition engines while Parakeet remains the default family; Parakeet exposes v3/v2 model selection without changing the local-first STT boundary
+  description: Nemotron Beta and WhisperKit are available as optional local speech recognition engines while Parakeet remains the default family; Parakeet exposes v3/v2 model selection without changing the local-first STT boundary; Nemotron dictation streams live partial text to the overlay and uses the streamed final transcript, falling back to recorded-file transcription when the live session cannot start, fails, drops samples, or finishes empty
   version: v0.6
   status: implemented
 

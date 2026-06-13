@@ -272,6 +272,9 @@ final class AppEnvironment {
             llmRunRepo: llmRunRepo,
             shouldUseAIFormatter: dictationAIFormatterEnabledClosure,
             aiFormatterPromptResolver: aiFormatterPromptResolver,
+            shouldAttemptLiveDictationTranscription: {
+                SpeechEnginePreference.current() == .nemotron
+            },
             markFirstDictationCompleted: { [runtimePreferences] in
                 // Fire the activation milestone exactly once, the first time a
                 // dictation ever completes on this install. `activation_window`
