@@ -330,7 +330,7 @@ REQ-TRANS-004:
   status: implemented
 
 REQ-UI-006:
-  description: A file, YouTube, or batch transcription completing plays a chime and, when MacParakeet is in the background, posts a notification banner; both are governed by one Settings toggle (default on) and the banner reuses the .alert-only authorization while the chime is delivered via SoundManager (backgrounded-safe, respects the system sound preference)
+  description: A file, media URL, podcast, or batch transcription completing plays a chime and, when MacParakeet is in the background, posts a notification banner; both are governed by one Settings toggle (default on) and the banner reuses the .alert-only authorization while the chime is delivered via SoundManager (backgrounded-safe, respects the system sound preference)
   version: v0.6
   status: implemented
 
@@ -342,6 +342,6 @@ REQ-CLI-001:
   status: implemented
 
 REQ-CLI-002:
-  description: CLI transcribe accepts multiple inputs (files, folders, YouTube URLs) and an --output-dir, writing one transcript file per input; single-input stdout behavior is preserved exactly, directories expand to their supported files, and the batch continues on per-file errors then exits non-zero with a summary if any failed
+  description: CLI transcribe accepts multiple inputs (files, folders, podcast links, and media URLs supported by yt-dlp) and an --output-dir, writing one transcript file per input; single-input stdout behavior is preserved exactly, directories expand to their supported files, and the batch continues on per-file errors then exits non-zero with a summary if any failed
   version: cli-2.5.0
   status: implemented
