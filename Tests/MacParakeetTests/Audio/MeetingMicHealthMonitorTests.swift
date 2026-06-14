@@ -5,7 +5,10 @@ final class MeetingMicHealthMonitorTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     func testMicMissingRequiresContinuousSystemConfirmation() {
-        var monitor = MeetingMicHealthMonitor(config: .init(systemActiveConfirmationSeconds: 3.0))
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            systemGapSeconds: 4.0
+        ))
 
         XCTAssertEqual(
             monitor.ingest(systemSignal: .init(isNonSilent: true), now: start),
@@ -23,7 +26,10 @@ final class MeetingMicHealthMonitorTests: XCTestCase {
     }
 
     func testSystemSilenceResetsConfirmationWindow() {
-        var monitor = MeetingMicHealthMonitor(config: .init(systemActiveConfirmationSeconds: 3.0))
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            systemGapSeconds: 4.0
+        ))
 
         XCTAssertEqual(monitor.ingest(systemSignal: .init(isNonSilent: true), now: start), [])
         XCTAssertEqual(
@@ -41,6 +47,44 @@ final class MeetingMicHealthMonitorTests: XCTestCase {
         XCTAssertEqual(
             monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(8.0)),
             [.stallSuspected(signature: .micMissing, elapsedMs: 3_000)]
+        )
+    }
+
+    func testSystemAudioGapResetsConfirmationWindow() {
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            systemGapSeconds: 2.0
+        ))
+
+        XCTAssertEqual(monitor.ingest(systemSignal: .init(isNonSilent: true), now: start), [])
+        XCTAssertEqual(
+            monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(2.5)),
+            []
+        )
+        XCTAssertEqual(
+            monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(3.5)),
+            []
+        )
+        XCTAssertEqual(
+            monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(4.5)),
+            []
+        )
+        XCTAssertEqual(
+            monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(5.5)),
+            [.stallSuspected(signature: .micMissing, elapsedMs: 3_000)]
+        )
+    }
+
+    func testSystemAudioGapPreventsSilentMicFalsePositive() {
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            systemGapSeconds: 2.0
+        ))
+
+        XCTAssertEqual(monitor.ingest(systemSignal: .init(isNonSilent: true), now: start), [])
+        XCTAssertEqual(
+            monitor.ingest(micSignal: .init(isNonSilent: false), now: start.addingTimeInterval(2.5)),
+            []
         )
     }
 
@@ -63,6 +107,35 @@ final class MeetingMicHealthMonitorTests: XCTestCase {
                 micSignal: .init(isNonSilent: false),
                 systemSignal: .init(isNonSilent: true),
                 now: start.addingTimeInterval(3.0)
+            ),
+            [.stallSuspected(signature: .micSilent, elapsedMs: 3_000)]
+        )
+    }
+
+    func testMicSilentElapsedStartsAtSystemConfirmationWindow() {
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            micGapSeconds: 10.0
+        ))
+
+        XCTAssertEqual(monitor.ingest(micSignal: .init(isNonSilent: false), now: start), [])
+
+        for offset in [10.0, 11.0, 12.0] {
+            XCTAssertEqual(
+                monitor.ingest(
+                    micSignal: .init(isNonSilent: false),
+                    systemSignal: .init(isNonSilent: true),
+                    now: start.addingTimeInterval(offset)
+                ),
+                []
+            )
+        }
+
+        XCTAssertEqual(
+            monitor.ingest(
+                micSignal: .init(isNonSilent: false),
+                systemSignal: .init(isNonSilent: true),
+                now: start.addingTimeInterval(13.0)
             ),
             [.stallSuspected(signature: .micSilent, elapsedMs: 3_000)]
         )

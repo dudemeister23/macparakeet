@@ -4,15 +4,18 @@ public struct MeetingMicHealthMonitor: Sendable {
     public struct Config: Sendable, Equatable {
         public var systemActiveConfirmationSeconds: TimeInterval
         public var micGapSeconds: TimeInterval
+        public var systemGapSeconds: TimeInterval
         public var nonSilentLevelThreshold: Float
 
         public init(
             systemActiveConfirmationSeconds: TimeInterval = 3.0,
             micGapSeconds: TimeInterval = 1.0,
+            systemGapSeconds: TimeInterval = 2.0,
             nonSilentLevelThreshold: Float = 0.02
         ) {
             self.systemActiveConfirmationSeconds = systemActiveConfirmationSeconds
             self.micGapSeconds = micGapSeconds
+            self.systemGapSeconds = systemGapSeconds
             self.nonSilentLevelThreshold = nonSilentLevelThreshold
         }
 
@@ -41,6 +44,7 @@ public struct MeetingMicHealthMonitor: Sendable {
     private let config: Config
     private var systemActiveStartedAt: Date?
     private var lastMicBufferAt: Date?
+    private var lastSystemBufferAt: Date?
     private var silentMicStartedAt: Date?
     private var lastMicWasNonSilent = false
     private var activeStallSignature: StallSignature?
@@ -52,6 +56,7 @@ public struct MeetingMicHealthMonitor: Sendable {
     public mutating func reset() {
         systemActiveStartedAt = nil
         lastMicBufferAt = nil
+        lastSystemBufferAt = nil
         silentMicStartedAt = nil
         lastMicWasNonSilent = false
         activeStallSignature = nil
@@ -64,7 +69,10 @@ public struct MeetingMicHealthMonitor: Sendable {
     ) -> [HealthEvent] {
         var events: [HealthEvent] = []
 
+        expireSystemActivityIfStale(now: now)
+
         if let systemSignal {
+            lastSystemBufferAt = now
             if systemSignal.isNonSilent {
                 if systemActiveStartedAt == nil {
                     systemActiveStartedAt = now
@@ -118,13 +126,27 @@ public struct MeetingMicHealthMonitor: Sendable {
         return nil
     }
 
+    private mutating func expireSystemActivityIfStale(now: Date) {
+        guard let lastSystemBufferAt,
+              now.timeIntervalSince(lastSystemBufferAt) >= config.systemGapSeconds
+        else {
+            return
+        }
+        systemActiveStartedAt = nil
+    }
+
     private func elapsedMs(for signature: StallSignature, now: Date) -> Int {
         let start: Date
         switch signature {
         case .micMissing:
             start = systemActiveStartedAt ?? now
         case .micSilent:
-            start = silentMicStartedAt ?? lastMicBufferAt ?? systemActiveStartedAt ?? now
+            let silenceStartedAt = silentMicStartedAt ?? lastMicBufferAt ?? systemActiveStartedAt ?? now
+            if let systemActiveStartedAt, silenceStartedAt < systemActiveStartedAt {
+                start = systemActiveStartedAt
+            } else {
+                start = silenceStartedAt
+            }
         case .micGap:
             start = lastMicBufferAt ?? systemActiveStartedAt ?? now
         }

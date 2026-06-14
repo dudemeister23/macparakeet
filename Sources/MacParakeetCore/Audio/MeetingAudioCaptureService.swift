@@ -410,6 +410,8 @@ private final class MeetingMicHealthTelemetryObserver: @unchecked Sendable {
 
         for event in events {
             guard case let .stallSuspected(signature, elapsedMs) = event else {
+                // ADR-025 Phase A emits only detection telemetry; warning and recovery
+                // surfaces consume `.recovered` in later phases.
                 continue
             }
             Telemetry.send(.micStallDetected(signature: .init(signature), elapsedMs: elapsedMs))
