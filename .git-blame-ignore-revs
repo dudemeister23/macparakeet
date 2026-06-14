@@ -11,3 +11,6 @@ f858bc873825d090480fe0ca94c2356777ea0f2f
 
 # 2026-06-14 line-ending normalization of spec/03-architecture.md (CRLF straggler -> LF)
 f0a4a85c2d98f9fbe2d2ed62c0470ca487905221
+
+# 2026-06-14 line-ending normalization of spec/adr/010-speaker-diarization.md (CRLF straggler -> LF)
+682424a4a93839e61bbe0afb5ed6d7fcc2a5be61

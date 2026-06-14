@@ -159,6 +159,13 @@ This runs a secondary CTC encoder (110M params) alongside the primary TDT encode
 
 **Note:** ASR (Parakeet TDT) and diarization (pyannote/WeSpeaker) are entirely separate model pipelines. Parakeet does NOT include diarization. Both are bundled in the FluidAudio SDK — no additional dependencies needed.
 
+> **Dependency surface (not shipped):** the pinned FluidAudio also exposes
+> streaming diarizers (`LSEENDDiarizer`, `SortformerDiarizer`) and
+> speaker-enrollment APIs. MacParakeet ships none of these — offline batch is
+> the only diarizer it uses. They are surveyed as a *future* tentative-live /
+> speaker-memory option in the ADR-010 amendment (2026-06-14) and
+> `docs/research/speaker-diarization-frontier-2026-06.md`.
+
 ---
 
 ## STT Integration

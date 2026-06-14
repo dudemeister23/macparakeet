@@ -117,7 +117,7 @@ See [00-vision.md](./00-vision.md) for positioning and market context.
 2. Microphone permission
 3. Accessibility permission
 4. Hotkey instructions (configurable trigger + Esc)
-5. Speech stack setup (Parakeet + speaker detection by default; locale-aware Whisper setup for CJK macOS languages; Nemotron remains an explicit Beta choice after setup)
+5. Speech stack setup (Parakeet; speaker detection is an opt-in Settings toggle, off by default; locale-aware Whisper setup for CJK macOS languages; Nemotron remains an explicit Beta choice after setup)
 6. Ready
 
 Meeting Recording and Calendar are opt-in and self-prompt on first use (see ADR-005 amendment, 2026-06-13).
@@ -1327,7 +1327,7 @@ new scheduling architecture.
 - Manual renaming: click speaker label to assign real name
 - Speaker colors in transcript view (visual differentiation)
 - Per-speaker analytics: speaking time, word count
-- On by default for file transcription, with a Settings toggle and CLI `--no-diarize` escape hatch
+- Off by default for file transcription (opt-in Settings toggle); the CLI follows the saved preference — `--speaker-detection on` or a speaker-count constraint forces it on, `--no-diarize` forces it off
 
 **Transcript with speakers:**
 
@@ -1388,8 +1388,8 @@ new scheduling architecture.
 - [x] Single-speaker files handled gracefully (one speaker label)
 - [x] Diarization failure is non-fatal (ASR result preserved)
 - [x] Progress shows "Identifying speakers..." headline
-- [x] Settings toggle for speaker detection (on by default, replaces planned Option-key alternate)
-- [x] CLI: `macparakeet-cli transcribe` runs diarization by default, `--no-diarize` to skip
+- [x] Settings toggle for speaker detection (off by default, replaces planned Option-key alternate)
+- [x] CLI: `macparakeet-cli transcribe` follows the saved speaker-detection preference (off by default); `--speaker-detection on` / `--speaker-count` to force on, `--no-diarize` to force off
 
 ---
 

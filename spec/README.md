@@ -45,7 +45,7 @@ These decisions are final. Do not second-guess them.
 |----------|--------|-----------|
 | Local STT | Parakeet TDT 0.6B via FluidAudio CoreML/ANE (`v3` multilingual default, `v2` English-only opt-in); Nemotron 3.5 Beta and WhisperKit optional | Parakeet gives 155x realtime and low RAM for supported languages; v2 avoids language auto-detect for English-only use; Nemotron is a fast opt-in Beta path with multilingual (default) and English-only builds; Whisper adds mature broad multilingual coverage locally |
 | Database | SQLite via GRDB | Single file, embedded, zero config |
-| Platform | macOS 14.2+ (Apple Silicon only) | FluidAudio requires Apple Silicon; Swift 6.0 |
+| Platform | macOS 14.2+ (Apple Silicon only) | FluidAudio requires Apple Silicon; Swift 6 language mode (tools-version 5.9) |
 | Business model | Current public build free/GPL/unlocked; official paid distribution/support remains possible | Originally $49 one-time (ADR-003), went free with open-source release in v0.5; retained purchase activation plumbing is future-option code |
 
 ## Architecture Decision Records (ADRs)
