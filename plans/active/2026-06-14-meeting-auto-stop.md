@@ -1,9 +1,9 @@
 # Activity-Based Meeting Auto-Stop
 
-**Status:** Proposed — not started. Implements ADR-023. Default off / opt-in behind `AppFeatures.meetingAutoStopEnabled`.
+**Status:** Implemented for Phases A+B on 2026-06-14; default off / opt-in behind `AppFeatures.meetingAutoStopEnabled = false`. Phase C remains active/deferred until ADR-024 per-process attribution exists.
 **Date:** 2026-06-14
 **ADRs:** ADR-023 (activity-based meeting auto-stop), ADR-017 (calendar auto-start — §5 deferred this), ADR-014/015/016 (meeting recording, concurrency, scheduler)
-**Requirement:** REQ-MEET-015 (v0.7, proposed)
+**Requirement:** REQ-MEET-015 (v0.7, implemented behind default-off flag)
 **Related:** ADR-024 (activity-based meeting detection — shares the activity-signal layer; Phase C consumes it)
 
 ## What this plan closes out
@@ -23,7 +23,7 @@ Both feed a **veto-able pre-stop countdown** (reusing `MeetingCountdownToastCont
 - `@MainActor MeetingAutoStopCoordinator` in the app layer (mirror of `MeetingAutoStartCoordinator`), active only while recording.
 - Recognized-app-termination signal via `NSWorkspace.didTerminateApplicationNotification` + a recognized-conferencing-app bundle-ID registry.
 - Sustained dual-channel silence signal via the existing meeting VAD / level signal.
-- Veto countdown reusing `MeetingCountdownToastController`; stop via `MeetingRecordingFlowCoordinator` with `trigger: .autoStop`.
+- Veto countdown reusing `MeetingCountdownToastController`; stop via `MeetingRecordingFlowCoordinator` with the `.autoStop` operation trigger.
 - Settings toggle (`meetingAutoStopEnabled`, default off) + `AppFeatures` flag + telemetry + website allowlist mirror.
 
 ### Out of scope
@@ -78,18 +78,18 @@ Rules: `.keepRecording` if `!isRecording || isPaused`. App-quit fires only when 
 
 ## Phased rollout
 
-### Phase A — app-quit fast path + veto countdown + settings (ships the feature for native apps)
+### Phase A — app-quit fast path + veto countdown + settings (implemented 2026-06-14)
 - **Core:** `MeetingAutoStopPolicy.swift` (+ recognized-app bundle-ID registry).
-- **App:** `Sources/MacParakeet/App/MeetingAutoStopCoordinator.swift` — snapshot running recognized apps at start; `NSWorkspace.didTerminateApplicationNotification` observer; grace clock + reversal; veto countdown; stop via `MeetingRecordingFlowCoordinator` (`trigger: .autoStop`). Wire in `AppEnvironmentConfigurer.swift`.
-- **Flow:** add `TelemetryMeetingRecordingTrigger.autoStop`.
+- **App:** `Sources/MacParakeet/App/MeetingAutoStopCoordinator.swift` — snapshot running recognized apps at start; `NSWorkspace.didTerminateApplicationNotification` observer; grace clock + reversal; veto countdown; stop via `MeetingRecordingFlowCoordinator` with the `.autoStop` operation trigger. Wire in `AppEnvironmentConfigurer.swift`.
+- **Flow:** distinguish recording-start triggers from stop operation triggers so auto-stop is attributed without becoming a recording-start source.
 - **Settings:** `meetingAutoStopEnabled` on `SettingsViewModel` (namespaced key) + `.macParakeetMeetingAutoStopDidChange` in `AppNotifications.swift` + toggle in the Meeting Recording settings card + `SettingsSearchIndex` entry.
 - **Gate:** `AppFeatures.meetingAutoStopEnabled` (default off).
 - **Telemetry:** `meeting_auto_stop_proposed/confirmed/vetoed{reason}` + `.settingChanged(setting:.meetingAutoStop)` → mirror to `macparakeet-website/functions/api/telemetry.ts` `ALLOWED_EVENTS`.
 
-### Phase B — sustained dual-channel silence signal
+### Phase B — sustained dual-channel silence signal (implemented 2026-06-14)
 - Sample mic/system silence from the existing meeting VAD/level path (`MeetingVADService` / panel `micLevel`/`systemLevel`) on a `RunLoop.common` timer; maintain `continuousSilenceSeconds`; feed the policy. Nested under the same toggle. Start with a conservative grace (~3–5 min). Prefer "no speech on either channel" (VAD) over a raw RMS threshold if reachable.
 
-### Phase C — consume ADR-024 attribution
+### Phase C — consume ADR-024 attribution (deferred)
 - When activity detection ships, use the per-process audio-attribution "call ended" signal for the app-open-but-call-ended case; deprecate raw app-quit if attribution is strictly better.
 
 ## Recognized conferencing-app registry (Phase A)
@@ -101,6 +101,6 @@ Native apps detectable by bundle ID via `NSWorkspace.shared.runningApplications`
 - Run focused, then full `swift test` before merge.
 
 ## Open questions (for the owner)
-- Default grace values (app-quit ~15–20s, silence ~3–5 min) — confirm via field tuning.
-- Veto countdown (recommended) vs silent stop — ADR-023 settles on veto; flip only on explicit direction.
-- Ship Phase A alone first (native apps), or bundle A+B? (Recommend A first — smaller, lower-risk.)
+- Default grace values settled for the validation build: 15s after app termination, 4 min continuous dual-channel quiet; confirm with field tuning before flag-on release.
+- Veto countdown is required; do not switch to silent stop without a new owner decision.
+- Phase A+B shipped together in this branch; Phase C waits for ADR-024 attribution.

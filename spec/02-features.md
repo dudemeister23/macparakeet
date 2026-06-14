@@ -1770,13 +1770,13 @@ authoritative transcript and is unchanged by this live-preview strategy.
 
 ---
 
-## v0.7 Features (Proposed — Meeting Reliability & Detection)
+## v0.7 Features (Meeting Reliability & Detection)
 
-> Status: **PROPOSAL** — designed, not implemented. See the linked ADRs and `plans/active/2026-06-14-meeting-*.md`. Each ships opt-in / flag-gated; nothing changes for existing users until a tagged release enables it.
+> Status: **MIXED** — F44 / ADR-023 auto-stop Phases A+B are implemented behind a default-off flag. F45 / ADR-024 detection and F46 / ADR-025 reliability remain proposed. Each ships opt-in / flag-gated; nothing changes for existing users until a tagged release enables it.
 
 ### F44: Activity-Based Meeting Auto-Stop
 
-> Status: **PROPOSAL** — ADR-023, REQ-MEET-015.
+> Status: **IMPLEMENTED BEHIND DEFAULT-OFF FLAG** — ADR-023 Phases A+B, REQ-MEET-015. Phase C remains deferred until ADR-024 attribution exists.
 
 **What:** Stop an active meeting recording when the meeting *actually ends*, never on a scheduled clock (calendar-driven auto-stop was withdrawn in the ADR-017 §5 amendment). The primary signal is sustained dual-channel silence — engine-agnostic across the Zoom app, a browser Meet/Teams tab, and in-person recordings; a recognized-meeting-app quit is a fast path. A stop is always preceded by a veto-able countdown ("stopping in 15s · Keep recording") and runs the identical finalize/transcribe path as a manual stop, so audio and transcript are never lost or truncated by surprise. Opt-in, default off, gated by `AppFeatures.meetingAutoStopEnabled`. Reuses the existing meeting VAD/level signal and the auto-start countdown toast.
 

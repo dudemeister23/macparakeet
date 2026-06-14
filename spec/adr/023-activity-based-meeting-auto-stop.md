@@ -1,9 +1,9 @@
 # ADR-023: Activity-Based Meeting Auto-Stop
 
-> Status: **PROPOSAL** — Not yet implemented. Default off / opt-in when it ships, gated by `AppFeatures.meetingAutoStopEnabled`.
+> Status: **IMPLEMENTED (Phases A+B, default-off)** — App-quit fast path, sustained dual-channel silence, veto countdown, settings plumbing, telemetry, and normal finalize/transcribe stop path are implemented behind `AppFeatures.meetingAutoStopEnabled = false`. Phase C remains deferred until ADR-024's attribution layer exists.
 > Date: 2026-06-14
 > Related: ADR-014 (meeting recording), ADR-015 (concurrent dictation/meeting), ADR-016 (centralized STT scheduler), ADR-017 (calendar auto-start — its §5 amendment withdrew calendar-driven auto-stop and deferred the replacement to "its own ADR"; this is that ADR), ADR-024 (activity-based meeting detection — shares the activity-signal layer)
-> Requirement: REQ-MEET-015 (v0.7, proposed)
+> Requirement: REQ-MEET-015 (v0.7, implemented behind default-off flag)
 
 ## Context
 
@@ -36,7 +36,7 @@ When a signal fires *and persists through its grace*, show a short countdown toa
 
 ### 4. Stop runs the identical finalize path as a manual stop
 
-Auto-stop calls the normal stop through `MeetingRecordingFlowCoordinator` (`trigger: .autoStop`). The recording is finalized, transcribed, and saved *exactly* as if the user clicked stop. There is **no special discard path**. Never lose data.
+Auto-stop calls the normal stop through `MeetingRecordingFlowCoordinator` with the `.autoStop` operation trigger. The recording is finalized, transcribed, and saved *exactly* as if the user clicked stop. There is **no special discard path**. Never lose data.
 
 ### 5. Opt-in, default off, one Settings toggle
 
@@ -80,7 +80,7 @@ A pure `MeetingAutoStopPolicy.evaluate(...)` in `MacParakeetCore` (mirrors `Meet
 │    ├── samples mic/system silence (MeetingVADService/levels) │
 │    ├── grace clock (+ reversal cancel)                       │
 │    ├── MeetingCountdownToastController  (veto countdown)      │
-│    └── MeetingRecordingFlowCoordinator stop(trigger:.autoStop)│
+│    └── MeetingRecordingFlowCoordinator stop(operation:.autoStop)│
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -113,7 +113,7 @@ A pure `MeetingAutoStopPolicy.evaluate(...)` in `MacParakeetCore` (mirrors `Meet
 - Recognized conferencing-app bundle-ID registry (shared with ADR-024).
 
 ### App layer (`MacParakeet`)
-- `Sources/MacParakeet/App/MeetingAutoStopCoordinator.swift` — wired in `AppEnvironmentConfigurer.swift`; reuses `MeetingCountdownToastController`; calls the flow coordinator's stop with `trigger: .autoStop` (add the enum case to `TelemetryMeetingRecordingTrigger`).
+- `Sources/MacParakeet/App/MeetingAutoStopCoordinator.swift` — wired in `AppEnvironmentConfigurer.swift`; reuses `MeetingCountdownToastController`; calls the flow coordinator's stop with the `.autoStop` operation trigger, distinct from recording-start trigger attribution.
 
 ### Settings (`MacParakeetViewModels` + UI)
 - `meetingAutoStopEnabled` on `SettingsViewModel` (namespaced UserDefaults key), posting `.macParakeetMeetingAutoStopDidChange` (add to `AppNotifications.swift`).
@@ -126,12 +126,12 @@ A pure `MeetingAutoStopPolicy.evaluate(...)` in `MacParakeetCore` (mirrors `Meet
 
 ## Phased Rollout
 
-1. **Phase A — app-quit fast path + veto countdown + settings toggle + tests.** Pure `MeetingAutoStopPolicy`, recognized-app-termination signal, veto countdown, `meetingAutoStopEnabled` toggle. Flag-gated, default off. Ships the whole feature for native conferencing apps.
-2. **Phase B — sustained dual-channel silence signal.** Adds engine-agnostic coverage (browser tabs, in-person) under the same toggle, reusing the meeting VAD/level signal.
-3. **Phase C — consume ADR-024 attribution.** Once activity detection lands, use the per-process audio-attribution "call ended" signal for the case where the recognized app stays open but the call ends; deprecate raw app-quit if attribution is strictly better.
+1. **Phase A — app-quit fast path + veto countdown + settings toggle + tests — IMPLEMENTED (2026-06-14).** Pure `MeetingAutoStopPolicy`, recognized-app-termination signal, veto countdown, `meetingAutoStopEnabled` toggle. Flag-gated, default off. Ships the whole feature for native conferencing apps once the flag flips.
+2. **Phase B — sustained dual-channel silence signal — IMPLEMENTED (2026-06-14).** Adds engine-agnostic coverage (browser tabs, in-person) under the same toggle, reusing the meeting level signal (`micLevel` / `systemLevel`) with a conservative four-minute continuous-silence grace.
+3. **Phase C — consume ADR-024 attribution — DEFERRED.** Once activity detection lands, use the per-process audio-attribution "call ended" signal for the case where the recognized app stays open but the call ends; deprecate raw app-quit if attribution is strictly better.
 
 ## Open Questions
 
-- **Default grace values:** app-quit fast path (~15–20s after termination) and silence grace (~3–5 min continuous quiet on both channels). Confirm with field tuning.
-- **Veto countdown vs silent stop:** the ADR settles on the veto countdown; flip only on explicit owner direction.
-- **App-open-but-call-ended:** when a recognized app stays open after the call ends, only silence will catch it until ADR-024's attribution layer exists. Acceptable for v1.
+- **Default grace values:** implemented at 15s after recognized-app termination and 4 min continuous quiet on both channels; tune from field telemetry before any flag-on release.
+- **Veto countdown vs silent stop:** resolved in favor of the veto countdown; do not silently stop without a new owner decision.
+- **App-open-but-call-ended:** when a recognized app stays open after the call ends, only silence will catch it until ADR-024's attribution layer exists. Acceptable for the default-off validation build.

@@ -324,7 +324,7 @@ REQ-XFORM-002:
 # --- v0.6 Calendar Auto-Start (ADR-017) ---
 
 REQ-CAL-001:
-  description: Calendar auto-start monitors EventKit calendars via adaptive polling and, per a user-selected mode (off/notify/auto-start, default off and strictly opt-in), notifies of upcoming meetings and/or auto-starts meeting recording with a pre-meeting countdown; RSVP-declined and zero-duration events are excluded and the whole surface is gated by Calendar permission and AppFeatures.calendarEnabled. Calendar-driven auto-stop was removed (ADR-017 amendment, 2026-05) — recordings stop manually; activity-based auto-stop is a future ADR
+  description: Calendar auto-start monitors EventKit calendars via adaptive polling and, per a user-selected mode (off/notify/auto-start, default off and strictly opt-in), notifies of upcoming meetings and/or auto-starts meeting recording with a pre-meeting countdown; RSVP-declined and zero-duration events are excluded and the whole surface is gated by Calendar permission and AppFeatures.calendarEnabled. Calendar-driven auto-stop was removed (ADR-017 amendment, 2026-05); the replacement is ADR-023 activity-based auto-stop, implemented separately behind a default-off flag
   version: v0.6
   status: implemented
 
@@ -364,12 +364,12 @@ REQ-CLI-002:
   version: cli-2.5.0
   status: implemented
 
-# --- v0.7 Meeting Reliability & Detection (PROPOSED) ---
+# --- v0.7 Meeting Reliability & Detection ---
 
 REQ-MEET-015:
   description: Activity-based meeting auto-stop ends an active recording when the meeting actually ends — sustained dual-channel (mic + system) silence as the primary engine-agnostic signal, recognized meeting-app termination as a fast path — always behind a veto-able pre-stop countdown that runs the normal finalize/transcribe path (never silently truncates), opt-in and default off via AppFeatures.meetingAutoStopEnabled; never calendar/clock-driven (supersedes the withdrawn ADR-017 calendar auto-stop, ADR-023)
   version: v0.7
-  status: proposed
+  status: implemented
 
 REQ-MEET-016:
   description: Activity-based meeting detection recognizes an unscheduled live meeting from metadata-only on-device signals (per-process CoreAudio audio attribution, CoreMediaIO camera activity, recognized conferencing-app/URL registry) fused so camera alone never triggers, with self-attribution exclusion and a stabilization + decline-cooldown prompt state machine, and offers to record (opt-in auto-start as a separate mode); opt-in, default off, metadata-only/local-first, gated by AppFeatures.meetingActivityDetectionEnabled (ADR-024)
