@@ -59,6 +59,7 @@ public actor MeetingAudioCaptureService {
     private let micProcessingMode: MeetingMicProcessingMode
     private let sourceModeProvider: @Sendable () -> MeetingAudioSourceMode
     private let eventSink = EventSink()
+    private let micHealthObserver: MeetingMicHealthTelemetryObserver
 
     private var systemAudioCapture: (any MeetingSystemAudioCapturing)?
     private var isCapturing = false
@@ -74,6 +75,7 @@ public actor MeetingAudioCaptureService {
         self.microphoneCapture = MicrophoneCapture(sharedStream: sharedMicStream)
         self.micProcessingMode = micProcessingMode
         self.sourceModeProvider = sourceModeProvider
+        self.micHealthObserver = MeetingMicHealthTelemetryObserver()
         self.systemAudioCaptureFactory = {
             guard #available(macOS 14.2, *) else {
                 throw MeetingAudioError.unsupportedPlatform
@@ -86,24 +88,40 @@ public actor MeetingAudioCaptureService {
         microphoneCaptureFactory: @escaping MeetingMicrophoneCaptureFactory,
         systemAudioCaptureFactory: @escaping @Sendable () throws -> any MeetingSystemAudioCapturing,
         micProcessingMode: MeetingMicProcessingMode = .raw,
-        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem }
+        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem },
+        micHealthConfig: MeetingMicHealthMonitor.Config = .default,
+        micHealthNowProvider: @escaping @Sendable () -> Date = { Date() },
+        micHealthFeatureEnabled: Bool = AppFeatures.meetingCaptureReliabilityEnabled
     ) {
         self.microphoneCapture = microphoneCaptureFactory()
         self.systemAudioCaptureFactory = systemAudioCaptureFactory
         self.micProcessingMode = micProcessingMode
         self.sourceModeProvider = sourceModeProvider
+        self.micHealthObserver = MeetingMicHealthTelemetryObserver(
+            config: micHealthConfig,
+            nowProvider: micHealthNowProvider,
+            featureEnabled: micHealthFeatureEnabled
+        )
     }
 
     init(
         microphoneCapture: any MeetingMicrophoneCapturing,
         systemAudioCaptureFactory: @escaping @Sendable () throws -> any MeetingSystemAudioCapturing,
         micProcessingMode: MeetingMicProcessingMode = .raw,
-        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem }
+        sourceModeProvider: @escaping @Sendable () -> MeetingAudioSourceMode = { .microphoneAndSystem },
+        micHealthConfig: MeetingMicHealthMonitor.Config = .default,
+        micHealthNowProvider: @escaping @Sendable () -> Date = { Date() },
+        micHealthFeatureEnabled: Bool = AppFeatures.meetingCaptureReliabilityEnabled
     ) {
         self.microphoneCapture = microphoneCapture
         self.systemAudioCaptureFactory = systemAudioCaptureFactory
         self.micProcessingMode = micProcessingMode
         self.sourceModeProvider = sourceModeProvider
+        self.micHealthObserver = MeetingMicHealthTelemetryObserver(
+            config: micHealthConfig,
+            nowProvider: micHealthNowProvider,
+            featureEnabled: micHealthFeatureEnabled
+        )
     }
 
     public var events: AsyncStream<MeetingAudioCaptureEvent> {
@@ -139,6 +157,7 @@ public actor MeetingAudioCaptureService {
         let systemCapture = try systemAudioCaptureFactory()
         let sourceMode = sourceModeOverride ?? sourceModeProvider()
         eventSink.setHandler(handler)
+        micHealthObserver.start(observing: sourceMode.capturesMicrophone)
         var microphoneStartReport: MeetingMicrophoneCaptureStartReport?
         var attemptedMicrophoneStart = false
         let systemAudioFailureEvent: @Sendable (MeetingAudioError) -> MeetingAudioCaptureEvent = { error in
@@ -165,6 +184,7 @@ public actor MeetingAudioCaptureService {
                             )
                             return
                         }
+                        self?.micHealthObserver.observeMicrophoneBuffer(copy)
                         self?.eventSink.emit(.microphoneBuffer(copy, time))
                     },
                     onStall: { [weak self] error in
@@ -187,6 +207,7 @@ public actor MeetingAudioCaptureService {
                         )
                         return
                     }
+                    self?.micHealthObserver.observeSystemBuffer(copy)
                     self?.eventSink.emit(.systemBuffer(copy, time))
                 },
                 onStall: { [weak self] error in
@@ -200,6 +221,7 @@ public actor MeetingAudioCaptureService {
             await systemCapture.stop()
             finishEventStream()
             eventSink.setHandler(nil)
+            micHealthObserver.stop()
             throw error
         }
 
@@ -225,6 +247,7 @@ public actor MeetingAudioCaptureService {
         eventContinuation?.finish()
         finishEventStream()
         eventSink.setHandler(nil)
+        micHealthObserver.stop()
         logger.info("Meeting audio capture stopped")
     }
 
@@ -325,6 +348,72 @@ private final class EventSink: @unchecked Sendable {
     func emit(_ event: MeetingAudioCaptureEvent) {
         let currentHandler = lock.withLock { handler }
         currentHandler?(event)
+    }
+}
+
+private final class MeetingMicHealthTelemetryObserver: @unchecked Sendable {
+    private let lock = NSLock()
+    private let config: MeetingMicHealthMonitor.Config
+    private let nowProvider: @Sendable () -> Date
+    private let featureEnabled: Bool
+    private var monitor: MeetingMicHealthMonitor
+    private var isObserving = false
+
+    init(
+        config: MeetingMicHealthMonitor.Config = .default,
+        nowProvider: @escaping @Sendable () -> Date = { Date() },
+        featureEnabled: Bool = AppFeatures.meetingCaptureReliabilityEnabled
+    ) {
+        self.config = config
+        self.nowProvider = nowProvider
+        self.featureEnabled = featureEnabled
+        self.monitor = MeetingMicHealthMonitor(config: config)
+    }
+
+    func start(observing sourceIncludesMicrophone: Bool) {
+        lock.withLock {
+            monitor = MeetingMicHealthMonitor(config: config)
+            isObserving = featureEnabled && sourceIncludesMicrophone
+        }
+    }
+
+    func stop() {
+        lock.withLock {
+            monitor.reset()
+            isObserving = false
+        }
+    }
+
+    func observeMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
+        observe(
+            micSignal: .init(isNonSilent: buffer.rmsLevel >= config.nonSilentLevelThreshold),
+            systemSignal: nil
+        )
+    }
+
+    func observeSystemBuffer(_ buffer: AVAudioPCMBuffer) {
+        observe(
+            micSignal: nil,
+            systemSignal: .init(isNonSilent: buffer.rmsLevel >= config.nonSilentLevelThreshold)
+        )
+    }
+
+    private func observe(
+        micSignal: MeetingMicHealthMonitor.AudioSignal?,
+        systemSignal: MeetingMicHealthMonitor.AudioSignal?
+    ) {
+        let now = nowProvider()
+        let events = lock.withLock {
+            guard isObserving else { return [MeetingMicHealthMonitor.HealthEvent]() }
+            return monitor.ingest(micSignal: micSignal, systemSignal: systemSignal, now: now)
+        }
+
+        for event in events {
+            guard case let .stallSuspected(signature, elapsedMs) = event else {
+                continue
+            }
+            Telemetry.send(.micStallDetected(signature: .init(signature), elapsedMs: elapsedMs))
+        }
     }
 }
 

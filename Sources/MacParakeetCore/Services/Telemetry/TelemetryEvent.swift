@@ -110,6 +110,7 @@ public enum TelemetryEventName: String, Sendable, CaseIterable {
     case meetingAutoStopProposed = "meeting_auto_stop_proposed"
     case meetingAutoStopConfirmed = "meeting_auto_stop_confirmed"
     case meetingAutoStopVetoed = "meeting_auto_stop_vetoed"
+    case micStallDetected = "mic_stall_detected"
     /// Universal launch-time Silero VAD model prep for VAD-guided meeting live
     /// chunking (`plans/completed/2026-05-meeting-vad-guided-live-chunking.md` §6).
     /// Confirms the installed base actually acquires the model once the feature
@@ -394,6 +395,23 @@ public enum TelemetryMeetingOperationTrigger: String, Sendable, Equatable {
 public enum TelemetryMeetingAutoStopReason: String, Sendable, Equatable {
     case meetingAppClosed = "meeting_app_closed"
     case prolongedSilence = "prolonged_silence"
+}
+
+public enum TelemetryMicStallSignature: String, Sendable, Equatable {
+    case micMissing = "mic_missing"
+    case micSilent = "mic_silent"
+    case micGap = "mic_gap"
+
+    public init(_ signature: MeetingMicHealthMonitor.StallSignature) {
+        switch signature {
+        case .micMissing:
+            self = .micMissing
+        case .micSilent:
+            self = .micSilent
+        case .micGap:
+            self = .micGap
+        }
+    }
 }
 
 public enum TelemetryMeetingOperationStage: String, Sendable, Equatable {
@@ -805,6 +823,7 @@ public enum TelemetryEventSpec: Sendable {
     case meetingAutoStopProposed(reason: TelemetryMeetingAutoStopReason)
     case meetingAutoStopConfirmed(reason: TelemetryMeetingAutoStopReason)
     case meetingAutoStopVetoed(reason: TelemetryMeetingAutoStopReason)
+    case micStallDetected(signature: TelemetryMicStallSignature, elapsedMs: Int)
     /// Launch-time VAD model prep outcome (Phase 4.5). Only `.prepared` /
     /// `.failed` are ever sent — see `TelemetryVADModelPrepOutcome`.
     case vadModelPrep(outcome: TelemetryVADModelPrepOutcome)
@@ -958,6 +977,7 @@ extension TelemetryEventSpec {
         case .meetingAutoStopProposed: return .meetingAutoStopProposed
         case .meetingAutoStopConfirmed: return .meetingAutoStopConfirmed
         case .meetingAutoStopVetoed: return .meetingAutoStopVetoed
+        case .micStallDetected: return .micStallDetected
         case .vadModelPrep: return .vadModelPrep
         case .calendarReminderShown: return .calendarReminderShown
         case .calendarAutoStartTriggered: return .calendarAutoStartTriggered
@@ -1532,6 +1552,11 @@ extension TelemetryEventSpec {
              .meetingAutoStopConfirmed(let reason),
              .meetingAutoStopVetoed(let reason):
             return ["reason": reason.rawValue]
+        case .micStallDetected(let signature, let elapsedMs):
+            return [
+                "signature": signature.rawValue,
+                "elapsed_ms": "\(max(0, elapsedMs))",
+            ]
         case .vadModelPrep(let outcome):
             return ["outcome": outcome.rawValue]
         case .calendarReminderShown(let mode, let leadMinutes, let hasMeetUrl):
@@ -1775,6 +1800,7 @@ public enum TelemetryImplementedContract {
         .meetingAutoStopProposed: ["reason"],
         .meetingAutoStopConfirmed: ["reason"],
         .meetingAutoStopVetoed: ["reason"],
+        .micStallDetected: ["signature", "elapsed_ms"],
         .vadModelPrep: ["outcome"],
         .calendarReminderShown: ["mode", "lead_minutes", "has_meet_url"],
         .calendarAutoStartTriggered: ["lead_seconds", "has_meet_url"],

@@ -1,9 +1,9 @@
 # ADR-025: Meeting capture reliability — mic-health watchdog + post-stop coverage repair
 
-> Status: **PROPOSAL**
+> Status: **PARTIAL IMPLEMENTATION** — Phase A mic-health detection telemetry implemented behind default-on `AppFeatures.meetingCaptureReliabilityEnabled`; warning UI, live recovery, and coverage repair remain proposed.
 > Date: 2026-06-14
 > Related: ADR-014 (meeting recording via ScreenCaptureKit system audio), ADR-015 (concurrent dictation/meeting), ADR-016 (centralized STT runtime + two-slot scheduler), ADR-019 (crash-resilient meeting recording)
-> Requirements: REQ-MEET-017 (mic-health watchdog), REQ-MEET-018 (post-stop coverage-based transcript repair) — v0.7, proposed
+> Requirements: REQ-MEET-017 Phase A implemented; REQ-MEET-018 proposed
 
 ## Context
 
@@ -386,7 +386,7 @@ Add the new `TelemetryEventName` cases in
 Each phase is independently shippable and additive. Earlier phases
 deliver value without later ones.
 
-1. **Phase A — Mic-health detection core (detection-only).** Pure
+1. **Phase A — Mic-health detection core (detection-only; implemented 2026-06-14).** Pure
    `MeetingMicHealthMonitor` with the three signatures + ~3 s
    confirmation gate, table tests, and the `MeetingAudioCaptureService`
    wiring that feeds liveness signals. Emits `mic_stall_detected`

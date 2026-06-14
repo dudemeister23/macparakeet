@@ -30,6 +30,14 @@ public enum AppFeatures {
     /// active. Default off until field validation proves the trust posture.
     public static let meetingAutoStopEnabled: Bool = false
 
+    /// Meeting capture reliability watchdog (ADR-025 Phase A). When `true`,
+    /// meeting capture observes metadata-only microphone/system buffer liveness
+    /// and emits `mic_stall_detected` telemetry for confirmed mic-health
+    /// stalls. This does not stop, truncate, repair, or discard recordings.
+    /// Keep this default-on reliability path behind a kill switch while repair
+    /// phases are still being validated.
+    public static let meetingCaptureReliabilityEnabled: Bool = true
+
     /// Transforms — productized Phase 2 (ADR-022). When `true`:
     /// - the Transforms tab appears in the main sidebar
     /// - `TransformsHotkeyRegistry` installs its event tap on launch

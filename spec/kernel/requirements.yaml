@@ -377,9 +377,9 @@ REQ-MEET-016:
   status: proposed
 
 REQ-MEET-017:
-  description: Meeting mic-health watchdog treats the system-audio stream as the liveness oracle and detects a stalled, all-zero, or missing microphone (three signatures) after a short confirmation window, surfacing a non-blocking warning plus telemetry; detection-first with auto-recovery deferred behind a confirmed-signature gate (ADR-025)
+  description: Meeting mic-health watchdog treats the system-audio stream as the liveness oracle and detects a stalled, all-zero, or missing microphone (three signatures) after a short confirmation window, emitting privacy-safe telemetry once per confirmed stall behind AppFeatures.meetingCaptureReliabilityEnabled; warning UI and auto-recovery remain deferred behind confirmed field signatures (ADR-025 Phase A)
   version: v0.7
-  status: proposed
+  status: implemented
 
 REQ-MEET-018:
   description: Post-stop meeting transcript coverage repair runs an offline VAD pass over the retained audio, measures live-transcript speech coverage, and re-transcribes only missed speech regions on the ADR-016 background slot (accept → selective-repair → full-fallback ladder), adding a completeness stage without changing per-chunk transcription (refines REQ-MEET-013, ADR-025)

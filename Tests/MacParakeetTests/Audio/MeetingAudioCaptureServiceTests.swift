@@ -17,6 +17,54 @@ private final class FactoryInvocationBox: @unchecked Sendable {
     }
 }
 
+private final class MutableDateProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+
+    init(_ current: Date) {
+        self.current = current
+    }
+
+    func value() -> Date {
+        lock.withLock { current }
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.withLock {
+            current = current.addingTimeInterval(seconds)
+        }
+    }
+}
+
+private final class MeetingAudioTelemetrySpy: TelemetryServiceProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [TelemetryEventSpec] = []
+
+    func send(_ event: TelemetryEventSpec) {
+        lock.withLock {
+            events.append(event)
+        }
+    }
+
+    func sendAndFlush(_ event: TelemetryEventSpec) async -> Bool {
+        send(event)
+        return true
+    }
+
+    func clearQueue() {
+        lock.withLock {
+            events.removeAll()
+        }
+    }
+
+    func flush() async {}
+    func flushForTermination() {}
+
+    func snapshot() -> [TelemetryEventSpec] {
+        lock.withLock { events }
+    }
+}
+
 final class MeetingAudioCaptureServiceTests: XCTestCase {
     func testFactoryInitUsesInjectedMicrophoneFactory() {
         let microphone = MockMeetingMicrophoneCapture()
@@ -165,6 +213,90 @@ final class MeetingAudioCaptureServiceTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Timed out waiting for system-only capture events")
+    }
+
+    func testMicHealthTelemetryReportsMissingMicOnce() async throws {
+        let microphone = MockMeetingMicrophoneCapture()
+        let systemCapture = MockMeetingSystemAudioCapture()
+        let telemetry = MeetingAudioTelemetrySpy()
+        Telemetry.configure(telemetry)
+        defer { Telemetry.configure(NoOpTelemetryService()) }
+
+        let now = MutableDateProvider(Date(timeIntervalSince1970: 1_800_000_000))
+        let service = MeetingAudioCaptureService(
+            microphoneCapture: microphone,
+            systemAudioCaptureFactory: { systemCapture },
+            micHealthConfig: .init(systemActiveConfirmationSeconds: 0),
+            micHealthNowProvider: { now.value() }
+        )
+
+        _ = try await service.start()
+        defer { Task { await service.stop() } }
+
+        let buffer = try XCTUnwrap(makeInterleavedFloatStereoBuffer(
+            sampleRate: 48_000,
+            samples: [0.25, 0.25, 0.25, 0.25]
+        ))
+        systemCapture.emit(buffer: buffer, time: AVAudioTime(hostTime: 1))
+        now.advance(by: 5)
+        systemCapture.emit(buffer: buffer, time: AVAudioTime(hostTime: 2))
+
+        let events = telemetry.snapshot().filter { $0.name == .micStallDetected }
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.props?["signature"], "mic_missing")
+        XCTAssertEqual(events.first?.props?["elapsed_ms"], "0")
+    }
+
+    func testMicHealthTelemetryDoesNotRunInSystemOnlyMode() async throws {
+        let microphone = MockMeetingMicrophoneCapture()
+        let systemCapture = MockMeetingSystemAudioCapture()
+        let telemetry = MeetingAudioTelemetrySpy()
+        Telemetry.configure(telemetry)
+        defer { Telemetry.configure(NoOpTelemetryService()) }
+
+        let service = MeetingAudioCaptureService(
+            microphoneCapture: microphone,
+            systemAudioCaptureFactory: { systemCapture },
+            sourceModeProvider: { .systemOnly },
+            micHealthConfig: .init(systemActiveConfirmationSeconds: 0)
+        )
+
+        _ = try await service.start()
+        defer { Task { await service.stop() } }
+
+        let buffer = try XCTUnwrap(makeInterleavedFloatStereoBuffer(
+            sampleRate: 48_000,
+            samples: [0.25, 0.25, 0.25, 0.25]
+        ))
+        systemCapture.emit(buffer: buffer, time: AVAudioTime(hostTime: 1))
+
+        XCTAssertFalse(telemetry.snapshot().contains { $0.name == .micStallDetected })
+    }
+
+    func testMicHealthTelemetryRespectsKillSwitch() async throws {
+        let microphone = MockMeetingMicrophoneCapture()
+        let systemCapture = MockMeetingSystemAudioCapture()
+        let telemetry = MeetingAudioTelemetrySpy()
+        Telemetry.configure(telemetry)
+        defer { Telemetry.configure(NoOpTelemetryService()) }
+
+        let service = MeetingAudioCaptureService(
+            microphoneCapture: microphone,
+            systemAudioCaptureFactory: { systemCapture },
+            micHealthConfig: .init(systemActiveConfirmationSeconds: 0),
+            micHealthFeatureEnabled: false
+        )
+
+        _ = try await service.start()
+        defer { Task { await service.stop() } }
+
+        let buffer = try XCTUnwrap(makeInterleavedFloatStereoBuffer(
+            sampleRate: 48_000,
+            samples: [0.25, 0.25, 0.25, 0.25]
+        ))
+        systemCapture.emit(buffer: buffer, time: AVAudioTime(hostTime: 1))
+
+        XCTAssertFalse(telemetry.snapshot().contains { $0.name == .micStallDetected })
     }
 
     func testEmitsRuntimeErrorEventWhenMicrophoneStalls() async throws {

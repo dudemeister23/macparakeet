@@ -1772,7 +1772,7 @@ authoritative transcript and is unchanged by this live-preview strategy.
 
 ## v0.7 Features (Meeting Reliability & Detection)
 
-> Status: **MIXED** — F44 / ADR-023 auto-stop Phases A+B are implemented behind a default-off flag. F45 / ADR-024 detection and F46 / ADR-025 reliability remain proposed. Each ships opt-in / flag-gated; nothing changes for existing users until a tagged release enables it.
+> Status: **MIXED** — F44 / ADR-023 auto-stop Phases A+B are implemented behind a default-off flag. F46 / ADR-025 reliability Phase A is implemented behind a default-on kill-switch with telemetry only. F45 / ADR-024 detection and the remaining ADR-025 warning/repair phases remain proposed. User-visible meeting automation stays opt-in / flag-gated.
 
 ### F44: Activity-Based Meeting Auto-Stop
 
@@ -1788,9 +1788,9 @@ authoritative transcript and is unchanged by this live-preview strategy.
 
 ### F46: Meeting Capture Reliability — Mic-Health Watchdog + Coverage Repair
 
-> Status: **PROPOSAL** — ADR-025, REQ-MEET-017 / REQ-MEET-018.
+> Status: **PARTIAL IMPLEMENTATION** — ADR-025 Phase A implements REQ-MEET-017 detection-only telemetry behind `AppFeatures.meetingCaptureReliabilityEnabled = true`. Warning UI, live recovery, and REQ-MEET-018 coverage repair remain proposed.
 
-**What:** Two hardening measures for meeting capture. (1) A **mic-health watchdog** treats the system-audio stream as the liveness oracle: if "Others" are clearly talking but the microphone delivers nothing / all-zero / a stalled gap, it surfaces a gentle "may be missing your side" warning plus telemetry (detection-first; auto-recovery deferred behind a confirmed-signature gate, consistent with the dictation silent-stall work). (2) A **post-stop coverage repair** runs an offline VAD pass over the retained audio, measures how much detected speech the live transcript covered, and re-transcribes only the missed regions on the ADR-016 background slot — turning live preview from "best-effort, lossy on drop" into a guaranteed-complete final transcript. Refines REQ-MEET-013 (adds a completeness stage; per-chunk transcription is unchanged).
+**What:** Two hardening measures for meeting capture. (1) A **mic-health watchdog** treats the system-audio stream as the liveness oracle: if "Others" are clearly talking but the microphone delivers nothing / all-zero / a stalled gap, Phase A emits privacy-safe `mic_stall_detected` telemetry exactly once per confirmed stall and does not change recording behavior; the gentle "may be missing your side" warning and auto-recovery remain deferred behind confirmed field signatures. (2) A **post-stop coverage repair** runs an offline VAD pass over the retained audio, measures how much detected speech the live transcript covered, and re-transcribes only the missed regions on the ADR-016 background slot — turning live preview from "best-effort, lossy on drop" into a guaranteed-complete final transcript. Refines REQ-MEET-013 (adds a completeness stage; per-chunk transcription is unchanged).
 
 ---
 

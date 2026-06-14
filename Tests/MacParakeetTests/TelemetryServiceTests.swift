@@ -1154,6 +1154,22 @@ final class TelemetryServiceTests: XCTestCase {
         }
     }
 
+    func testMicStallDetectedSerializesSignatureAndElapsedTime() {
+        let event = TelemetryEvent(
+            spec: .micStallDetected(signature: .micSilent, elapsedMs: 3_250),
+            appVer: "0.6.9",
+            osVer: "15.4",
+            locale: "en-US",
+            chip: "Apple M4",
+            session: "session"
+        )
+
+        XCTAssertEqual(event.event, "mic_stall_detected")
+        XCTAssertEqual(event.props?["signature"], "mic_silent")
+        XCTAssertEqual(event.props?["elapsed_ms"], "3250")
+        XCTAssertEqual(Set(event.props?.keys ?? Dictionary<String, String>().keys), ["signature", "elapsed_ms"])
+    }
+
     func testFeedbackOperationSerializesAttachmentFlags() {
         let event = TelemetryEvent(
             spec: .feedbackOperation(
@@ -1541,6 +1557,7 @@ final class TelemetryServiceTests: XCTestCase {
             .meetingAutoStopProposed(reason: .meetingAppClosed),
             .meetingAutoStopConfirmed(reason: .meetingAppClosed),
             .meetingAutoStopVetoed(reason: .prolongedSilence),
+            .micStallDetected(signature: .micMissing, elapsedMs: 3_000),
             .vadModelPrep(outcome: .prepared),
             .errorOccurred(domain: "STTError", code: "engineFailed", description: "test"),
             .crashOccurred(

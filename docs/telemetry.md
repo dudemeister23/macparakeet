@@ -411,6 +411,16 @@ does not use `auto_stop` because auto-stop only affects the stop/finalize path.
 | `meeting_auto_stop_confirmed` | `reason` (`meeting_app_closed`, `prolonged_silence`) | How often the countdown completed and stopped through the normal finalize path |
 | `meeting_auto_stop_vetoed` | `reason` (`meeting_app_closed`, `prolonged_silence`) | Which signals users overrode with "Keep recording" |
 
+### 5d. Meeting Capture Reliability — "Does the mic-health watchdog catch silent stalls?"
+
+> ADR-025 Phase A is implemented behind
+> `AppFeatures.meetingCaptureReliabilityEnabled = true`. It is detection-only:
+> no audio/transcript content, no UI yet, and no recording behavior change.
+
+| Event | Props | Question It Answers |
+|---|---|---|
+| `mic_stall_detected` | `signature` (`mic_missing`, `mic_silent`, `mic_gap`), `elapsed_ms` | Which confirmed mic-health failure pattern occurred while system audio was active, and how long the coarse stall signal had persisted |
+
 ### 6. Licensing — "Is the business working?"
 
 > Note: App is now free/GPL-3.0. The licensing enum cases are intentionally

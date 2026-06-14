@@ -78,7 +78,7 @@ All ADRs live in `spec/adr/`. These are locked -- they record decisions already 
 | [ADR-022](adr/022-transforms-system-wide-rewrite.md) | Transforms — system-wide LLM rewrites on selected text (implemented 2026-05-13) |
 | [ADR-023](adr/023-activity-based-meeting-auto-stop.md) | Activity-based meeting auto-stop (silence + app-quit signals, veto countdown; Phases A+B implemented behind default-off flag — replaces withdrawn ADR-017 calendar auto-stop) |
 | [ADR-024](adr/024-activity-based-meeting-detection.md) | Activity-based meeting detection (per-process audio + camera + app signal fusion; proposed) |
-| [ADR-025](adr/025-meeting-capture-reliability.md) | Meeting capture reliability — mic-health watchdog + post-stop coverage repair (proposed) |
+| [ADR-025](adr/025-meeting-capture-reliability.md) | Meeting capture reliability — mic-health watchdog + post-stop coverage repair (Phase A mic-health telemetry watchdog implemented; warning UI + repair proposed) |
 
 ## Version Roadmap
 

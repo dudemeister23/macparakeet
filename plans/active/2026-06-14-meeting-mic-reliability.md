@@ -1,9 +1,9 @@
 # Meeting capture reliability — mic-health watchdog + post-stop coverage repair
 
-**Status:** PROPOSED — not started. All phases unimplemented.
+**Status:** IN PROGRESS — Phase A implemented 2026-06-14 (detection-only mic-health telemetry); warning UI and coverage repair remain unimplemented.
 **Date:** 2026-06-14
 **ADRs:** ADR-025 (meeting capture reliability), ADR-014 (meeting recording), ADR-015 (concurrent dictation/meeting), ADR-016 (centralized STT runtime + two-slot scheduler), ADR-019 (crash-resilient meeting recording)
-**Requirements:** REQ-MEET-017 (mic-health watchdog), REQ-MEET-018 (post-stop coverage-based transcript repair) — v0.7, proposed
+**Requirements:** REQ-MEET-017 (mic-health watchdog) — Phase A implemented; REQ-MEET-018 (post-stop coverage-based transcript repair) — proposed
 **Sibling work:** `plans/active/2026-05-dictation-stall-integration-tests.md`, `plans/active/2026-06-onboarding-stall-watchdog-test.md` — this is the meeting-side counterpart to the dictation silent-stall hardening; stay consistent, don't duplicate.
 
 ## What this plan closes out
@@ -50,7 +50,7 @@ REQ-MEET-013 says VAD-guided live chunking leaves "final post-stop transcription
 
 ## Phased rollout
 
-### Phase A — Mic-health detection core (detection-only)
+### Phase A — Mic-health detection core (detection-only) — implemented 2026-06-14
 
 Pure monitor + signals wiring + telemetry. **No UI, no recovery.** Instrumentation-only, to confirm the stall signature in the field before acting on it — mirroring PR #210's passive-instrumentation-first discipline on the dictation side.
 
@@ -138,14 +138,14 @@ The completeness-repair stage. Pure planner + offline VAD + selective re-transcr
 ## Done criteria
 
 - [ ] `MeetingMicHealthMonitor` + `MeetingTranscriptCoverageRepair` are pure, table-tested, and pass in the normal suite
-- [ ] Mic stall (system active) emits one correctly-tagged `mic_stall_detected`; genuine quiet emits nothing
+- [x] Mic stall (system active) emits one correctly-tagged `mic_stall_detected`; genuine quiet emits nothing
 - [ ] Confirmed stall shows the gentle non-blocking warning on panel + pill; recording continues
 - [ ] Selective repair re-transcribes only uncovered gaps on the background slot; healthy meetings stay `.accept` and byte-identical
 - [ ] Full-fallback tier handles systemic failure; crash-recovered sessions get coverage repair
 - [ ] Original live transcript + retained `.m4a` never destroyed by repair
 - [ ] Both telemetry events mirrored in `macparakeet-website/functions/api/telemetry.ts` and deployed before flag-on
-- [ ] REQ-MEET-013 wording narrowed; REQ-MEET-017/018 status updated by the coordinator
-- [ ] `swift test` exits 0; docs/spec progress updated (`spec/README.md`, `spec/02-features.md`)
+- [x] REQ-MEET-017 Phase A status updated by the coordinator; REQ-MEET-013 narrowing and REQ-MEET-018 status remain for Phase C
+- [x] `swift test` exits 0; docs/spec progress updated (`spec/README.md`, `spec/02-features.md`)
 - [ ] Plan archived to `plans/completed/` on completion
 
 ## Open questions
