@@ -72,6 +72,15 @@ private struct LiveDictationTranscriptionState: Sendable {
     }
 }
 
+private struct DictationDisplayPreviewState: Sendable {
+    let dictationSessionID: Int
+    let previewSessionID: UUID
+    let sampleContinuation: AsyncStream<[Float]>.Continuation
+    let task: Task<Void, Never>
+}
+
+private typealias DictationPreviewDrainGate = OneShotVoidContinuation
+
 public enum AIFormatterAppContextPhase: Sendable {
     case start
     case finish
@@ -106,8 +115,13 @@ public actor DictationService: DictationServiceProtocol {
     private let shouldUseAIFormatter: @Sendable () -> Bool
     private let aiFormatterPromptResolver: any AIFormatterPromptResolving
     private let shouldAttemptLiveDictationTranscription: @Sendable () -> Bool
+    private let shouldShowDictationPreview: @Sendable () -> Bool
+    private let dictationPreviewSpeechEngine: @Sendable () -> SpeechEngineSelection?
     private let markFirstDictationCompleted: (@Sendable () -> Void)?
     private let cancelWindow: Duration
+    private let dictationPreviewInterval: Duration
+    private let dictationPreviewCancellationTimeout: Duration
+    private let dictationPreviewWindowSampleCount: Int
 
     private var _state: DictationState = .idle
     private var cancelResetTask: Task<Void, Never>?
@@ -121,6 +135,7 @@ public actor DictationService: DictationServiceProtocol {
     private var currentAIFormatterStartContext: AppPromptContext?
     private var currentAIFormatterFinishContext: AppPromptContext?
     private var liveTranscriptionState: LiveDictationTranscriptionState?
+    private var displayPreviewState: DictationDisplayPreviewState?
     private var liveTranscriptText: String = ""
     private var activeSessionID: Int = 0
     private var cancellationRequestedDuringStartSessionID: Int?
@@ -156,8 +171,13 @@ public actor DictationService: DictationServiceProtocol {
         aiFormatterPromptTemplate: (@Sendable () -> String)? = nil,
         aiFormatterPromptResolver: (any AIFormatterPromptResolving)? = nil,
         shouldAttemptLiveDictationTranscription: (@Sendable () -> Bool)? = nil,
+        shouldShowDictationPreview: (@Sendable () -> Bool)? = nil,
+        dictationPreviewSpeechEngine: (@Sendable () -> SpeechEngineSelection?)? = nil,
         markFirstDictationCompleted: (@Sendable () -> Void)? = nil,
-        cancelWindow: Duration = .seconds(5)
+        cancelWindow: Duration = .seconds(5),
+        dictationPreviewInterval: Duration = .seconds(1),
+        dictationPreviewCancellationTimeout: Duration = .seconds(2),
+        dictationPreviewWindowSeconds: Double = 15
     ) {
         self.audioProcessor = audioProcessor
         self.sttTranscriber = sttTranscriber
@@ -178,8 +198,13 @@ public actor DictationService: DictationServiceProtocol {
         self.aiFormatterPromptResolver = aiFormatterPromptResolver
             ?? AIFormatterGlobalPromptResolver(promptTemplate: promptTemplate)
         self.shouldAttemptLiveDictationTranscription = shouldAttemptLiveDictationTranscription ?? { false }
+        self.shouldShowDictationPreview = shouldShowDictationPreview ?? { true }
+        self.dictationPreviewSpeechEngine = dictationPreviewSpeechEngine ?? { nil }
         self.markFirstDictationCompleted = markFirstDictationCompleted
         self.cancelWindow = cancelWindow
+        self.dictationPreviewInterval = dictationPreviewInterval
+        self.dictationPreviewCancellationTimeout = dictationPreviewCancellationTimeout
+        self.dictationPreviewWindowSampleCount = max(1, Int((dictationPreviewWindowSeconds * 16_000).rounded()))
     }
 
     public func startRecording(context: DictationTelemetryContext = DictationTelemetryContext()) async throws {
@@ -253,6 +278,7 @@ public actor DictationService: DictationServiceProtocol {
                 "startRecording replacing stale recording old=\(self.activeSessionID) new=\(sessionID!, privacy: .public)"
             )
             await cancelLiveDictationTranscription(sessionID: activeSessionID)
+            await cancelDisplayPreview(sessionID: activeSessionID, clearText: true)
             if await audioProcessor.isRecording,
                let url = try? await audioProcessor.stopCapture() {
                 try? FileManager.default.removeItem(at: url)
@@ -287,8 +313,10 @@ public actor DictationService: DictationServiceProtocol {
         let liveSampleSink = await beginLiveDictationTranscriptionIfAvailable(
             sessionID: requestedSessionID
         )
+        let previewSampleSink = beginDisplayPreviewIfAvailable(sessionID: requestedSessionID)
+        let sampleSink = Self.combinedSampleSink(liveSampleSink, previewSampleSink)
         do {
-            try await audioProcessor.startCapture(sampleSink: liveSampleSink)
+            try await audioProcessor.startCapture(sampleSink: sampleSink)
             // Guard against reentrancy: cancel or replacement may have run during the await above.
             if cancellationRequestedDuringStartSessionID == requestedSessionID {
                 cancellationRequestedDuringStartSessionID = nil
@@ -310,6 +338,7 @@ public actor DictationService: DictationServiceProtocol {
                     recordingStartedAt = nil
                 }
                 await cancelLiveDictationTranscription(sessionID: requestedSessionID)
+                await cancelDisplayPreview(sessionID: requestedSessionID, clearText: true)
                 logger.notice(
                     "dictation_start_aborted session=\(requestedSessionID, privacy: .public) active_session=\(activeAtStartCompletion, privacy: .public) state=\(self.debugStateLabel(self._state), privacy: .public)"
                 )
@@ -323,6 +352,7 @@ public actor DictationService: DictationServiceProtocol {
             let activeAtFailure = activeSessionID
             guard activeAtFailure == requestedSessionID else {
                 await cancelLiveDictationTranscription(sessionID: requestedSessionID)
+                await cancelDisplayPreview(sessionID: requestedSessionID, clearText: true)
                 logger.notice(
                     "startRecording stale failure ignored session=\(requestedSessionID) active=\(activeAtFailure) error=\(error.localizedDescription, privacy: .public)"
                 )
@@ -333,6 +363,7 @@ public actor DictationService: DictationServiceProtocol {
                 cancellationRequestedDuringStartSessionID = nil
             }
             await cancelLiveDictationTranscription(sessionID: requestedSessionID)
+            await cancelDisplayPreview(sessionID: requestedSessionID, clearText: true)
             if Self.isInterruptedDuringSubscribe(error), cancellationRequestedDuringStart {
                 if cancellationRequestedDuringStart, case .recording = _state {
                     _state = .cancelled
@@ -398,6 +429,7 @@ public actor DictationService: DictationServiceProtocol {
         do {
             let audioURL = try await audioProcessor.stopCapture()
             let device = await audioProcessor.recordingDeviceInfo
+            await cancelDisplayPreview(sessionID: currentSession, clearText: false)
             let liveResult = await finishLiveDictationTranscription(sessionID: currentSession)
             logger.debug(
                 "dictation_capture_stopped session=\(currentSession, privacy: .public) path=\(audioURL.path, privacy: .private)"
@@ -447,6 +479,7 @@ public actor DictationService: DictationServiceProtocol {
             clearCurrentOperation()
             return result
         } catch {
+            await cancelDisplayPreview(sessionID: currentSession, clearText: true)
             await cancelLiveDictationTranscription(sessionID: currentSession)
             // Snapshot device before setting state to .idle — prevents reentrancy
             // window where a new startRecording() could overwrite the device info.
@@ -509,6 +542,8 @@ public actor DictationService: DictationServiceProtocol {
         if let state = liveTranscriptionState, state.dictationSessionID == activeSessionID {
             state.markDegraded(reason: "preroll_discarded")
         }
+        liveTranscriptText = ""
+        await cancelDisplayPreview(sessionID: activeSessionID, clearText: true)
         await audioProcessor.discardPreRollForActiveCapture()
     }
 
@@ -534,6 +569,7 @@ public actor DictationService: DictationServiceProtocol {
         pendingCancelReason = reason
         cancellationRequestedDuringStartSessionID = activeSessionID
         await cancelLiveDictationTranscription(sessionID: activeSessionID)
+        await cancelDisplayPreview(sessionID: activeSessionID, clearText: true)
         let audioURL = try? await audioProcessor.stopCapture()
         let device = await audioProcessor.recordingDeviceInfo
         pendingCancelledAudioURL = audioURL
@@ -570,6 +606,7 @@ public actor DictationService: DictationServiceProtocol {
         if case .recording = _state {
             cancellationRequestedDuringStartSessionID = activeSessionID
             await cancelLiveDictationTranscription(sessionID: activeSessionID)
+            await cancelDisplayPreview(sessionID: activeSessionID, clearText: true)
             if let url = try? await audioProcessor.stopCapture() {
                 try? FileManager.default.removeItem(at: url)
             }
@@ -821,12 +858,154 @@ public actor DictationService: DictationServiceProtocol {
         }
     }
 
+    private func beginDisplayPreviewIfAvailable(sessionID: Int) -> DictationAudioSampleSink? {
+        guard shouldShowDictationPreview() else { return nil }
+        guard displayPreviewState == nil else { return nil }
+        guard let previewTranscriber = sttTranscriber as? any STTDictationPreviewTranscribing else {
+            return nil
+        }
+        guard let speechEngine = dictationPreviewSpeechEngine() else { return nil }
+        guard speechEngine.engine != .nemotron else { return nil }
+
+        var continuation: AsyncStream<[Float]>.Continuation?
+        let stream = AsyncStream<[Float]>(bufferingPolicy: .bufferingNewest(120)) {
+            continuation = $0
+        }
+        guard let sampleContinuation = continuation else { return nil }
+
+        let previewSessionID = UUID()
+        let interval = dictationPreviewInterval
+        let windowSampleCount = dictationPreviewWindowSampleCount
+        let task = Task { [weak self, previewTranscriber] in
+            var tailSamples: [Float] = []
+            var tailStartIndex = 0
+            let clock = ContinuousClock()
+            var lastPass = clock.now
+            func appendTailSamples(_ samples: [Float]) {
+                tailSamples.append(contentsOf: samples)
+                let visibleCount = tailSamples.count - tailStartIndex
+                if visibleCount > windowSampleCount {
+                    tailStartIndex += visibleCount - windowSampleCount
+                }
+                if tailStartIndex > windowSampleCount, tailStartIndex * 2 > tailSamples.count {
+                    tailSamples.removeFirst(tailStartIndex)
+                    tailStartIndex = 0
+                }
+            }
+            func currentTailWindow() -> [Float] {
+                guard tailStartIndex < tailSamples.count else { return [] }
+                return Array(tailSamples[tailStartIndex...])
+            }
+
+            for await samples in stream {
+                guard !Task.isCancelled else { break }
+                guard !samples.isEmpty else { continue }
+                appendTailSamples(samples)
+
+                let now = clock.now
+                guard interval == .zero || lastPass.duration(to: now) >= interval else {
+                    continue
+                }
+                lastPass = now
+
+                let window = currentTailWindow()
+                guard !window.isEmpty else { continue }
+
+                let startedAt = clock.now
+                do {
+                    let result = try await previewTranscriber.transcribeDictationPreview(
+                        samples: window,
+                        speechEngine: speechEngine
+                    )
+                    let elapsed = startedAt.duration(to: clock.now)
+                    AudioCaptureDiagnostics.append(
+                        "dictation_preview_pass engine=\(speechEngine.engine.rawValue) ms=\(Self.milliseconds(elapsed)) samples=\(window.count) chars=\(result.text.count)"
+                    )
+                    await self?.updateDisplayPreview(
+                        result.text,
+                        sessionID: sessionID,
+                        previewSessionID: previewSessionID
+                    )
+                } catch is CancellationError {
+                    break
+                } catch {
+                    AudioCaptureDiagnostics.append(
+                        "dictation_preview_failed engine=\(speechEngine.engine.rawValue) \(AudioCaptureDiagnostics.errorFields(error))"
+                    )
+                }
+            }
+        }
+
+        displayPreviewState = DictationDisplayPreviewState(
+            dictationSessionID: sessionID,
+            previewSessionID: previewSessionID,
+            sampleContinuation: sampleContinuation,
+            task: task
+        )
+        AudioCaptureDiagnostics.append("dictation_preview_started engine=\(speechEngine.engine.rawValue)")
+
+        return DictationAudioSampleSink(
+            onSamples: { samples in
+                guard !samples.isEmpty else { return }
+                sampleContinuation.yield(samples)
+            },
+            onFinish: {
+                sampleContinuation.finish()
+            },
+            onCancel: {
+                sampleContinuation.finish()
+                task.cancel()
+            }
+        )
+    }
+
     private func updateLiveTranscript(_ partial: String, sessionID: Int) {
         guard liveTranscriptionState?.dictationSessionID == sessionID,
               case .recording = _state else {
             return
         }
         liveTranscriptText = partial.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func updateDisplayPreview(_ preview: String, sessionID: Int, previewSessionID: UUID) {
+        guard displayPreviewState?.dictationSessionID == sessionID,
+              displayPreviewState?.previewSessionID == previewSessionID,
+              case .recording = _state else {
+            return
+        }
+        liveTranscriptText = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func cancelDisplayPreview(sessionID: Int, clearText: Bool) async {
+        guard let state = displayPreviewState,
+              state.dictationSessionID == sessionID else {
+            return
+        }
+        displayPreviewState = nil
+        if clearText {
+            liveTranscriptText = ""
+        }
+        state.sampleContinuation.finish()
+        state.task.cancel()
+        if let previewTranscriber = sttTranscriber as? any STTDictationPreviewTranscribing {
+            await previewTranscriber.cancelDictationPreview()
+        }
+        await waitForDisplayPreviewCancellation(state.task)
+    }
+
+    private func waitForDisplayPreviewCancellation(_ task: Task<Void, Never>) async {
+        let timeout = dictationPreviewCancellationTimeout
+        await withCheckedContinuation { continuation in
+            let gate = DictationPreviewDrainGate(continuation)
+            Task {
+                _ = await task.result
+                gate.resume()
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                gate.resume()
+            }
+        }
     }
 
     private func finishLiveDictationTranscription(sessionID: Int) async -> STTResult? {
@@ -893,6 +1072,33 @@ public actor DictationService: DictationServiceProtocol {
             await liveTranscriber.cancelLiveDictationTranscription(sessionID: state.sttSessionID)
         }
         _ = await state.task.result
+    }
+
+    private static func combinedSampleSink(
+        _ first: DictationAudioSampleSink?,
+        _ second: DictationAudioSampleSink?
+    ) -> DictationAudioSampleSink? {
+        switch (first, second) {
+        case (nil, nil):
+            return nil
+        case (let sink?, nil), (nil, let sink?):
+            return sink
+        case (let first?, let second?):
+            return DictationAudioSampleSink(
+                onSamples: { samples in
+                    first.onSamples(samples)
+                    second.onSamples(samples)
+                },
+                onFinish: {
+                    first.onFinish()
+                    second.onFinish()
+                },
+                onCancel: {
+                    first.onCancel()
+                    second.onCancel()
+                }
+            )
+        }
     }
 
     private func processCapturedAudio(
@@ -1179,6 +1385,10 @@ public actor DictationService: DictationServiceProtocol {
 
     private static func errorType(for error: Error) -> String {
         TelemetryErrorClassifier.classify(error)
+    }
+
+    private nonisolated static func milliseconds(_ duration: Duration) -> Int {
+        Int((duration / .milliseconds(1)).rounded())
     }
 
     private func clearCurrentOperation() {

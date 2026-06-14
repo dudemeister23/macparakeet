@@ -1,6 +1,8 @@
 import Foundation
 import OSLog
 
+private typealias OneShotBoolContinuation = OneShotContinuation<Bool>
+
 public enum STTSchedulerError: Error, LocalizedError, Equatable {
     case droppedDueToBackpressure(job: STTJobKind)
     case unavailable
@@ -19,7 +21,7 @@ public enum STTSchedulerError: Error, LocalizedError, Equatable {
 ///
 /// Jobs execute independently per slot so dictation can remain responsive while
 /// meeting and file work share an explicitly prioritized background path.
-public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveDictationTranscribing, SpeechEngineSwitching, SpeechEngineSwitchAvailabilityProviding, SpeechEngineSessionManaging {
+public actor STTScheduler: STTManaging, STTDictationPreviewTranscribing, SpeechEngineRoutedTranscribing, STTLiveDictationTranscribing, SpeechEngineSwitching, SpeechEngineSwitchAvailabilityProviding, SpeechEngineSessionManaging {
     private struct ScheduledJob: Sendable {
         let id: UUID
         let audioPath: String
@@ -40,6 +42,11 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         var currentWaitTask: Task<Void, Never>?
     }
 
+    private struct DictationPreviewExecution: Sendable {
+        let id: UUID
+        let task: Task<STTResult, Error>
+    }
+
     private enum LiveDictationSessionState: Equatable {
         case active(UUID)
         case finishing(UUID)
@@ -57,6 +64,7 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
     private let runtime: STTRuntimeProtocol
     private let meetingLiveChunkBacklogLimit: Int
     private let runtimeOperationWatchdogTimeout: Duration
+    private let dictationPreviewDrainTimeout: Duration
 
     private var enqueueCounter: UInt64 = 0
     private var continuations: [UUID: CheckedContinuation<STTResult, Error>] = [:]
@@ -67,6 +75,7 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
     private var acceptsNewJobs = true
     private var activeSpeechEngineSessionIDs: Set<UUID> = []
     private var speechEngineSwitchTask: Task<Void, Error>?
+    private var dictationPreviewExecution: DictationPreviewExecution?
     private var liveDictationSession: LiveDictationSessionState? {
         didSet {
             guard liveDictationSession == nil, !liveDictationSessionWaiters.isEmpty else { return }
@@ -90,21 +99,25 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
     public init(
         runtime: STTRuntime = STTRuntime(),
         meetingLiveChunkBacklogLimit: Int = 120,
-        runtimeOperationWatchdogTimeout: Duration = .seconds(30)
+        runtimeOperationWatchdogTimeout: Duration = .seconds(30),
+        dictationPreviewDrainTimeout: Duration = .seconds(2)
     ) {
         self.runtime = runtime as STTRuntimeProtocol
         self.meetingLiveChunkBacklogLimit = max(1, meetingLiveChunkBacklogLimit)
         self.runtimeOperationWatchdogTimeout = runtimeOperationWatchdogTimeout
+        self.dictationPreviewDrainTimeout = dictationPreviewDrainTimeout
     }
 
     init(
         runtimeProvider: STTRuntimeProtocol,
         meetingLiveChunkBacklogLimit: Int = 120,
-        runtimeOperationWatchdogTimeout: Duration = .seconds(30)
+        runtimeOperationWatchdogTimeout: Duration = .seconds(30),
+        dictationPreviewDrainTimeout: Duration = .seconds(2)
     ) {
         self.runtime = runtimeProvider
         self.meetingLiveChunkBacklogLimit = max(1, meetingLiveChunkBacklogLimit)
         self.runtimeOperationWatchdogTimeout = runtimeOperationWatchdogTimeout
+        self.dictationPreviewDrainTimeout = dictationPreviewDrainTimeout
     }
 
     public func transcribe(
@@ -173,6 +186,9 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         guard liveDictationSession == nil else {
             throw STTError.engineBusy
         }
+        guard dictationPreviewExecution == nil else {
+            throw STTError.engineBusy
+        }
         let interactiveState = slotState(for: .interactive)
         guard interactiveState.currentJob == nil,
               interactiveState.pendingJobs.isEmpty else {
@@ -237,6 +253,43 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         }
     }
 
+    public func transcribeDictationPreview(
+        samples: [Float],
+        speechEngine selection: SpeechEngineSelection
+    ) async throws -> STTResult {
+        try Task.checkCancellation()
+        guard !samples.isEmpty else {
+            throw STTError.transcriptionFailed("No dictation preview samples")
+        }
+        guard acceptsNewJobs, speechEngineSwitchTask == nil else {
+            throw STTSchedulerError.unavailable
+        }
+        guard liveDictationSession == nil else {
+            throw STTError.engineBusy
+        }
+        guard dictationPreviewExecution == nil else {
+            throw STTError.engineBusy
+        }
+
+        let id = UUID()
+        let task = Task {
+            try await runtime.transcribeDictationPreview(samples: samples, speechEngine: selection)
+        }
+        dictationPreviewExecution = DictationPreviewExecution(id: id, task: task)
+        defer {
+            clearDictationPreviewExecution(id: id)
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    public func cancelDictationPreview() async {
+        await cancelDictationPreviewIfNeeded()
+    }
+
     public func warmUp(onProgress: (@Sendable (String) -> Void)?) async throws {
         try await runtime.warmUp(onProgress: onProgress)
     }
@@ -280,6 +333,9 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         _ preference: SpeechEnginePreference,
         onProgress: (@Sendable (String) -> Void)?
     ) async throws {
+        guard await cancelDictationPreviewIfNeeded() else {
+            throw STTError.engineBusy
+        }
         guard acceptsNewJobs,
               activeSpeechEngineSessionIDs.isEmpty,
               !hasQueuedOrRunningJobs,
@@ -309,6 +365,9 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         _ variant: ParakeetModelVariant,
         onProgress: (@Sendable (String) -> Void)?
     ) async throws {
+        guard await cancelDictationPreviewIfNeeded() else {
+            throw STTError.engineBusy
+        }
         // Shares the engine-switch guard + task slot: a variant swap reloads the
         // model and must not race transcription, meetings, or an engine switch.
         guard acceptsNewJobs,
@@ -340,6 +399,9 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
         _ variant: NemotronModelVariant,
         onProgress: (@Sendable (String) -> Void)?
     ) async throws {
+        guard await cancelDictationPreviewIfNeeded() else {
+            throw STTError.engineBusy
+        }
         // Shares the engine-switch guard + task slot: a variant swap reloads the
         // model and must not race transcription, meetings, or an engine switch.
         guard acceptsNewJobs,
@@ -596,6 +658,7 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
 
     private func quiesce(restoreAcceptsNewJobs: Bool) async {
         acceptsNewJobs = false
+        await cancelAndDrainDictationPreviewIfNeeded()
         cancelAllPendingJobs()
         await cancelLiveDictationSessionIfNeeded()
         await cancelAndDrainRunningJobs()
@@ -625,6 +688,48 @@ public actor STTScheduler: STTManaging, SpeechEngineRoutedTranscribing, STTLiveD
                 liveDictationSessionWaiters.append(continuation)
             }
         }
+    }
+
+    @discardableResult
+    private func cancelDictationPreviewIfNeeded() async -> Bool {
+        guard let execution = dictationPreviewExecution else { return true }
+        execution.task.cancel()
+        let drained = await waitForDictationPreviewDrain(execution.task)
+        if drained {
+            clearDictationPreviewExecution(id: execution.id)
+        } else {
+            Telemetry.send(.sttRuntimeUnhealthy(reason: "dictation_preview_cancel_drain"))
+        }
+        return drained
+    }
+
+    private func cancelAndDrainDictationPreviewIfNeeded() async {
+        guard let execution = dictationPreviewExecution else { return }
+        execution.task.cancel()
+        await observingRuntimeTimeout(reason: "dictation_preview_cancel_drain") {
+            _ = await execution.task.result
+        }
+        clearDictationPreviewExecution(id: execution.id)
+    }
+
+    private func waitForDictationPreviewDrain(_ task: Task<STTResult, Error>) async -> Bool {
+        let timeout = dictationPreviewDrainTimeout
+        return await withCheckedContinuation { continuation in
+            let gate = OneShotBoolContinuation(continuation)
+            Task {
+                _ = await task.result
+                gate.resume(returning: true)
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                gate.resume(returning: false)
+            }
+        }
+    }
+
+    private func clearDictationPreviewExecution(id: UUID) {
+        guard dictationPreviewExecution?.id == id else { return }
+        dictationPreviewExecution = nil
     }
 
     private func cancelAndDrainRunningJobs() async {

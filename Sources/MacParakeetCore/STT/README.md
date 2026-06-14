@@ -109,6 +109,19 @@ finalize are unaffected — they stay on the background slot.
 falls back to recorded-file transcription if the live session fails,
 drops samples, or finishes empty.
 
+**Display-only dictation preview (Parakeet/Whisper-capable path).**
+Dictation can request a single-flight tail-window preview via
+`transcribeDictationPreview`. This does not reserve a scheduler slot and
+does not replace the recorded-file final transcript; it is only for the
+floating overlay text while capture is active. Engine switches, variant
+switches, and dictation stop/cancel paths cancel the preview with bounded
+drain. If a cancelled preview still has runtime work in flight, engine/variant
+switches fail fast with `engineBusy` rather than reloading under active
+inference; the final paste path still proceeds after its bounded display-preview
+drain. Runtime quiesce paths such as shutdown and cache clear wait for preview
+drain under the unhealthy-runtime watchdog before unloading or clearing model
+state.
+
 **Engine routing is per-job.** Parakeet stays default. The selected Parakeet
 build is `v3` unless the user opts into `v2` through Settings or the CLI
 (`config set parakeet-model`, `models select parakeet-v2`, or
