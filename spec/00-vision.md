@@ -403,7 +403,7 @@ MacParakeet and Oatmeal are **separate products** that share underlying technolo
 | Downloads | 10,000 | Website analytics + telemetry |
 | GitHub stars | 1,000 | GitHub |
 | User satisfaction | 4.5+ stars equivalent | Community feedback + NPS |
-| Daily active users | 2,000 | Telemetry (opt-in, anonymized) |
+| Daily active users | 2,000 | Telemetry (opt-out, non-identifying) |
 | Dictation sessions/user/day | 5+ | Local metrics |
 
 ### Quality Metrics

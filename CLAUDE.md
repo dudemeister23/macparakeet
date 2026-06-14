@@ -484,9 +484,9 @@ open Package.swift  # Select MacParakeet scheme
 | Accessibility | Global hotkey, paste simulation | Onboarding or first dictation use |
 | Screen & System Audio Recording | System audio capture for meeting recording (ScreenCaptureKit) | Optional onboarding step or first meeting recording use |
 
-1. **Offline-first** -- Dictation and file transcription work fully offline. Network is limited to user-triggered downloads/providers, update checks, retained purchase activation endpoints if explicitly invoked, and opt-out anonymous telemetry.
+1. **Offline-first** -- Dictation and file transcription work fully offline. Network is limited to user-triggered downloads/providers, update checks, retained purchase activation endpoints if explicitly invoked, and opt-out non-identifying telemetry.
 2. **Temp files deleted** -- Audio removed after transcription (unless user saves)
-3. **Non-identifying telemetry** -- Anonymous, session-scoped, opt-out in Settings. No persistent IDs, no IP storage, no content. See `docs/telemetry.md` and ADR-012.
+3. **Non-identifying telemetry** -- Session-scoped, opt-out in Settings. No persistent IDs, no IP storage, no content. See `docs/telemetry.md` and ADR-012.
 4. **No accounts** -- No login, no email, no tracking
 
 ---

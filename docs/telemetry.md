@@ -12,6 +12,11 @@
 > shipped 2026-05-23; do not divide 30d `first_dictation` by 30d `onboarding_completed`
 > or compare 7d vs 30d without a ship-date cutoff. See
 > [`docs/audits/2026-06-03-activation-metrics-cohort-caveats.md`](audits/2026-06-03-activation-metrics-cohort-caveats.md).
+> Catalog reconciliation: 2026-06-13. Added the `snippet_edited` row (the event
+> has shipped since 2026-05-23) and aligned ADR-012's event-count/category
+> summary with the live `TelemetryEventName` enum (97 events today). The cross-repo
+> allowlist guard for that enum is tracked in
+> [`plans/active/2026-06-12-telemetry-allowlist-ci-guard.md`](../plans/active/2026-06-12-telemetry-allowlist-ci-guard.md).
 
 ## Philosophy
 
@@ -361,6 +366,7 @@ prompt-customization trend.
 | `custom_word_added` | — | Are custom words used? (NOT the word itself) |
 | `custom_word_deleted` | — | Are custom words removed often? |
 | `snippet_added` | — | Are snippets used? |
+| `snippet_edited` | — | Are snippets refined after creation? (NOT the snippet text) |
 | `snippet_deleted` | — | Are snippets removed often? |
 | `prompt_created` | — | Are custom prompt templates used? |
 | `prompt_updated` | — | Are custom prompts actively maintained? |
@@ -550,6 +556,7 @@ public final class TelemetryService: TelemetryServiceProtocol, @unchecked Sendab
 - Toggle in Settings: "Help improve MacParakeet" with explanatory detail text
 - When opted out: `send()` is a no-op (events are silently discarded)
 - One final `telemetry_opted_out` event is sent and flushed immediately when the user disables telemetry
+- GUI opt-out is the Settings toggle, persisted to `UserDefaults` (`telemetryEnabled`). The CLI honors that same preference plus env/CI overrides (see the CLI section). For source builds and self-hosting, setting `MACPARAKEET_TELEMETRY_URL` redirects the ingestion endpoint away from `macparakeet.com` (it overrides the destination; it is not itself an opt-out).
 
 ---
 
@@ -798,7 +805,9 @@ External AI review of the telemetry design. Each point was evaluated and accepte
   event or a documented reason it is intentionally breadcrumb-only.
 - **Worker/schema sync test** — Add a small CI or release-check script that
   verifies the Swift event-name enum is accepted by the checked-in/deployed
-  Worker allowlist.
+  Worker allowlist. Now planned in
+  `plans/active/2026-06-12-telemetry-allowlist-ci-guard.md` (a CI step + script
+  that diffs `TelemetryEventName` against the website `ALLOWED_EVENTS`).
 - **Tail sampling** — Not needed at current event volume. If costs rise, sample
   successful fast operations first while keeping all failures, crashes,
   unavailable outcomes, and slow operations.

@@ -26,7 +26,7 @@ LLM-powered features (summarization, chat, transforms) use external providers co
 - **Audio capture**: All microphone and file audio stays on-device
 - **Text processing**: Deterministic pipeline runs locally (ADR-004)
 - **Database**: All dictations, transcriptions, history stored locally (SQLite/GRDB)
-- **Analytics**: Anonymous, opt-out telemetry via Cloudflare (ADR-012). No persistent IDs, no IP storage, no content transmitted.
+- **Analytics**: Non-identifying, opt-out telemetry via Cloudflare (ADR-012). No persistent IDs, no IP storage, no content transmitted.
 
 ### What uses external providers (opt-in, user-configured)
 
