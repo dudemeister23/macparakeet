@@ -141,6 +141,27 @@ final class MeetingMicHealthMonitorTests: XCTestCase {
         )
     }
 
+    func testMicGapElapsedStartsAtSystemConfirmationWindow() {
+        var monitor = MeetingMicHealthMonitor(config: .init(
+            systemActiveConfirmationSeconds: 3.0,
+            micGapSeconds: 1.0
+        ))
+
+        XCTAssertEqual(monitor.ingest(micSignal: .init(isNonSilent: true), now: start), [])
+
+        for offset in [10.0, 11.0, 12.0] {
+            XCTAssertEqual(
+                monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(offset)),
+                []
+            )
+        }
+
+        XCTAssertEqual(
+            monitor.ingest(systemSignal: .init(isNonSilent: true), now: start.addingTimeInterval(13.0)),
+            [.stallSuspected(signature: .micGap, elapsedMs: 3_000)]
+        )
+    }
+
     func testMicGapFiresAtBoundaryAfterLastMicBuffer() {
         var monitor = MeetingMicHealthMonitor(config: .init(
             systemActiveConfirmationSeconds: 0,

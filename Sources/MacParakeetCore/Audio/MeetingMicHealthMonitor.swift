@@ -142,14 +142,18 @@ public struct MeetingMicHealthMonitor: Sendable {
             start = systemActiveStartedAt ?? now
         case .micSilent:
             let silenceStartedAt = silentMicStartedAt ?? lastMicBufferAt ?? systemActiveStartedAt ?? now
-            if let systemActiveStartedAt, silenceStartedAt < systemActiveStartedAt {
-                start = systemActiveStartedAt
-            } else {
-                start = silenceStartedAt
-            }
+            start = boundedBySystemActivity(silenceStartedAt)
         case .micGap:
-            start = lastMicBufferAt ?? systemActiveStartedAt ?? now
+            let gapStartedAt = lastMicBufferAt ?? systemActiveStartedAt ?? now
+            start = boundedBySystemActivity(gapStartedAt)
         }
         return max(0, Int((now.timeIntervalSince(start) * 1_000).rounded()))
+    }
+
+    private func boundedBySystemActivity(_ date: Date) -> Date {
+        guard let systemActiveStartedAt, date < systemActiveStartedAt else {
+            return date
+        }
+        return systemActiveStartedAt
     }
 }
