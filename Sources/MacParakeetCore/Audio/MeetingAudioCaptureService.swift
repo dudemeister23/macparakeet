@@ -385,6 +385,7 @@ private final class MeetingMicHealthTelemetryObserver: @unchecked Sendable {
     }
 
     func observeMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard shouldObserve else { return }
         observe(
             micSignal: .init(isNonSilent: buffer.rmsLevel >= config.nonSilentLevelThreshold),
             systemSignal: nil
@@ -392,10 +393,15 @@ private final class MeetingMicHealthTelemetryObserver: @unchecked Sendable {
     }
 
     func observeSystemBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard shouldObserve else { return }
         observe(
             micSignal: nil,
             systemSignal: .init(isNonSilent: buffer.rmsLevel >= config.nonSilentLevelThreshold)
         )
+    }
+
+    private var shouldObserve: Bool {
+        lock.withLock { isObserving }
     }
 
     private func observe(
