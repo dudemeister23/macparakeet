@@ -53,7 +53,8 @@ final class MeetingAutoStopCoordinatorTests: XCTestCase {
         appQuitGrace: TimeInterval = 15,
         silenceGrace: TimeInterval = 240,
         isPausedProvider: (@MainActor () async -> Bool)? = nil,
-        audioLevelsProvider: (@MainActor () async -> MeetingAudioLevels)? = nil
+        audioLevelsProvider: (@MainActor () async -> MeetingAudioLevels)? = nil,
+        onAutoStopConfirmed: (@MainActor (StopReason) -> Bool)? = nil
     ) -> MeetingAutoStopCoordinator {
         MeetingAutoStopCoordinator(
             settingsViewModel: settings,
@@ -72,6 +73,9 @@ final class MeetingAutoStopCoordinatorTests: XCTestCase {
                 return self?.levels ?? MeetingAudioLevels()
             },
             onAutoStopConfirmed: { [weak self] reason in
+                if let onAutoStopConfirmed {
+                    return onAutoStopConfirmed(reason)
+                }
                 self?.stoppedReasons.append(reason)
                 return true
             },
@@ -316,6 +320,32 @@ final class MeetingAutoStopCoordinatorTests: XCTestCase {
         await waitForCountdownOutcome()
 
         XCTAssertEqual(stoppedReasons, [reason])
+
+        coordinator.stop()
+    }
+
+    func testCompletedCountdownCleansUpWhenStopFlowIsAlreadyInactive() async {
+        let now = Date()
+        let reason = StopReason.meetingAppClosed(bundleID: "us.zoom.xos")
+        var stopAttemptCount = 0
+        let coordinator = makeCoordinator(
+            appQuitGrace: 0,
+            onAutoStopConfirmed: { [weak self] _ in
+                stopAttemptCount += 1
+                self?.recordingActive = false
+                return false
+            }
+        )
+        coordinator.recordingDidStart(now: now)
+        runningApps = []
+
+        await coordinator.testHook_recordAppTerminated(bundleID: "us.zoom.xos", now: now)
+        countdownCallbacks[reason]?(.completed)
+        await waitForCountdownOutcome()
+
+        XCTAssertEqual(stopAttemptCount, 1)
+        XCTAssertFalse(coordinator.testHook_isSignalObservationActive)
+        XCTAssertNil(coordinator.testHook_context)
 
         coordinator.stop()
     }

@@ -289,6 +289,12 @@ final class AppEnvironmentConfigurer {
         coordinatorRefs.dictation = dictationCoordinator
 
         var meetingAutoStopCoordinator: MeetingAutoStopCoordinator?
+        var isMeetingAutoStopObservingRecording = false
+        let endMeetingAutoStopObservation = {
+            guard isMeetingAutoStopObservingRecording else { return }
+            isMeetingAutoStopObservingRecording = false
+            meetingAutoStopCoordinator?.recordingDidEnd()
+        }
 
         let meetingCoordinator = MeetingRecordingFlowCoordinator(
             meetingRecordingService: env.meetingRecordingService,
@@ -313,13 +319,14 @@ final class AppEnvironmentConfigurer {
             },
             onRecordingBegan: {
                 coordinatorRefs.dictation?.hideIdlePill()
+                isMeetingAutoStopObservingRecording = true
                 meetingAutoStopCoordinator?.recordingDidStart()
             },
             onRecordingStopping: {
-                meetingAutoStopCoordinator?.recordingDidEnd()
+                endMeetingAutoStopObservation()
             },
             onFlowReturnedToIdle: {
-                meetingAutoStopCoordinator?.recordingDidEnd()
+                endMeetingAutoStopObservation()
                 callbacks.onMenuBarIconUpdate()
                 guard coordinatorRefs.dictation?.isDictationActive != true else { return }
                 coordinatorRefs.dictation?.showIdlePill()

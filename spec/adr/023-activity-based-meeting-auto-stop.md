@@ -104,6 +104,10 @@ A pure `MeetingAutoStopPolicy.evaluate(...)` in `MacParakeetCore` (mirrors `Meet
 ### Negative
 - A new coordinator + observers to maintain (idle-teardown keeps CPU off when no recording).
 - Browser / in-person meetings rely on the slower silence grace (no fast path until ADR-024's attribution layer).
+- FaceTime is intentionally in the native allowlist, so a personal FaceTime
+  call observed during a recording can still produce the veto countdown. The
+  default-off flag, opt-in setting, and "Keep recording" veto are the Phase A
+  guardrails; ADR-024's trust tiers can refine this once attribution exists.
 - The silence threshold + grace need careful tuning; start conservative (a long continuous-silence window) to avoid stopping during a quiet stretch.
 
 ## Implementation Direction

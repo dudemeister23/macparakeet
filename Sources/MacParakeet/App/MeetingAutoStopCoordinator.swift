@@ -212,6 +212,9 @@ final class MeetingAutoStopCoordinator {
     // MARK: - Evaluation
 
     private func evaluate(now: Date) async {
+        // App notifications update `context` before calling this, so a dropped
+        // overlapping evaluation is picked up by the next timer tick without
+        // stacking async audio-level reads on the main actor.
         guard !isEvaluating else { return }
         isEvaluating = true
         defer { isEvaluating = false }
@@ -351,6 +354,8 @@ final class MeetingAutoStopCoordinator {
                 }
                 if self.onAutoStopConfirmed(reason) {
                     Telemetry.send(.meetingAutoStopConfirmed(reason: reason.telemetryReason))
+                    self.stopSignalObservation(clearSession: true)
+                } else if !self.isRecordingActive() {
                     self.stopSignalObservation(clearSession: true)
                 }
             }
