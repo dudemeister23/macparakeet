@@ -27,8 +27,10 @@ public enum AppFeatures {
     /// Activity-based meeting auto-stop (ADR-023). When `true`, Settings shows
     /// the opt-in meeting auto-stop toggle and the app constructs the
     /// coordinator that observes meeting-end signals only while a recording is
-    /// active. Default off until field validation proves the trust posture.
-    public static let meetingAutoStopEnabled: Bool = false
+    /// active. Enabled on `main` (2026-06-14) so the opt-in toggle is
+    /// dogfoodable; the per-user setting still defaults off, so nothing
+    /// auto-stops until a user turns it on. Not yet in a tagged release.
+    public static let meetingAutoStopEnabled: Bool = true
 
     /// Meeting capture reliability watchdog (ADR-025 Phase A). When `true`,
     /// meeting capture observes metadata-only microphone/system buffer liveness

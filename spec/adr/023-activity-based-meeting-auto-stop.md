@@ -1,6 +1,6 @@
 # ADR-023: Activity-Based Meeting Auto-Stop
 
-> Status: **IMPLEMENTED (Phases A+B, default-off)** — App-quit fast path, sustained dual-channel silence, veto countdown, settings plumbing, telemetry, and normal finalize/transcribe stop path are implemented behind `AppFeatures.meetingAutoStopEnabled = false`. Phase C remains deferred until ADR-024's attribution layer exists.
+> Status: **IMPLEMENTED (Phases A+B; flag enabled on `main`, per-user opt-in default off)** — App-quit fast path, sustained dual-channel silence, veto countdown, settings plumbing, telemetry, and normal finalize/transcribe stop path are implemented behind `AppFeatures.meetingAutoStopEnabled = true` (flipped on `main` 2026-06-14 for dogfooding; the per-user `meetingAutoStopEnabled` setting still defaults off, so nothing auto-stops until a user opts in; not yet in a tagged release). Phase C remains deferred until ADR-024's attribution layer exists.
 > Date: 2026-06-14
 > Related: ADR-014 (meeting recording), ADR-015 (concurrent dictation/meeting), ADR-016 (centralized STT scheduler), ADR-017 (calendar auto-start — its §5 amendment withdrew calendar-driven auto-stop and deferred the replacement to "its own ADR"; this is that ADR), ADR-024 (activity-based meeting detection — shares the activity-signal layer)
 > Requirement: REQ-MEET-015 (v0.7, implemented behind default-off flag)

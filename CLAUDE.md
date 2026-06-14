@@ -28,10 +28,12 @@ A **fast, private, local-first voice app** for macOS. The v0.6 release ships sys
 **Flag delta — `main` vs the latest release tag:**
 `AppFeatures.aiFormatterProfilesEnabled = true` (app-aware AI Formatter
 profiles with readable/toggleable smart defaults, REQ-LLM-004; enabled
-2026-06-10, not yet in a tagged release). Staged default-off flags on `main`
-that are not user-visible until validation flips them: `AppFeatures.meetingAutoStopEnabled = false`
-(ADR-023 activity-based meeting auto-stop, implemented 2026-06-14 behind its
-own opt-in setting), `AppFeatures.meetingActivityDetectionEnabled = false`
+2026-06-10, not yet in a tagged release). `AppFeatures.meetingAutoStopEnabled = true`
+(ADR-023 activity-based meeting auto-stop; flag enabled on `main` 2026-06-14 so
+the Settings toggle is dogfoodable — the per-user opt-in setting still defaults
+off, so nothing auto-stops until a user turns it on; not yet in a tagged
+release). Staged default-off flag on `main` that is not user-visible until
+validation flips it: `AppFeatures.meetingActivityDetectionEnabled = false`
 (ADR-024 Phases A+B process-audio attribution + camera activity + pure detector
 foundation; no runtime coordinator/UI yet). Reliability kill-switch on `main`:
 `AppFeatures.meetingCaptureReliabilityEnabled = true` (ADR-025 Phase A
