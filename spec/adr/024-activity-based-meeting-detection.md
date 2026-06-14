@@ -1,14 +1,17 @@
 # ADR-024: Activity-Based Meeting Detection
 
-> Status: **PROPOSAL** — not implemented. This ADR defines the design for a
-> future coding agent; nothing here ships until a tagged release flips
-> `AppFeatures.meetingActivityDetectionEnabled`. Default off / opt-in.
+> Status: **PARTIAL IMPLEMENTATION** — Phase A ships the default-off CoreAudio
+> process attribution collector, shared activity snapshot types, app registry,
+> detection mode, and pure detector tests. Camera collection, coordinator/UI
+> wiring, prompt/auto-start telemetry, and ADR-023 auto-stop attribution remain
+> proposed until later phases flip `AppFeatures.meetingActivityDetectionEnabled`.
+> Default off / opt-in.
 > Date: 2026-06-14
 > Related: ADR-002 (local-first), ADR-014 (meeting recording), ADR-015
 > (concurrent dictation/meeting), ADR-017 (calendar auto-start), ADR-023
 > (activity-based meeting auto-stop — authored in parallel; consumes the same
 > activity-signal layer this ADR builds).
-> Requirement: REQ-MEET-016 (v0.7, proposed).
+> Requirement: REQ-MEET-016 (v0.7, Phase A foundation implemented).
 
 ## Context
 
@@ -87,10 +90,10 @@ app is driving it (see §"Out of Scope") — and that is enough for v1.
 
 ### 3. Recognized conferencing-app registry
 
-A static **bundle-ID allowlist** of known meeting apps, plus browser tabs
-carrying a recognized meeting URL. This is the same idea as ADR-017's
-`MeetingTriggerFilter.withLink`, reused for live processes instead of calendar
-events.
+A static **bundle-ID allowlist** of known meeting apps, plus browser bundle IDs
+whose active tab carries a recognized meeting URL. This is the same idea as
+ADR-017's `MeetingTriggerFilter.withLink`, reused for live processes instead of
+calendar events.
 
 ```swift
 public enum MeetingApp: String, Sendable, CaseIterable {
@@ -128,7 +131,7 @@ known meeting app" is what a meeting looks like.
 |------|------|----------------------|
 | Strong (dedicated) | Zoom, Teams, Webex, FaceTime | App running **and** holding the mic is enough |
 | Background-capable chat | Slack | Requires **full-duplex** audio (input *and* output) — idle messaging holds neither, an active call holds both |
-| Browser | Safari, Chrome, … | Requires **frontmost or a recognized meeting URL** — never counts in the background |
+| Browser | Safari, Chrome, … | Requires **frontmost or the same browser bundle ID to have a recognized meeting URL** — never counts in the background |
 
 The tiers encode the real failure modes: a dedicated meeting app is rarely open
 without a call; a chat app is open all day, so we demand the audio shape of an
@@ -155,7 +158,7 @@ MeetingActivityDetector.evaluate(
     now: Date,
     config: Config,                   // dwell, cooldown, mode
     activeRecording: Bool,
-    candidateSince: Date?,            // when the current candidate first stabilized
+    candidate: Candidate?,            // current identity plus first-seen timestamp
     suppressedIdentities: [MeetingIdentity: Date]  // declined-until timestamps
 ) -> [DetectionEvent]                 // .promptToRecord / .autoStartDue / .signalCleared
 ```
@@ -223,7 +226,7 @@ settings control is hidden, and the coordinator never starts.
 │                                                                        │
 │  MeetingActivityDetector  (pure state machine; no side effects)        │
 │     ├── evaluate(signal, now, config, activeRecording,                 │
-│     │            candidateSince, suppressedIdentities)                 │
+│     │            candidate, suppressedIdentities)                      │
 │     │          -> [DetectionEvent]                                     │
 │     ├── DetectionEvent: .promptToRecord / .autoStartDue /             │
 │     │                   .signalCleared                                 │
@@ -352,7 +355,8 @@ maintain, consistent UX, and visual continuity (the repo's lesson —
   installs a property listener; emits `cameraRunning: Bool`.
 - `MeetingAppRegistry` — static bundle-ID → `MeetingApp` + trust-tier map.
 - `ActivitySignalSnapshot` — plain `Sendable` struct: mic-holders, output-holders,
-  camera state, frontmost bundle ID, recognized meeting URL (via `MeetingLinkParser`).
+  camera state, frontmost bundle ID, and browser bundle IDs with recognized
+  meeting URLs (via `MeetingLinkParser`).
 - `MeetingActivityDetector` — `static evaluate(...) -> [DetectionEvent]`;
   fusion rule + tiers + self-exclusion + dwell + suppression. No stored state.
 - `MeetingActivityDetectionMode` / `MeetingActivityDetector.Config` — `Codable`,
