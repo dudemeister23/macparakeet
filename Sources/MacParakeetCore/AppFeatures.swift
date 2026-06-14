@@ -38,6 +38,13 @@ public enum AppFeatures {
     /// phases are still being validated.
     public static let meetingCaptureReliabilityEnabled: Bool = true
 
+    /// Activity-based meeting detection (ADR-024). When `false`, Settings hides
+    /// the meeting-activity detection mode, the app does not construct the
+    /// coordinator, and no CoreAudio/CoreMediaIO collectors are started. Pure
+    /// detector types and tests remain compiled so flipping the flag is a
+    /// no-data operation after validation.
+    public static let meetingActivityDetectionEnabled: Bool = false
+
     /// Transforms — productized Phase 2 (ADR-022). When `true`:
     /// - the Transforms tab appears in the main sidebar
     /// - `TransformsHotkeyRegistry` installs its event tap on launch

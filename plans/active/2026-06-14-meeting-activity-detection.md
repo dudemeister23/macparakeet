@@ -1,15 +1,15 @@
 # Activity-Based Meeting Detection
 
-**Status:** PROPOSED — not started. Implementation plan for a future coding
-agent. Nothing here ships until a tagged release flips
-`AppFeatures.meetingActivityDetectionEnabled` (default off until then).
+**Status:** IN PROGRESS — Phase A implemented 2026-06-14 behind
+`AppFeatures.meetingActivityDetectionEnabled = false`. No user-visible behavior
+ships until later phases add coordinator/UI wiring and the flag is validated.
 **Date:** 2026-06-14
 **ADRs:** ADR-024 (activity-based meeting detection — the decision this plan
 implements). Related: ADR-002 (local-first), ADR-014 (meeting recording),
 ADR-015 (concurrent dictation/meeting), ADR-017 (calendar auto-start — the
 coordinator/pure-evaluator pattern to mirror), ADR-023 (activity-based
 auto-stop — consumes the same signal layer this plan builds).
-**Requirement:** REQ-MEET-016 (v0.7, proposed).
+**Requirement:** REQ-MEET-016 (v0.7, Phase A foundation implemented).
 
 ## What this plan closes out
 
@@ -80,12 +80,12 @@ Phase C/D land and a false-positive + idle-CPU pass clears.
 
 ## Phased rollout
 
-### Phase A — Audio-process attribution collector + pure detector (foundation)
+### Phase A — Audio-process attribution collector + pure detector (foundation) — implemented 2026-06-14
 
 Flag stays off; no UI. Headlessly verifiable via tests. The pure detector lands
-with the **app-signal path only** (camera arrives in Phase B), so the fusion
-rule is partial but the structure (tiers, self-exclusion, dwell, suppression) is
-in place and tested.
+with the app-signal path and camera field support; the CoreMediaIO camera
+collector arrives in Phase B, so the runtime fusion rule is partial but the
+structure (tiers, self-exclusion, dwell, suppression) is in place and tested.
 
 | File | Change |
 |------|--------|

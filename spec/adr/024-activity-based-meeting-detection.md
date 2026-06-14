@@ -1,14 +1,17 @@
 # ADR-024: Activity-Based Meeting Detection
 
-> Status: **PROPOSAL** — not implemented. This ADR defines the design for a
-> future coding agent; nothing here ships until a tagged release flips
-> `AppFeatures.meetingActivityDetectionEnabled`. Default off / opt-in.
+> Status: **PARTIAL IMPLEMENTATION** — Phase A ships the default-off CoreAudio
+> process attribution collector, shared activity snapshot types, app registry,
+> detection mode, and pure detector tests. Camera collection, coordinator/UI
+> wiring, prompt/auto-start telemetry, and ADR-023 auto-stop attribution remain
+> proposed until later phases flip `AppFeatures.meetingActivityDetectionEnabled`.
+> Default off / opt-in.
 > Date: 2026-06-14
 > Related: ADR-002 (local-first), ADR-014 (meeting recording), ADR-015
 > (concurrent dictation/meeting), ADR-017 (calendar auto-start), ADR-023
 > (activity-based meeting auto-stop — authored in parallel; consumes the same
 > activity-signal layer this ADR builds).
-> Requirement: REQ-MEET-016 (v0.7, proposed).
+> Requirement: REQ-MEET-016 (v0.7, Phase A foundation implemented).
 
 ## Context
 
