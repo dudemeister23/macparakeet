@@ -13,8 +13,8 @@ final class RTTMParserTests: XCTestCase {
         let segments = try RTTMParser.parse(contents)
 
         XCTAssertEqual(segments.count, 2)
-        XCTAssertEqual(segments[0], LabeledSegment(speakerId: "speaker_a", startMs: 1230, endMs: 1680))
-        XCTAssertEqual(segments[1], LabeledSegment(speakerId: "speaker_b", startMs: 2000, endMs: 3250))
+        XCTAssertEqual(segments[0], LabeledSegment(recordingId: "fixture", speakerId: "speaker_a", startMs: 1230, endMs: 1680))
+        XCTAssertEqual(segments[1], LabeledSegment(recordingId: "fixture", speakerId: "speaker_b", startMs: 2000, endMs: 3250))
     }
 
     func testIgnoresBlankCommentsAndNonSpeakerLines() throws {
@@ -28,7 +28,7 @@ final class RTTMParserTests: XCTestCase {
         let segments = try RTTMParser.parse(contents)
 
         XCTAssertEqual(segments, [
-            LabeledSegment(speakerId: "speaker_a", startMs: 0, endMs: 1000)
+            LabeledSegment(recordingId: "fixture", speakerId: "speaker_a", startMs: 0, endMs: 1000)
         ])
     }
 

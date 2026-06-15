@@ -44,6 +44,7 @@ public enum RTTMParser {
             }
 
             segments.append(LabeledSegment(
+                recordingId: fields[1],
                 speakerId: fields[7],
                 startMs: startMs,
                 endMs: endMs

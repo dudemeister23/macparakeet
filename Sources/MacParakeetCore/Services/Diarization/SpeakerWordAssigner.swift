@@ -130,12 +130,12 @@ public struct SpeakerWordAssigner: Sendable {
 
         let eligibleSegments = segments.filter { isEligible(segment: $0, sourceOnlySpeakerId: sourceOnlySpeakerId) }
 
-        if let speakerId = directOverlapSpeaker(for: word, segments: eligibleSegments) {
-            return (speakerId, .directOverlap)
-        }
-
-        if hasAmbiguousDirectOverlap(word: word, segments: eligibleSegments) {
+        let directOverlap = directOverlapSpeaker(for: word, segments: eligibleSegments)
+        if directOverlap.isAmbiguous {
             return sourceOnlyAssignment(sourceOnlySpeakerId)
+        }
+        if let speakerId = directOverlap.speakerId {
+            return (speakerId, .directOverlap)
         }
 
         if let speakerId = nearestFallbackSpeaker(for: word, segments: eligibleSegments) {
@@ -152,25 +152,31 @@ public struct SpeakerWordAssigner: Sendable {
         return (nil, .unassigned)
     }
 
-    private func directOverlapSpeaker(for word: WordTimestamp, segments: [SpeakerSegment]) -> String? {
-        let overlaps = segments.compactMap { segment -> (speakerId: String, overlapMs: Int)? in
+    private func directOverlapSpeaker(
+        for word: WordTimestamp,
+        segments: [SpeakerSegment]
+    ) -> (speakerId: String?, isAmbiguous: Bool) {
+        let overlapsBySpeaker = segments.reduce(into: [String: Int]()) { overlaps, segment in
             let overlap = overlapMs(word: word, segment: segment)
-            guard overlap > 0 else { return nil }
-            return (segment.speakerId, overlap)
+            guard overlap > 0 else { return }
+            overlaps[segment.speakerId, default: 0] += overlap
         }
-        guard let maxOverlap = overlaps.map(\.overlapMs).max() else { return nil }
-        let winningSpeakerIDs = Set(overlaps.filter { $0.overlapMs == maxOverlap }.map(\.speakerId))
-        return winningSpeakerIDs.count == 1 ? winningSpeakerIDs.first : nil
-    }
-
-    private func hasAmbiguousDirectOverlap(word: WordTimestamp, segments: [SpeakerSegment]) -> Bool {
-        let overlaps = segments.compactMap { segment -> (speakerId: String, overlapMs: Int)? in
-            let overlap = overlapMs(word: word, segment: segment)
-            guard overlap > 0 else { return nil }
-            return (segment.speakerId, overlap)
+        let ranked = overlapsBySpeaker
+            .map { (speakerId: $0.key, overlapMs: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.overlapMs == rhs.overlapMs {
+                    return lhs.speakerId < rhs.speakerId
+                }
+                return lhs.overlapMs > rhs.overlapMs
+            }
+        guard let best = ranked.first else {
+            return (nil, false)
         }
-        guard let maxOverlap = overlaps.map(\.overlapMs).max() else { return false }
-        return Set(overlaps.filter { $0.overlapMs == maxOverlap }.map(\.speakerId)).count > 1
+        if let runnerUp = ranked.dropFirst().first,
+           best.overlapMs - runnerUp.overlapMs <= ambiguityMarginMs {
+            return (nil, true)
+        }
+        return (best.speakerId, false)
     }
 
     private func nearestFallbackSpeaker(for word: WordTimestamp, segments: [SpeakerSegment]) -> String? {

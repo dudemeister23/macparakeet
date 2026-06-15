@@ -392,7 +392,8 @@ Do not infer assignment quality from `speakerId != nil`. In meetings,
 
 ### Algorithm
 
-1. Direct max-overlap segment wins.
+1. Direct max-overlap segment wins only when the best speaker clears the
+   ambiguity margin over the runner-up; near ties are ambiguous.
 2. If there is no overlap, compute interval boundary gap to nearby diarization
    segments.
 3. Fallback only if:
@@ -461,9 +462,10 @@ Behavior:
 
 ### Tie Handling
 
-Direct-overlap ties are ambiguous. If two different speakers have the same
-maximum overlap for a word, leave the word source-only/unassigned rather than
-using array order as a hidden tie-breaker.
+Direct-overlap ties and near ties inside the ambiguity margin are ambiguous.
+If two different speakers have effectively the same maximum overlap for a word,
+leave the word source-only/unassigned rather than using array order as a hidden
+tie-breaker.
 
 ### Finalizer Safety
 
@@ -481,6 +483,8 @@ first word that has a displayable speaker/source ID.
 - no fallback when two different speakers are close
 - no fallback across microphone/system boundaries
 - direct-overlap tie leaves a word source-only/unassigned
+- direct-overlap near tie inside the ambiguity margin leaves a word
+  source-only/unassigned
 - source-only meeting words are counted as source-only, not assigned
 - output ordering is deterministic when word start times tie
 - leading unassigned/source-only words do not drop later segments
@@ -662,6 +666,8 @@ fixtures/private/diarization/
 ```json
 {
   "expectedRemoteSpeakers": 2,
+  "minimumRemoteSpeakers": 2,
+  "maximumRemoteSpeakers": 3,
   "maxSourceOnlyWordRate": 0.15,
   "notes": "Two speakers, no overlap"
 }
@@ -672,6 +678,8 @@ The harness should:
 - run default config
 - run exact/min/max speaker-count variants
 - emit `DiarizationQualityReport` for each run
+- make scoring policy explicit in output (`collarMs`, `skipOverlap`) and accept
+  CLI knobs for benchmark comparisons
 - compute DER only when an RTTM reference is present; JER remains deferred until
   the harness has fixture evidence that it adds useful signal beyond DER,
   coverage, and speaker-count delta
@@ -703,7 +711,8 @@ minimal "measure what we can today" baseline lands before any behavior change.
      with unit tests over synthetic segment/reference inputs
    - add a dev CLI `diarization-eval <fixtures-dir>` that runs the existing
      diarizer over `fixtures/private/diarization/*/` and prints per-fixture
-     metrics; reuse `init(speakerConstraint:)` for default vs hinted variants
+     metrics; route default vs hinted variants through `DiarizationOptions`
+     so the harness exercises the same per-call path as production
    - gitignore `fixtures/private/`
    - if FluidAudio's DER helper fits the local data shape, reuse it; otherwise
      keep the local approximation explicit and tested

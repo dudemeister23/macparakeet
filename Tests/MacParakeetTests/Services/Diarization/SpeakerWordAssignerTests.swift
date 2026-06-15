@@ -6,14 +6,43 @@ final class SpeakerWordAssignerTests: XCTestCase {
         let result = SpeakerWordAssigner().assign(
             words: [word("hello", 100, 300)],
             segments: [
-                segment("S1", 0, 250),
-                segment("S2", 250, 400),
+                segment("S1", 0, 300),
+                segment("S2", 290, 400),
             ]
         )
 
         XCTAssertEqual(result.words.map(\.speakerId), ["S1"])
         XCTAssertEqual(result.summary.directOverlapWords, 1)
         XCTAssertEqual(result.summary.fallbackNearestWords, 0)
+    }
+
+    func testDirectOverlapNearTieWithinAmbiguityMarginLeavesFileWordUnassigned() {
+        let result = SpeakerWordAssigner(ambiguityMarginMs: 150).assign(
+            words: [word("hello", 100, 300)],
+            segments: [
+                segment("S1", 0, 251),
+                segment("S2", 200, 400),
+            ]
+        )
+
+        XCTAssertNil(result.words[0].speakerId)
+        XCTAssertEqual(result.summary.unassignedWords, 1)
+        XCTAssertEqual(result.summary.directOverlapWords, 0)
+        XCTAssertEqual(result.summary.fallbackNearestWords, 0)
+    }
+
+    func testDirectOverlapWinsWhenBestSpeakerClearsAmbiguityMargin() {
+        let result = SpeakerWordAssigner(ambiguityMarginMs: 100).assign(
+            words: [word("hello", 100, 300)],
+            segments: [
+                segment("S1", 0, 300),
+                segment("S2", 250, 400),
+            ]
+        )
+
+        XCTAssertEqual(result.words[0].speakerId, "S1")
+        XCTAssertEqual(result.summary.directOverlapWords, 1)
+        XCTAssertEqual(result.summary.unassignedWords, 0)
     }
 
     func testNearestBeforeFallbackWithinTolerance() {

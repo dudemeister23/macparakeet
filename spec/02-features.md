@@ -1372,7 +1372,7 @@ new scheduling architecture.
 - Runs after ASR completes, merges speaker segments with word-level timestamps by time overlap
 - Diarization is non-fatal — if it fails, ASR result is still persisted without speaker data
 - Stable speaker IDs (`"S1"`, `"S2"`) stored on words; display labels in separate mapping (rename is O(1))
-- Word-to-speaker assignment prefers direct overlap and uses a bounded, quality-gated nearest-segment fallback for small timing gaps; quality reports expose the assignment summary without transcript text
+- Word-to-speaker assignment prefers unambiguous direct overlap and uses a bounded, quality-gated nearest-segment fallback for small timing gaps; quality reports expose the assignment summary without transcript text
 - Overlapping speech regions are trimmed (exclusive output) — words in overlap zones may lack speaker assignment
 - No cross-file speaker identity (Speaker 1 in file A is not linked to Speaker 1 in file B)
 - Single-speaker files correctly return one speaker label with no overhead

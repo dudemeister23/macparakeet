@@ -1,11 +1,13 @@
 import Foundation
 
 public struct LabeledSegment: Codable, Equatable, Sendable {
+    public let recordingId: String?
     public let speakerId: String
     public let startMs: Int
     public let endMs: Int
 
-    public init(speakerId: String, startMs: Int, endMs: Int) {
+    public init(recordingId: String? = nil, speakerId: String, startMs: Int, endMs: Int) {
+        self.recordingId = recordingId
         self.speakerId = speakerId
         self.startMs = startMs
         self.endMs = endMs
@@ -20,25 +22,43 @@ public struct LabeledSegment: Codable, Equatable, Sendable {
     }
 }
 
+public struct DiarizationScoringOptions: Codable, Equatable, Sendable {
+    public var collarMs: Int
+    public var skipOverlap: Bool
+
+    public static let `default` = Self()
+
+    public init(collarMs: Int = 0, skipOverlap: Bool = false) {
+        self.collarMs = max(0, collarMs)
+        self.skipOverlap = skipOverlap
+    }
+}
+
 public struct DERBreakdown: Codable, Equatable, Sendable {
     public let missedMs: Int
     public let falseAlarmMs: Int
     public let confusionMs: Int
     public let totalReferenceMs: Int
     public let der: Double
+    public let collarMs: Int
+    public let skipOverlap: Bool
 
     public init(
         missedMs: Int,
         falseAlarmMs: Int,
         confusionMs: Int,
         totalReferenceMs: Int,
-        der: Double
+        der: Double,
+        collarMs: Int = 0,
+        skipOverlap: Bool = false
     ) {
         self.missedMs = missedMs
         self.falseAlarmMs = falseAlarmMs
         self.confusionMs = confusionMs
         self.totalReferenceMs = totalReferenceMs
         self.der = der
+        self.collarMs = collarMs
+        self.skipOverlap = skipOverlap
     }
 }
 
@@ -53,68 +73,51 @@ public enum DiarizationMetrics {
         let hypothesis: String
     }
 
-    /// Approximate NIST md-eval-style DER with no collar. Overlap regions are
-    /// simplified to binary speech coverage instead of scoring every active
-    /// reference/hypothesis speaker independently.
+    /// Approximate NIST md-eval-style DER with exact millisecond regions.
+    /// Overlap regions use speaker-time accounting unless `skipOverlap` is set.
     public static func der(
         reference: [LabeledSegment],
         hypothesis: [LabeledSegment]
     ) -> DERBreakdown {
+        der(reference: reference, hypothesis: hypothesis, options: .default)
+    }
+
+    public static func der(
+        reference: [LabeledSegment],
+        hypothesis: [LabeledSegment],
+        options: DiarizationScoringOptions
+    ) -> DERBreakdown {
         let reference = normalized(reference)
         let hypothesis = normalized(hypothesis)
-        let mapping = greedySpeakerMapping(reference: reference, hypothesis: hypothesis)
-        let totalReferenceMs = speechDuration(reference)
+        let regions = scoredRegions(reference: reference, hypothesis: hypothesis, options: options)
+        let mapping = greedySpeakerMapping(reference: reference, hypothesis: hypothesis, regions: regions)
 
         var missedMs = 0
         var falseAlarmMs = 0
         var confusionMs = 0
+        var totalReferenceMs = 0
 
-        let boundaries = sortedBoundaries(reference + hypothesis)
-        guard boundaries.count >= 2 else {
-            let falseAlarmMs = speechDuration(hypothesis)
-            return DERBreakdown(
-                missedMs: totalReferenceMs,
-                falseAlarmMs: falseAlarmMs,
-                confusionMs: 0,
-                totalReferenceMs: totalReferenceMs,
-                der: derValue(
-                    missedMs: totalReferenceMs,
-                    falseAlarmMs: falseAlarmMs,
-                    confusionMs: 0,
-                    totalReferenceMs: totalReferenceMs
-                )
-            )
-        }
+        for region in regions {
+            let activeReference = activeSpeakers(in: reference, startMs: region.startMs, endMs: region.endMs)
+            let activeHypothesis = activeSpeakers(in: hypothesis, startMs: region.startMs, endMs: region.endMs)
+            let referenceCount = activeReference.count
+            let hypothesisCount = activeHypothesis.count
+            let durationMs = region.endMs - region.startMs
 
-        for index in 0..<(boundaries.count - 1) {
-            let startMs = boundaries[index]
-            let endMs = boundaries[index + 1]
-            guard endMs > startMs else { continue }
-
-            let activeReference = activeSpeakers(in: reference, startMs: startMs, endMs: endMs)
-            let activeHypothesis = activeSpeakers(in: hypothesis, startMs: startMs, endMs: endMs)
-            let durationMs = endMs - startMs
-
-            if activeReference.isEmpty {
-                if !activeHypothesis.isEmpty {
-                    falseAlarmMs += durationMs
+            let correctCount = activeHypothesis.reduce(into: Set<String>()) { matches, hypothesisSpeaker in
+                guard let referenceSpeaker = mapping[hypothesisSpeaker],
+                      activeReference.contains(referenceSpeaker)
+                else {
+                    return
                 }
-                continue
+                matches.insert(referenceSpeaker)
             }
+            .count
 
-            if activeHypothesis.isEmpty {
-                missedMs += durationMs
-                continue
-            }
-
-            let hasMappedMatch = activeHypothesis.contains { hypothesisSpeaker in
-                guard let referenceSpeaker = mapping[hypothesisSpeaker] else { return false }
-                return activeReference.contains(referenceSpeaker)
-            }
-
-            if !hasMappedMatch {
-                confusionMs += durationMs
-            }
+            missedMs += max(0, referenceCount - hypothesisCount) * durationMs
+            falseAlarmMs += max(0, hypothesisCount - referenceCount) * durationMs
+            confusionMs += max(0, min(referenceCount, hypothesisCount) - correctCount) * durationMs
+            totalReferenceMs += referenceCount * durationMs
         }
 
         return DERBreakdown(
@@ -127,7 +130,9 @@ public enum DiarizationMetrics {
                 falseAlarmMs: falseAlarmMs,
                 confusionMs: confusionMs,
                 totalReferenceMs: totalReferenceMs
-            )
+            ),
+            collarMs: options.collarMs,
+            skipOverlap: options.skipOverlap
         )
     }
 
@@ -135,12 +140,31 @@ public enum DiarizationMetrics {
         reference: [LabeledSegment],
         hypothesis: [LabeledSegment]
     ) -> Double {
-        let referenceIntervals = mergedIntervals(normalized(reference))
-        let totalReferenceMs = referenceIntervals.reduce(0) { $0 + ($1.endMs - $1.startMs) }
-        guard totalReferenceMs > 0 else { return 0 }
+        coverage(reference: reference, hypothesis: hypothesis, options: .default)
+    }
 
-        let hypothesisIntervals = mergedIntervals(normalized(hypothesis))
-        let coveredMs = overlapDuration(referenceIntervals, hypothesisIntervals)
+    public static func coverage(
+        reference: [LabeledSegment],
+        hypothesis: [LabeledSegment],
+        options: DiarizationScoringOptions
+    ) -> Double {
+        let reference = normalized(reference)
+        let hypothesis = normalized(hypothesis)
+        let regions = scoredRegions(reference: reference, hypothesis: hypothesis, options: options)
+
+        var totalReferenceMs = 0
+        var coveredMs = 0
+        for region in regions {
+            let hasReference = !activeSpeakers(in: reference, startMs: region.startMs, endMs: region.endMs).isEmpty
+            guard hasReference else { continue }
+            let durationMs = region.endMs - region.startMs
+            totalReferenceMs += durationMs
+            if !activeSpeakers(in: hypothesis, startMs: region.startMs, endMs: region.endMs).isEmpty {
+                coveredMs += durationMs
+            }
+        }
+
+        guard totalReferenceMs > 0 else { return 0 }
         return Double(coveredMs) / Double(totalReferenceMs)
     }
 
@@ -188,15 +212,18 @@ public enum DiarizationMetrics {
 
     private static func greedySpeakerMapping(
         reference: [LabeledSegment],
-        hypothesis: [LabeledSegment]
+        hypothesis: [LabeledSegment],
+        regions: [Interval]
     ) -> [String: String] {
         var overlaps: [SpeakerPair: Int] = [:]
 
-        for ref in reference {
-            for hyp in hypothesis {
-                let overlap = overlapDuration(ref, hyp)
-                if overlap > 0 {
-                    overlaps[SpeakerPair(reference: ref.speakerId, hypothesis: hyp.speakerId), default: 0] += overlap
+        for region in regions {
+            let durationMs = region.endMs - region.startMs
+            let activeReference = activeSpeakers(in: reference, startMs: region.startMs, endMs: region.endMs)
+            let activeHypothesis = activeSpeakers(in: hypothesis, startMs: region.startMs, endMs: region.endMs)
+            for referenceSpeaker in activeReference {
+                for hypothesisSpeaker in activeHypothesis {
+                    overlaps[SpeakerPair(reference: referenceSpeaker, hypothesis: hypothesisSpeaker), default: 0] += durationMs
                 }
             }
         }
@@ -239,8 +266,49 @@ public enum DiarizationMetrics {
             }
     }
 
-    private static func sortedBoundaries(_ segments: [LabeledSegment]) -> [Int] {
-        Set(segments.flatMap { [$0.startMs, $0.endMs] }).sorted()
+    private static func scoredRegions(
+        reference: [LabeledSegment],
+        hypothesis: [LabeledSegment],
+        options: DiarizationScoringOptions
+    ) -> [Interval] {
+        var boundaries = Set((reference + hypothesis).flatMap { [$0.startMs, $0.endMs] })
+        let collarIntervals = collarIntervals(reference: reference, collarMs: options.collarMs)
+        for interval in collarIntervals {
+            boundaries.insert(interval.startMs)
+            boundaries.insert(interval.endMs)
+        }
+
+        let sorted = boundaries.sorted()
+        guard sorted.count >= 2 else { return [] }
+
+        var regions: [Interval] = []
+        for index in 0..<(sorted.count - 1) {
+            let region = Interval(startMs: sorted[index], endMs: sorted[index + 1])
+            guard region.endMs > region.startMs else { continue }
+            if collarIntervals.contains(where: { overlapDuration(region, $0) > 0 }) {
+                continue
+            }
+            if options.skipOverlap,
+               activeSpeakers(in: reference, startMs: region.startMs, endMs: region.endMs).count > 1 {
+                continue
+            }
+            regions.append(region)
+        }
+        return regions
+    }
+
+    private static func collarIntervals(reference: [LabeledSegment], collarMs: Int) -> [Interval] {
+        guard collarMs > 0 else { return [] }
+        let beforeMs = collarMs / 2
+        let afterMs = collarMs - beforeMs
+
+        return reference.flatMap { segment in
+            [
+                Interval(startMs: max(0, segment.startMs - beforeMs), endMs: segment.startMs + afterMs),
+                Interval(startMs: max(0, segment.endMs - beforeMs), endMs: segment.endMs + afterMs),
+            ]
+        }
+        .filter { $0.endMs > $0.startMs }
     }
 
     private static func activeSpeakers(
@@ -253,7 +321,7 @@ public enum DiarizationMetrics {
         })
     }
 
-    private static func overlapDuration(_ lhs: LabeledSegment, _ rhs: LabeledSegment) -> Int {
+    private static func overlapDuration(_ lhs: Interval, _ rhs: Interval) -> Int {
         max(0, min(lhs.endMs, rhs.endMs) - max(lhs.startMs, rhs.startMs))
     }
 
@@ -281,25 +349,5 @@ public enum DiarizationMetrics {
             }
         }
         return merged
-    }
-
-    private static func overlapDuration(_ lhs: [Interval], _ rhs: [Interval]) -> Int {
-        var lhsIndex = 0
-        var rhsIndex = 0
-        var total = 0
-
-        while lhsIndex < lhs.count && rhsIndex < rhs.count {
-            let lhsInterval = lhs[lhsIndex]
-            let rhsInterval = rhs[rhsIndex]
-            total += max(0, min(lhsInterval.endMs, rhsInterval.endMs) - max(lhsInterval.startMs, rhsInterval.startMs))
-
-            if lhsInterval.endMs < rhsInterval.endMs {
-                lhsIndex += 1
-            } else {
-                rhsIndex += 1
-            }
-        }
-
-        return total
     }
 }

@@ -14,6 +14,18 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Emit JSON instead of a compact table.")
     var json: Bool = false
 
+    @Option(name: .long, help: "Full-width diarization scoring collar in milliseconds. Default: 0.")
+    var collarMs: Int = 0
+
+    @Flag(name: [.customLong("ignore-overlap"), .customLong("skip-overlap")], help: "Skip reference overlap regions when scoring DER and coverage.")
+    var ignoreOverlap: Bool = false
+
+    mutating func validate() throws {
+        guard collarMs >= 0 else {
+            throw ValidationError("--collar-ms must be non-negative.")
+        }
+    }
+
     func run() async throws {
         try await emitJSONOrRethrow(json: json) {
             let report = try await evaluate()
@@ -26,6 +38,18 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
     }
 
     private func evaluate() async throws -> DiarizationEvalReport {
+        try await Self.evaluate(
+            fixturesDir: fixturesDir,
+            scoringOptions: DiarizationScoringOptions(collarMs: collarMs, skipOverlap: ignoreOverlap),
+            service: DiarizationService(config: .default)
+        )
+    }
+
+    static func evaluate(
+        fixturesDir: String,
+        scoringOptions: DiarizationScoringOptions,
+        service: any DiarizationServiceProtocol
+    ) async throws -> DiarizationEvalReport {
         let root = URL(fileURLWithPath: expandTilde(fixturesDir), isDirectory: true).standardizedFileURL
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
@@ -34,45 +58,31 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
             throw ValidationError("Fixtures directory does not exist: \(root.path)")
         }
 
-        let fixtures = try fixtureDirectories(in: root)
-        let defaultService = DiarizationService(config: .default)
-        var exactServices: [Int: DiarizationService] = [:]
+        let fixtures = try Self.fixtureDirectories(in: root)
 
         var fixtureReports: [DiarizationEvalFixtureReport] = []
         for fixture in fixtures {
-            guard let audioURL = try audioURL(in: fixture) else { continue }
-            let expected = try expectedMetadata(in: fixture)
-            let reference = try referenceSegments(in: fixture)
-            printErr("Evaluating \(fixture.lastPathComponent)/\(audioURL.lastPathComponent)")
+            guard let audioURL = try Self.audioURL(in: fixture) else { continue }
+            let expected = try Self.expectedMetadata(in: fixture)
+            let reference = try Self.referenceSegments(in: fixture)
+            printErr("Evaluating \(fixture.lastPathComponent)")
 
             var runs: [DiarizationEvalRunReport] = []
-            runs.append(await evaluateRun(
-                variant: "default",
-                requestedSpeakers: nil,
-                service: defaultService,
-                audioURL: audioURL,
-                expectedRemoteSpeakers: expected?.expectedRemoteSpeakers,
-                reference: reference
-            ))
-
-            if let expectedSpeakers = expected?.expectedRemoteSpeakers, expectedSpeakers > 0 {
-                let exactService = exactServices[expectedSpeakers] ?? DiarizationService(
-                    speakerConstraint: .exact(expectedSpeakers)
-                )
-                exactServices[expectedSpeakers] = exactService
-                runs.append(await evaluateRun(
-                    variant: "exact(\(expectedSpeakers))",
-                    requestedSpeakers: expectedSpeakers,
-                    service: exactService,
+            for variant in Self.evalVariants(expected: expected) {
+                runs.append(await Self.evaluateRun(
+                    variant: variant.name,
+                    options: variant.options,
+                    service: service,
                     audioURL: audioURL,
-                    expectedRemoteSpeakers: expectedSpeakers,
-                    reference: reference
+                    expectedRemoteSpeakers: expected?.expectedRemoteSpeakers,
+                    reference: reference,
+                    scoringOptions: scoringOptions
                 ))
             }
 
             fixtureReports.append(DiarizationEvalFixtureReport(
                 fixture: fixture.lastPathComponent,
-                audioFile: audioURL.lastPathComponent,
+                audioFile: nil,
                 expectedRemoteSpeakers: expected?.expectedRemoteSpeakers,
                 referenceAvailable: reference != nil,
                 runs: runs
@@ -81,34 +91,44 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
 
         return DiarizationEvalReport(
             schemaVersion: 1,
-            fixturesDir: root.path,
+            fixturesDir: nil,
+            scoringOptions: scoringOptions,
             fixtureCount: fixtureReports.count,
             runCount: fixtureReports.reduce(0) { $0 + $1.runs.count },
             fixtures: fixtureReports
         )
     }
 
-    private func evaluateRun(
+    private static func evaluateRun(
         variant: String,
-        requestedSpeakers: Int?,
-        service: DiarizationService,
+        options: DiarizationOptions,
+        service: any DiarizationServiceProtocol,
         audioURL: URL,
         expectedRemoteSpeakers: Int?,
-        reference: [LabeledSegment]?
+        reference: [LabeledSegment]?,
+        scoringOptions: DiarizationScoringOptions
     ) async -> DiarizationEvalRunReport {
         do {
-            let result = try await service.diarize(audioURL: audioURL)
+            let result = try await service.diarize(audioURL: audioURL, options: options)
             let hypothesis = result.segments.map(LabeledSegment.init)
             let der = reference.map {
-                DiarizationMetrics.der(reference: $0, hypothesis: hypothesis)
+                DiarizationMetrics.der(reference: $0, hypothesis: hypothesis, options: scoringOptions)
             }
             let coverage = reference.map {
-                DiarizationMetrics.coverage(reference: $0, hypothesis: hypothesis)
+                DiarizationMetrics.coverage(reference: $0, hypothesis: hypothesis, options: scoringOptions)
             }
+            let qualityReport = DiarizationQualityReport(
+                transcriptionSourceType: .file,
+                diarizedAudioSource: nil,
+                requestedSpeakerHint: options.speakerCountHint,
+                diarizationResult: result,
+                assignmentSummary: emptyAssignmentSummary
+            )
 
             return DiarizationEvalRunReport(
                 variant: variant,
-                requestedSpeakers: requestedSpeakers,
+                requestedSpeakers: options.speakerCountHint?.exact,
+                requestedSpeakerHint: options.speakerCountHint,
                 detectedSpeakers: result.speakerCount,
                 speakerCountDelta: expectedRemoteSpeakers.map {
                     DiarizationMetrics.speakerCountDelta(expected: $0, detected: result.speakerCount)
@@ -117,24 +137,62 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
                 segmentSpeechMs: DiarizationMetrics.speechDuration(result.segments),
                 der: der,
                 coverage: coverage,
+                qualityReport: qualityReport,
                 error: nil
             )
         } catch {
             return DiarizationEvalRunReport(
                 variant: variant,
-                requestedSpeakers: requestedSpeakers,
+                requestedSpeakers: options.speakerCountHint?.exact,
+                requestedSpeakerHint: options.speakerCountHint,
                 detectedSpeakers: nil,
                 speakerCountDelta: nil,
                 segmentCount: nil,
                 segmentSpeechMs: nil,
                 der: nil,
                 coverage: nil,
+                qualityReport: nil,
                 error: error.localizedDescription
             )
         }
     }
 
-    private func fixtureDirectories(in root: URL) throws -> [URL] {
+    static func evalVariants(expected: ExpectedMetadata?) -> [EvalVariant] {
+        var variants = [
+            EvalVariant(name: "default", options: .default),
+        ]
+
+        if let exact = Self.positive(expected?.expectedRemoteSpeakers) {
+            variants.append(EvalVariant(
+                name: "exact(\(exact))",
+                options: DiarizationOptions(speakerCountHint: SpeakerCountHint(exact: exact))
+            ))
+        }
+
+        if let minimum = Self.positive(expected?.minimumRemoteSpeakers ?? expected?.expectedRemoteSpeakers) {
+            variants.append(EvalVariant(
+                name: "min(\(minimum))",
+                options: DiarizationOptions(speakerCountHint: SpeakerCountHint(minimum: minimum))
+            ))
+        }
+
+        if let maximum = Self.positive(expected?.maximumRemoteSpeakers ?? expected?.expectedRemoteSpeakers) {
+            variants.append(EvalVariant(
+                name: "max(\(maximum))",
+                options: DiarizationOptions(speakerCountHint: SpeakerCountHint(maximum: maximum))
+            ))
+        }
+
+        var seen = Set<String>()
+        return variants.filter { variant in
+            let key = "\(variant.name):\(String(describing: variant.options.speakerCountHint))"
+            guard !seen.contains(key) else { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private static func fixtureDirectories(in root: URL) throws -> [URL] {
         try FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -146,7 +204,7 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    private func audioURL(in fixture: URL) throws -> URL? {
+    private static func audioURL(in fixture: URL) throws -> URL? {
         for preferredName in ["system.wav", "audio.wav"] {
             let candidate = fixture.appendingPathComponent(preferredName, isDirectory: false)
             var isDirectory: ObjCBool = false
@@ -166,14 +224,14 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
         .first
     }
 
-    private func expectedMetadata(in fixture: URL) throws -> ExpectedMetadata? {
+    private static func expectedMetadata(in fixture: URL) throws -> ExpectedMetadata? {
         let url = fixture.appendingPathComponent("expected.json", isDirectory: false)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(ExpectedMetadata.self, from: data)
     }
 
-    private func referenceSegments(in fixture: URL) throws -> [LabeledSegment]? {
+    private static func referenceSegments(in fixture: URL) throws -> [LabeledSegment]? {
         let url = fixture.appendingPathComponent("reference.rttm", isDirectory: false)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let contents = try String(contentsOf: url, encoding: .utf8)
@@ -186,6 +244,7 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
             return
         }
 
+        print("scoring: collar_ms=\(report.scoringOptions.collarMs) skip_overlap=\(report.scoringOptions.skipOverlap)")
         print(
             [
                 padded("fixture", 26),
@@ -196,6 +255,7 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
                 padded("speech_s", 9),
                 padded("DER", 8),
                 padded("coverage", 9),
+                padded("warn", 5),
             ].joined(separator: " ")
         )
 
@@ -211,6 +271,8 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
                             padded("--", 5),
                             padded("--", 9),
                             padded("--", 8),
+                            padded("--", 9),
+                            padded("--", 5),
                             error,
                         ].joined(separator: " ")
                     )
@@ -227,6 +289,7 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
                         padded(formatSeconds(run.segmentSpeechMs), 9),
                         padded(formatDouble(run.der?.der), 8),
                         padded(formatDouble(run.coverage), 9),
+                        padded(run.qualityReport.map { String($0.warnings.count) } ?? "--", 5),
                     ].joined(separator: " ")
                 )
             }
@@ -252,36 +315,62 @@ struct DiarizationEvalCommand: AsyncParsableCommand {
         guard let value else { return "--" }
         return String(format: "%.3f", value)
     }
+
+    private static func positive(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private static let emptyAssignmentSummary = WordSpeakerAssignmentSummary(
+        totalWords: 0,
+        directOverlapWords: 0,
+        fallbackNearestWords: 0,
+        sourceOnlyWords: 0,
+        unassignedWords: 0,
+        fallbackToleranceMs: 250,
+        ambiguityMarginMs: 150,
+        minFallbackQualityScore: 0.60
+    )
 }
 
-private struct ExpectedMetadata: Decodable {
+struct ExpectedMetadata: Decodable {
     let expectedRemoteSpeakers: Int?
+    let minimumRemoteSpeakers: Int?
+    let maximumRemoteSpeakers: Int?
 }
 
-private struct DiarizationEvalReport: Encodable {
+struct EvalVariant {
+    let name: String
+    let options: DiarizationOptions
+}
+
+struct DiarizationEvalReport: Encodable {
     let schemaVersion: Int
-    let fixturesDir: String
+    let fixturesDir: String?
+    let scoringOptions: DiarizationScoringOptions
     let fixtureCount: Int
     let runCount: Int
     let fixtures: [DiarizationEvalFixtureReport]
 }
 
-private struct DiarizationEvalFixtureReport: Encodable {
+struct DiarizationEvalFixtureReport: Encodable {
     let fixture: String
-    let audioFile: String
+    let audioFile: String?
     let expectedRemoteSpeakers: Int?
     let referenceAvailable: Bool
     let runs: [DiarizationEvalRunReport]
 }
 
-private struct DiarizationEvalRunReport: Encodable {
+struct DiarizationEvalRunReport: Encodable {
     let variant: String
     let requestedSpeakers: Int?
+    let requestedSpeakerHint: SpeakerCountHint?
     let detectedSpeakers: Int?
     let speakerCountDelta: Int?
     let segmentCount: Int?
     let segmentSpeechMs: Int?
     let der: DERBreakdown?
     let coverage: Double?
+    let qualityReport: DiarizationQualityReport?
     let error: String?
 }
