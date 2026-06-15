@@ -26,6 +26,39 @@ default-off with hedged copy). FluidAudio 0.15.2 newly exposes per-segment
 design (qualityScore is a real confidence gate) and opens two ADR-gated bets
 (cross-meeting identity, live labels).
 
+## Running mode — read this first
+
+This doc supports two flows. Decide which you are:
+
+**(A) You are a Codex agent implementing directly.** You ARE the implementer.
+- **Ignore** the "⚠️ CRITICAL tooling gotcha" and "Orchestration recipe" sections
+  below — those describe a *Claude* orchestrator driving you via `codex exec`; the
+  `/tmp/...spec` paths and `-c mcp_servers` flags do not apply to you.
+- Work one slice at a time, in order (3 → 4 → 5 → 6). For each slice: read the
+  authoritative plan (`2026-05-speaker-diarization-quality.md`) + this doc's slice
+  spec → implement → `swift build` → full `swift test` (must report **0 failures**)
+  → **self-review your own diff**, especially any *existing* test expectation you
+  changed (it must reflect correct behavior, not merely pass) → **commit it
+  yourself** using the rich format in `docs/commit-guidelines.md` with the trailer
+  below → next slice.
+- **Slice 7 is ADR drafts only** — write the proposals at `PROPOSAL` status; do
+  NOT implement cross-meeting identity or live labels; stop and surface for a user
+  decision.
+- When all code slices are done: re-run full `swift test`, update
+  `spec/README.md` / `spec/02-features.md` if user-visible behavior changed, and
+  **delete this handoff doc**.
+- Commit trailer (mode A):
+  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+
+**(B) Claude is orchestrating Codex via `codex exec`.** Use the whole doc as
+written, including the MCP gotcha and orchestration recipe; Codex leaves changes
+uncommitted and Claude verifies + commits.
+
+**Guardrails (both modes):** meetings diarize with default options until Slice 6;
+keep the public CLI flag names `--speaker-count` / `--speaker-min` /
+`--speaker-max`; `SpeakerMerger` stays intact (production routes through the new
+assigner); the default-off doc-drift is already fixed by PR #532 — do not redo it.
+
 ## ⚠️ CRITICAL tooling gotcha — Codex MCP startup hang
 
 Running `codex exec` here **hangs indefinitely at startup** (3+ hours, zero output,
@@ -165,7 +198,9 @@ Deliverables:
    changes ONLY to the correct value; keep assertions strong; list every change.
 
 Verify: `swift build`; `swift test --filter Diarization`; `swift test --filter Meeting`;
-`swift test --filter Transcribe`; full `swift test`. Leave uncommitted.
+`swift test --filter Transcribe`; then full `swift test` (0 failures). Mode A (Codex
+direct): self-review the diff, then commit. Mode B (Claude orchestrating): leave
+uncommitted for review.
 
 **Verification focus for the orchestrator:** read every changed existing test
 expectation and confirm it reflects correct conservative behavior (more words
