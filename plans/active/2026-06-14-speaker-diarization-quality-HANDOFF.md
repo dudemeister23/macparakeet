@@ -3,7 +3,7 @@
 > Status: **ACTIVE HANDOFF** · Date: 2026-06-14
 > Branch: `speaker-diarization-quality` ·
 > Worktree: `/Users/dmoon/code/macparakeet-worktrees/speaker-diarization-quality`
-> Base: `origin/main` @ `f00eca8bc`
+> Base: rebased onto `origin/main` @ `e95cd9e68` on 2026-06-14
 > Orchestration: Claude orchestrates + verifies; **Codex GPT-5.5 xhigh implements**.
 > This doc is a working artifact — delete it before the PR merges.
 
@@ -113,7 +113,7 @@ Claude orchestrates, Codex executes, **Claude verifies Codex's work/commits.**
 
 ## Worktree & branch state
 
-- Worktree clean as of handoff (Slice 3's killed run left nothing behind).
+- Worktree clean after rebase onto `origin/main` @ `e95cd9e68`.
 - Build is warm (`.build` populated); incremental `swift build` is fast.
 - Full suite at last green run: **3,809 XCTest tests, 0 failures** (after Slice 2).
 
@@ -121,14 +121,14 @@ Claude orchestrates, Codex executes, **Claude verifies Codex's work/commits.**
 
 | SHA | Slice | Summary |
 |-----|-------|---------|
-| `901873acb` | Plan refresh | Re-grounded the quality plan to FluidAudio 0.15.2: corrected "Verified Current State", added the 0.15.2 capability delta (qualityScore, embeddings, streaming), promoted the eval harness to step 0, folded qualityScore into Phase 2. |
-| `f44a8706e` | **Slice 1 — eval baseline** | `DiarizationMetrics` (DER via greedy 1:1 speaker mapping + coverage + speaker-count delta), `RTTMParser`, `diarization-eval <fixtures-dir>` dev CLI, gitignored `fixtures/private/`, CHANGELOG entry, unit tests w/ hand-computed values. Purely additive. **Verified:** DER math traced by hand (confusion case → 0.5, coverage → 0.3); 11 focused tests re-run green. |
-| `235075d39` | **Slice 2 — options protocol (Phase 0+1)** | `SpeakerID` helper; `DiarizationOptions`/`SpeakerCountHint` + Core validation; `DiarizationServiceProtocol` reshaped so `diarize(audioURL:options:)` is required (`diarize(audioURL:)` is a `.default` convenience); `DiarizationService` refactored to `baseConfig` + manager factory applying hints per call; CLI `--speaker-count/--speaker-min/--speaker-max` kept (public names) but re-routed through the single options path via a stored `diarizationOptions` closure on `TranscriptionService`; `MeetingTranscriptFinalizer` switched to `SpeakerID` (pure refactor). **Verified:** all 5 ID cases traced through `SpeakerID`; meeting `diarize` call confirmed unchanged (no hint — deferred to Slice 6); 177 touched-area tests re-run green. |
+| `31cade072` | Plan refresh | Re-grounded the quality plan to FluidAudio 0.15.2: corrected "Verified Current State", added the 0.15.2 capability delta (qualityScore, embeddings, streaming), promoted the eval harness to step 0, folded qualityScore into Phase 2. |
+| `b51b8ef12` | **Slice 1 — eval baseline** | `DiarizationMetrics` (DER via greedy 1:1 speaker mapping + coverage + speaker-count delta; JER deliberately deferred), `RTTMParser`, `diarization-eval <fixtures-dir>` dev CLI, gitignored `fixtures/private/`, CHANGELOG entry, unit tests w/ hand-computed values. Purely additive. **Verified:** DER math traced by hand (confusion case → 0.5, coverage → 0.3); 11 focused tests re-run green. |
+| `f7cc4d917` | **Slice 2 — options protocol (Phase 0+1)** | `SpeakerID` helper; `DiarizationOptions`/`SpeakerCountHint` + Core validation; `DiarizationServiceProtocol` reshaped so `diarize(audioURL:options:)` is required (`diarize(audioURL:)` is a `.default` convenience); `DiarizationService` refactored to `baseConfig` + manager factory applying hints per call; CLI `--speaker-count/--speaker-min/--speaker-max` kept (public names) but re-routed through the single options path via a stored `diarizationOptions` closure on `TranscriptionService`; `MeetingTranscriptFinalizer` switched to `SpeakerID` (pure refactor). **Verified:** all 5 ID cases traced through `SpeakerID`; meeting `diarize` call confirmed unchanged (no hint — deferred to Slice 6); 177 touched-area tests re-run green. |
 
 ## Slice status
 
-- ✅ Slice 1 — committed (`f44a8706e`)
-- ✅ Slice 2 — committed (`235075d39`)
+- ✅ Slice 1 — committed (`b51b8ef12`)
+- ✅ Slice 2 — committed (`f7cc4d917`)
 - ⏭️ **Slice 3 — NEXT, not started** (a prior run hung on the MCP bug and was killed; worktree clean). Full spec below.
 - ⬜ Slice 4 — Fresh-run diarization report (plan Phase 3)
 - ⬜ Slice 5 — Speaker label provenance + meeting adapter (plan Phase 4)
@@ -185,7 +185,9 @@ Deliverables:
    ties between different speakers → ambiguous → source-only/unassigned (no
    array-order tie-break). Source-scoped API `assign(words:segments:sourceOnlySpeakerId:)`.
    Injectable defaults: fallbackToleranceMs 250, ambiguityMarginMs 150,
-   minFallbackQualityScore conservative + documented.
+   minFallbackQualityScore 0.60. The 0.60 gate is provisional: FluidAudio
+   normalizes segment quality to 0...1, and fallback should start moderately
+   conservative until private fixtures justify a different threshold.
 3. **Route production** through the assigner: file/URL → `sourceOnlySpeakerId: nil`;
    meeting system → `sourceOnlySpeakerId: AudioSource.system.rawValue` (mic words
    never passed to system assignment). Keep `SpeakerMerger` unchanged; just stop
@@ -230,11 +232,16 @@ ID (e.g. `speaker_0`). Backward-compat tests for existing rows.
 
 **Slice 6 — Calendar attendee count → meeting hint (Tier 2; unique to MacParakeet).**
 `CalendarEvent.attendeeCount` exists but is discarded —
-`MeetingAutoStartCoordinator` passes only `event.title`. Plumb attendee count
-through calendar auto-start → store on the meeting recording → pass as a **soft
-`maxSpeakers`** hint (remote ≈ attendees − 1, since Me is on the mic; never exact)
-into the meeting diarization path via the Slice-2 options protocol. Per the plan's
-Non-Goals: attendees ≠ active speakers — soft ceiling only.
+`MeetingAutoStartCoordinator` currently passes only `event.title`. Important
+correction: `CalendarEvent.participants` already excludes the current user, so
+`attendeeCount` is the remote/system-side count. Do **not** subtract 1. Plumb an
+optional calendar context through auto-start, store it on the meeting recording
+metadata/output, and pass a **soft `maxSpeakers = attendeeCount`** hint into the
+meeting diarization path via the Slice-2 options protocol. Suggested shape:
+optional `MeetingRecordingCalendarContext(attendeeCount: Int?)` on
+`MeetingRecordingMetadata` and `MeetingRecordingOutput`, and an auto-start
+callback that passes title + context together. Per the plan's Non-Goals:
+attendees ≠ active speakers — soft ceiling only, never exact.
 
 **Slice 7 — ADR drafts (proposal-only, NO implementation).** Draft two ADRs at
 `PROPOSAL` status: (a) cross-meeting speaker identity via persisted embeddings
