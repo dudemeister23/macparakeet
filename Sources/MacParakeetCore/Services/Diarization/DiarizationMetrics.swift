@@ -363,7 +363,7 @@ public enum DiarizationMetrics {
         options: DiarizationScoringOptions
     ) -> [Interval] {
         var boundaries = Set((reference + hypothesis).flatMap { [$0.startMs, $0.endMs] })
-        let collarIntervals = mergedIntervals(collarIntervals(reference: reference, collarMs: options.collarMs))
+        let collarIntervals = collarIntervals(reference: reference, collarMs: options.collarMs)
         for interval in collarIntervals {
             boundaries.insert(interval.startMs)
             boundaries.insert(interval.endMs)
@@ -424,13 +424,15 @@ public enum DiarizationMetrics {
         let beforeMs = collarMs / 2
         let afterMs = collarMs - beforeMs
 
-        return reference.flatMap { segment in
+        let intervals = reference.flatMap { segment in
             [
                 Interval(startMs: max(0, segment.startMs - beforeMs), endMs: segment.startMs + afterMs),
                 Interval(startMs: max(0, segment.endMs - beforeMs), endMs: segment.endMs + afterMs),
             ]
         }
         .filter { $0.endMs > $0.startMs }
+
+        return mergedIntervals(intervals)
     }
 
     private static func activeSpeakers(

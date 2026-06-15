@@ -74,18 +74,19 @@ public struct SpeakerWordAssigner: Sendable {
             .sourceOnly: 0,
             .unassigned: 0,
         ]
-        let sortedSegments = segments.sorted {
-            if $0.startMs == $1.startMs {
-                if $0.endMs == $1.endMs {
-                    return $0.speakerId < $1.speakerId
-                }
-                return $0.endMs < $1.endMs
+        let eligibleSegments = segments
+            .filter {
+                isEligible(segment: $0, sourceOnlySpeakerId: sourceOnlySpeakerId)
             }
-            return $0.startMs < $1.startMs
-        }
-        let eligibleSegments = sortedSegments.filter {
-            isEligible(segment: $0, sourceOnlySpeakerId: sourceOnlySpeakerId)
-        }
+            .sorted {
+                if $0.startMs == $1.startMs {
+                    if $0.endMs == $1.endMs {
+                        return $0.speakerId < $1.speakerId
+                    }
+                    return $0.endMs < $1.endMs
+                }
+                return $0.startMs < $1.startMs
+            }
         let sortedWords = words.enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.startMs == rhs.element.startMs {
