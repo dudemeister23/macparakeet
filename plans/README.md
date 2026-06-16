@@ -50,11 +50,19 @@
 | [2026-05-dictation-paste-targeting-ux](active/2026-05-dictation-paste-targeting-ux.md) | Dictation Paste Targeting UX | **DECISION** | P3 | Finish-target model is the settled product rule. Follow-up hardening (editable-target detection, insertion verification, diagnostics) open. |
 | [cli-as-canonical-parakeet-surface](active/cli-as-canonical-parakeet-surface.md) | CLI as canonical Parakeet-on-Apple-Silicon surface | **PARTIAL** | P3 | CLI completeness shipped (PR #138). Remaining is positioning/distribution (semver-public surface, brew path) for the agent-operator audience — a packaging push, not a build. |
 | [2026-05-voice-command-agent-mode](active/2026-05-voice-command-agent-mode.md) | Voice Command & Agent Mode | **PROPOSED** | — | Exploration/direction. Candidate to relocate to `deferred/` if it stays parked. |
+| [2026-06-15-dx-format-lint-baseline](active/2026-06-15-dx-format-lint-baseline.md) | swift-format + .editorconfig + dev scripts + informational CI | **EXECUTOR-READY** | P2 | Net-new (2026-06-15 architecture run). S/LOW. No formatter/lint/editorconfig exists today; defuses the documented CRLF-flip pitfall + adds a fast agent inner loop. Non-blocking CI lint; does NOT reformat the tree (deferred). |
+| [2026-06-15-settings-observer-fanout-collapse](active/2026-06-15-settings-observer-fanout-collapse.md) | Table-driven AppSettingsObserverCoordinator | **EXECUTOR-READY** | P2 | Net-new. S/LOW, behavior-identical. Collapses 12 observer triples (~200 lines) into one table-driven loop; existing `AppSettingsObserverCoordinatorTests` is the net. Enabler for the Settings decomposition. |
+| [2026-06-15-settings-engine-characterization-tests](active/2026-06-15-settings-engine-characterization-tests.md) | Characterize the Settings engine/model surface | **EXECUTOR-READY** | P2 | Net-new. M/LOW, pure test addition. Pins current behavior of the ~40-member engine slice in `SettingsViewModel`. **Prerequisite** for the extraction below. |
+| [2026-06-15-settings-engine-viewmodel-extraction](active/2026-06-15-settings-engine-viewmodel-extraction.md) | Extract EngineSettingsViewModel (extract-and-delegate) | **TODO** (gated) | P2 | Net-new. L/MED. Executes the stalled `EngineSettingsViewModel` slice from `2026-04-settings-ia-overhaul.md` §3, test-first via extract-and-delegate. **HARD depends on** the characterization tests. Supersedes the Engine portion of the IA plan's god-file remainder. |
+| [2026-06-15-transcript-formatter-dedup](active/2026-06-15-transcript-formatter-dedup.md) | Shared TranscriptFormatter (kill the dup AI-formatter path) | **EXECUTOR-READY** | P2 | Net-new. M/MED. Dictation + Transcription duplicate `FormatterOutcome` + `formatTranscriptIfNeeded` (already drifted); extract one `TranscriptFormatter`. Capture-telemetry-emitter dedup deferred as a follow-up. |
 
-> [`active/2026-06-12-advisor-index.md`](active/2026-06-12-advisor-index.md) is
-> the **audit narrative** for the 2026-06-12 advisor run (findings, refutations,
-> opportunistic items) — not a plan. This board mirrors the status of the three
-> plans it spawned; that file remains the reasoning record.
+> [`active/2026-06-12-advisor-index.md`](active/2026-06-12-advisor-index.md) and
+> [`active/2026-06-15-advisor-index.md`](active/2026-06-15-advisor-index.md) are
+> **audit narratives** (findings, refutations, deferred items) — not plans. The
+> 2026-06-15 run is the architecture/maintainability pass; it spawned the five
+> `2026-06-15-*` plans above and records the reviewed-but-unplanned items (LLM
+> seams, STTRuntime, the other god-object services, App-layer cleanups). This
+> board mirrors plan status; those files remain the reasoning record.
 
 ## Execute next (recommended order)
 
@@ -81,4 +89,4 @@ These were merged/resolved but left in `active/`; moved with a ship-evidence not
 ## Findings considered and not re-opened
 
 - The 2026-06-09 two-pass audit (`docs/audits/2026-06-09-codebase-audit.md`) and the 2026-06-12 advisor run cleared the correctness/security/race surface (≈70% of P0/P1 race claims refuted). Don't re-mine it — see the advisor index's "considered and rejected" section.
-- God-file decomposition (`SettingsView` 3278, `TranscriptResultView` 3077) is real but high-risk with no test net; folded into `2026-04-settings-ia-overhaul`, not a standalone plan.
+- God-file decomposition (`SettingsView` now 3467, `TranscriptResultView` 3112, `SettingsViewModel` now 2568) is real but high-risk with no test net. **Update (2026-06-15):** the `SettingsViewModel` **Engine slice** now has a test-first path — `2026-06-15-settings-engine-characterization-tests` (pin behavior) → `2026-06-15-settings-engine-viewmodel-extraction` (extract-and-delegate), executing the stalled `EngineSettingsViewModel` row of `2026-04-settings-ia-overhaul` §3. The remaining slices (Capture/Dictation/Transcription/Meeting/System) and the two view god-structs stay folded into the IA plan until a net exists. See `2026-06-15-advisor-index.md` for the full architecture findings (incl. the deferred LLM-layer, STTRuntime, and App-layer items).
