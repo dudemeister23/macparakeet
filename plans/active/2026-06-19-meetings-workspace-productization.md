@@ -1,8 +1,9 @@
-# Plan: Productize Meetings Workspace from StenoAI Lessons
+# Plan: Productize Meetings Workspace
 
-> **Executor instructions**: Treat this as staged productization, not a
-> StenoAI clone. The first safe slices are Meetings workspace legibility,
-> artifact-folder actions, and app-smoke scaffolding. Cross-meeting Ask is
+> **Executor instructions**: Treat this as staged productization of
+> MacParakeet's existing meeting system. The first safe slices are Meetings
+> workspace legibility, artifact-folder actions, and app-smoke scaffolding.
+> Cross-meeting Ask is
 > blocked on a local index and should not be implemented by scanning the whole
 > database or by sending full meeting histories to an LLM provider.
 >
@@ -24,28 +25,28 @@
 
 ## Why this matters
 
-The useful lesson from StenoAI is not its full architecture. MacParakeet is a
-local-first Swift app with durable local artifacts, native capture, and no
-account system; those constraints should stay. The lesson is that meeting users
-benefit when the product treats meetings as a daily workspace rather than a
-feature buried inside a general transcription library.
+The product review surfaced ideas worth adapting to MacParakeet's meeting
+workflow: make meetings easier to scan, make notes and artifacts more visible,
+and prove the whole app workflow with smoke coverage. MacParakeet already has a
+solid local-first meeting stack, durable local artifacts, native capture, and no
+account system; this plan builds on those strengths.
 
 MacParakeet already has most of the hard substrate: live recording state,
 calendar preview, recovery attention, recent meetings, per-transcript chat,
 notes, prompt results, automation hooks, and materialized meeting folders.
 This plan makes those capabilities more legible and testable, then stages the
-heavier Steno-like additions: DB-backed folders/projects, local cross-meeting
+larger workflow additions: DB-backed folders/projects, local cross-meeting
 indexing, and cross-meeting Ask.
 
-## Suggestion review
+## Product ideas reviewed
 
-| Suggestion | Verdict | MacParakeet-shaped interpretation |
+| Idea | Verdict | MacParakeet-shaped interpretation |
 |------------|---------|-----------------------------------|
 | Turn Meetings into the daily workspace | Valid and near-term | Keep the existing native `MeetingsView`, but make it more compact and scannable: live status, next meetings, needs attention, previous meetings, All Notes entry point, search, and quick start in one workspace. |
 | Add folders/tags/projects for meeting notes | Valid, but staged | Store organization in SQLite, not filesystem folders. Start with folders/projects as user-visible collections; add tags once the collection model is proven. Enforce exclusive folder/project assignment in the persistence layer, not only in UI state. Mirror metadata into artifacts as a refreshable snapshot, not the source of truth. |
 | Add cross-meeting Ask after local indexing | Valid later | Current Ask is per transcript. Build a local FTS/index layer over transcripts, notes, summaries, and prompt results first; then add Ask with bounded citations and explicit privacy behavior. |
 | Make artifacts more visible | Valid and small | The artifact store already writes `manifest.json`, `transcript.json`, `notes.md`, and prompt-result files. The UI should expose "Open Meeting Folder" and "Copy Artifact Path" independently from audio-file availability. |
-| Add full-app meeting smoke tests | Valid, with harness work | Existing coverage is strong at unit/integration level, but there is no UI-test target. Add a DEBUG/test launch seam and smoke harness before relying on Steno-style app workflow proof. |
+| Add full-app meeting smoke tests | Valid, with harness work | Existing coverage is strong at unit/integration level, but there is no UI-test target. Add a DEBUG/test launch seam and smoke harness before relying on end-to-end app workflow proof. |
 
 ## Current state
 
@@ -117,10 +118,10 @@ indexing, and cross-meeting Ask.
 
 ### Out of scope
 
-- Cloning StenoAI's Electron/Python app architecture, account model, cloud
-  storage, or sync assumptions.
 - Replacing MacParakeet's existing meeting recording pipeline, recovery model,
   or local artifact folder contract.
+- Changing MacParakeet's local-first architecture, account-free product model,
+  or on-device meeting artifact contract.
 - Building semantic/vector search in the first slice. Start with SQLite FTS or
   an equivalent local text index that fits the current GRDB stack.
 - Sending full meeting history to an LLM provider for cross-meeting Ask.
@@ -225,10 +226,9 @@ indexing, and cross-meeting Ask.
 
 ## Key technical decisions
 
-- **Productize the native Meetings workspace, do not clone StenoAI.**
-  MacParakeet already has native capture, recovery, and local artifacts. The
-  plan borrows information architecture cues, not technology stack or account
-  assumptions.
+- **Productize the native Meetings workspace.** MacParakeet already has native
+  capture, recovery, notes, prompt results, and local artifacts. The plan adapts
+  the strongest product ideas to that existing foundation.
 - **Keep organization in SQLite.** Filesystem folders are output locations and
   automation surfaces. Meeting organization needs queryability, deletion
   semantics, tests, and artifact snapshots, so it belongs in the DB.

@@ -30,12 +30,13 @@ ADRs, changelog entries, active plans, and tests. That works while one person
 has all the context loaded, but it is fragile for agents, reviewers, and future
 features like retention sweeps or cross-meeting automation.
 
-The useful lesson from StenoAI is not its Electron/Python subprocess stack. It
-is the habit of keeping explicit boundary contracts close to the code and
-requiring matching tests when a PR changes them. This plan adds that habit in a
-MacParakeet-shaped way: narrow `spec/contracts/*.md` documents, each tied to
-specific XCTest coverage. The first slice covers the highest-trust surfaces:
-meeting artifacts, recovery/retention safety, and CLI JSON/spec output.
+The useful pattern is explicit boundary contracts that live close to the code
+and are kept honest by tests. MacParakeet already has the underlying meeting
+recording, recovery, artifact, and CLI surfaces; this plan makes their contracts
+easier for future contributors and agents to find. The first slice uses narrow
+`spec/contracts/*.md` documents, each tied to specific XCTest coverage, for the
+highest-trust surfaces: meeting artifacts, recovery/retention safety, and CLI
+JSON/spec output.
 
 ## Current state
 
@@ -407,5 +408,5 @@ rg -n "spec/contracts" AGENTS.md spec/README.md docs/cli-testing.md Sources/CLI/
   `plans/active/2026-06-12-telemetry-allowlist-ci-guard.md`.
 - `spec/contracts/settings-preferences-v1.md`: UserDefaults keys, defaults,
   migration rules, notification names, and CLI config parity.
-- Full-app meeting workflow smoke tests inspired by StenoAI's T2 suite. This is
-  related but larger than boundary contracts.
+- Full-app meeting workflow smoke tests for daily meeting flows. This is related
+  but larger than boundary contracts.
