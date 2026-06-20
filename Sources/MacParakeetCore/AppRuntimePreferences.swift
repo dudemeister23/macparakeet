@@ -395,6 +395,7 @@ public enum MeetingAudioSourceMode: String, CaseIterable, Hashable, Sendable, Eq
              "all",
              "default":
             return .microphoneAndSystem
+        // Short source aliases are exclusive; use "both" or "default" for combined capture.
         case "microphone-only", "mic-only", "microphone", "mic":
             return .microphoneOnly
         case "system-only", "system-audio-only", "system", "computer-audio-only", "computer-audio":

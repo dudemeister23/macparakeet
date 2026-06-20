@@ -164,6 +164,7 @@ public actor MeetingAudioCaptureService {
             systemCapture = nil
         }
         eventSink.setHandler(handler)
+        // Mic health compares microphone energy against system audio, so mic-only capture has no reference stream.
         micHealthObserver.start(observing: sourceMode.capturesMicrophone && sourceMode.capturesSystemAudio)
         let systemAudioFailureEvent: @Sendable (MeetingAudioError) -> MeetingAudioCaptureEvent = { error in
             sourceMode.capturesMicrophone
