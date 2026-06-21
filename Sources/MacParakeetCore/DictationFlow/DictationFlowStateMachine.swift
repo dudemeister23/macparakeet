@@ -22,7 +22,7 @@ public enum DictationFlowState: Equatable, Sendable {
     case pendingStop(mode: FnKeyStateMachine.RecordingMode)
     /// Stop called, transcription in progress.
     case processing
-    /// Cancel countdown running (5 seconds). User can undo or confirm.
+    /// Cancel countdown running. User can undo or confirm.
     case cancelCountdown
     /// Terminal display state before returning to idle.
     case finishing(outcome: DictationFlowFinishOutcome)
@@ -112,7 +112,9 @@ public enum DictationFlowEffect: Equatable, Sendable {
     case stopRecordingAndTranscribe
     case cancelRecording(reason: DictationFlowCancelReason)
     case discardRecording
-    case confirmCancel
+    /// Confirm a pending cancel. Pass a reason only when cancel telemetry has
+    /// not already been recorded by a preceding `cancelRecording` effect.
+    case confirmCancel(reason: DictationFlowCancelReason?)
     case undoCancelAndTranscribe
 
     // Paste
@@ -132,7 +134,7 @@ public enum DictationFlowEffect: Equatable, Sendable {
     // Timer management
     case startReadyDismissTimer
     case cancelReadyDismissTimer
-    case startCancelCountdown
+    case startCancelCountdown(seconds: Double)
     case cancelCancelCountdown
     case startDisplayDismissTimer(seconds: Double)
     case cancelAllTimers
@@ -151,6 +153,7 @@ public enum DictationFlowEffect: Equatable, Sendable {
 public struct DictationFlowStateMachine: Sendable, Equatable {
     public private(set) var state: DictationFlowState = .idle
     public private(set) var generation: Int = 0
+    public var undoCountdownSeconds: Double? = 5
 
     public init() {}
 
@@ -295,10 +298,28 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             return effects
 
         case (.recording, .cancelRequested(let reason)):
+            guard let undoCountdownSeconds else {
+                // Undo window disabled: record the cancel reason and discard
+                // immediately in one ordered coordinator task. Do not emit a
+                // separate .cancelRecording effect here; separate async effects
+                // could interleave, double-stop capture, and race the cancelled
+                // state.
+                // Deliberately omits .notifyHotkeyCancelledByUI: that effect
+                // blocks every hotkey until a later reset, but there is no
+                // countdown to expire on this path, so it would leave dictation
+                // shortcuts stuck. .resetHotkeyStateMachine returns them to idle.
+                state = .idle
+                return [
+                    .cancelRecordingTask, .confirmCancel(reason: reason), .hideOverlay,
+                    .resetHotkeyStateMachine, .updateMenuBar(.idle),
+                    .showIdlePill,
+                ]
+            }
             state = .cancelCountdown
             return [
                 .cancelRecordingTask, .cancelRecording(reason: reason),
-                .showCancelCountdown, .updateMenuBar(.idle), .startCancelCountdown,
+                .showCancelCountdown, .updateMenuBar(.idle),
+                .startCancelCountdown(seconds: undoCountdownSeconds),
                 .notifyHotkeyCancelledByUI,
             ]
 
@@ -397,7 +418,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             state = .idle
             return [
                 .cancelCancelCountdown, .cancelActionTask,
-                .confirmCancel, .hideOverlay,
+                .confirmCancel(reason: nil), .hideOverlay,
                 .resetHotkeyStateMachine, .updateMenuBar(.idle), .showIdlePill,
             ]
 
@@ -405,7 +426,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             guard gen == generation else { return [] }
             state = .idle
             return [
-                .confirmCancel, .hideOverlay,
+                .confirmCancel(reason: nil), .hideOverlay,
                 .resetHotkeyStateMachine, .updateMenuBar(.idle), .showIdlePill,
             ]
 
@@ -415,7 +436,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             state = .checkingEntitlements(mode: mode)
             return [
                 .cancelCancelCountdown, .cancelActionTask,
-                .confirmCancel, .hideOverlay,
+                .confirmCancel(reason: nil), .hideOverlay,
                 .hideIdlePill, .checkEntitlements, .resetHotkeyStateMachine,
             ]
 
@@ -423,7 +444,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             state = .idle
             return [
                 .cancelAllTimers, .cancelActionTask,
-                .confirmCancel, .hideOverlay,
+                .confirmCancel(reason: nil), .hideOverlay,
                 .resetHotkeyStateMachine, .updateMenuBar(.idle), .showIdlePill,
             ]
 
@@ -432,7 +453,7 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
             state = .idle
             return [
                 .cancelCancelCountdown, .cancelActionTask,
-                .confirmCancel, .hideOverlay,
+                .confirmCancel(reason: nil), .hideOverlay,
                 .resetHotkeyStateMachine, .updateMenuBar(.idle), .showIdlePill,
             ]
 
