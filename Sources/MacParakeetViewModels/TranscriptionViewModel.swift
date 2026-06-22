@@ -461,7 +461,12 @@ public final class TranscriptionViewModel {
     }
 
     private func retranscriptionEngineOrder(primary: SpeechEnginePreference) -> [SpeechEnginePreference] {
-        let defaultOrder: [SpeechEnginePreference] = [.parakeet, .nemotron, .whisper, .cohere]
+        // Gate Cohere on its feature flag, consistent with the settings engine
+        // picker — when the flag is off, Cohere must not leak in as a
+        // retranscription choice.
+        let defaultOrder: [SpeechEnginePreference] = AppFeatures.cohereEngineEnabled
+            ? [.parakeet, .nemotron, .whisper, .cohere]
+            : [.parakeet, .nemotron, .whisper]
         return [primary] + defaultOrder.filter { $0 != primary }
     }
 

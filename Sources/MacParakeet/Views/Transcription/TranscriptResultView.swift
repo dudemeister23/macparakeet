@@ -3003,7 +3003,7 @@ private struct EngineOptionCard: View {
         case .whisper:
             "Broader languages • Korean, Chinese, Japanese, and more"
         case .cohere:
-            "High accuracy • Cohere Transcribe, on-device (English)"
+            "High accuracy • On-device, 14 languages"
         }
     }
 

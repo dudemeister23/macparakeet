@@ -2690,7 +2690,10 @@ struct SettingsView: View {
     private var displayedCohereModelStatus: SettingsViewModel.LocalModelStatus {
         guard viewModel.engine.speechEngineSwitching,
               currentSpeechEngineSwitchTarget == .cohere else {
-            return CohereTranscribeEngine.isModelCached() ? .ready : .notDownloaded
+            guard CohereTranscribeEngine.isModelCached() else { return .notDownloaded }
+            // Mirror the other engines: `.ready` only when Cohere is the active
+            // (loaded) engine; on disk but inactive is `.notLoaded`.
+            return viewModel.engine.speechEnginePreference == .cohere ? .ready : .notLoaded
         }
         return .preparing
     }
