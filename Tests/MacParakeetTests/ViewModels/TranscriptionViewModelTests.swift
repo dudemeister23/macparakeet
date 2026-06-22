@@ -2001,6 +2001,43 @@ final class TranscriptionViewModelTests: XCTestCase {
         XCTAssertTrue(try retranscriptionChoice(.nemotron, in: option).isAvailable)
     }
 
+    func testRetranscriptionCohereChoiceCarriesStoredLanguage() throws {
+        // Cohere has no auto-detect and the engine defaults to English, so the
+        // retranscription choice must carry the persisted picker language —
+        // otherwise a non-English Cohere user gets silently English output.
+        let suiteName = "TranscriptionViewModelTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        SpeechEnginePreference.parakeet.save(to: defaults)
+        SpeechEnginePreference.saveCohereDefaultLanguage("fr", defaults: defaults)
+        viewModel = TranscriptionViewModel(
+            defaults: defaults,
+            isWhisperModelDownloaded: { true },
+            isNemotronModelDownloaded: { true }
+        )
+
+        let tmpFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retranscribe-engine-cohere-lang-\(UUID().uuidString).mp3")
+        FileManager.default.createFile(atPath: tmpFile.path, contents: Data([0]))
+        defer { try? FileManager.default.removeItem(at: tmpFile) }
+
+        let original = Transcription(
+            id: UUID(),
+            fileName: "Audio File",
+            filePath: tmpFile.path,
+            durationMs: 2_000,
+            rawTranscript: "Old transcript",
+            status: .completed,
+            sourceType: .file
+        )
+
+        let option = try XCTUnwrap(viewModel.retranscriptionEngineOption(for: original))
+        XCTAssertEqual(
+            try retranscriptionChoice(.cohere, in: option).selection,
+            SpeechEngineSelection(engine: .cohere, language: "fr")
+        )
+    }
+
     func testRetranscriptionEngineOptionNilWhenFileMissing() {
         viewModel = TranscriptionViewModel(isWhisperModelDownloaded: { true })
         let original = Transcription(

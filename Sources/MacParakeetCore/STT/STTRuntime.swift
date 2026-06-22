@@ -761,8 +761,8 @@ public actor STTRuntime: STTRuntimeProtocol {
         )
         // Cohere caches under `…/Models/cohere-transcribe/q8`; remove the family
         // root so a full clear can't strand the precision subdirectory.
-        _ = Self.removeNemotronModelFiles(
-            at: CohereTranscribeEngine.defaultCacheRoot().deletingLastPathComponent()
+        _ = CohereTranscribeEngine.deleteModel(
+            cacheRoot: CohereTranscribeEngine.defaultCacheRoot().deletingLastPathComponent()
         )
         setBackgroundWarmUpState(.idle)
         Telemetry.send(.modelOperation(

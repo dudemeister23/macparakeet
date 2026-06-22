@@ -206,16 +206,17 @@ public actor CohereTranscribeEngine: STTTranscribing {
 
         var merged = ""
         var start = 0
-        var chunkCount = 0
-        let chunkLimit = 64  // safety bound against pathological inputs
-        while start < samples.count, chunkCount < chunkLimit {
+        // `hop` is at least `sr` (>= 1 s) and `samples` is a finite in-memory
+        // buffer, so this loop always terminates — no chunk cap is needed. A
+        // hard 64-chunk bound here previously truncated audio past ~17 min
+        // (64 * 16 s hop), silently dropping the tail of long file transcripts.
+        while start < samples.count {
             try Task.checkCancellation()
             let end = min(start + window, samples.count)
             let chunk = Array(samples[start..<end])
             let result = try await pipeline.transcribe(
                 audio: chunk, models: models, language: language)
             merged = merged.isEmpty ? result.text : Self.mergeOnOverlap(merged, result.text)
-            chunkCount += 1
             if end >= samples.count { break }
             start += hop
         }

@@ -508,7 +508,10 @@ public final class TranscriptionViewModel {
         case .whisper:
             return SpeechEnginePreference.whisperDefaultLanguage(defaults: defaults)
         case .cohere:
-            return nil
+            // Cohere has no auto-detect and its engine defaults to English, so a
+            // retranscription must carry the user's chosen language explicitly,
+            // exactly as Nemotron/Whisper do above.
+            return SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults)
         }
     }
 

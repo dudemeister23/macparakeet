@@ -208,6 +208,7 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
         storedEngine: String?,
         storedLanguage: String?,
         storedNemotronLanguage: String? = nil,
+        storedCohereLanguage: String? = nil,
         explicitLanguage: String?
     ) -> SpeechEngineSelection {
         let preference: SpeechEnginePreference
@@ -223,7 +224,7 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
             case .whisper:
                 explicitLanguage ?? storedLanguage
             case .cohere:
-                explicitLanguage
+                explicitLanguage ?? storedCohereLanguage
             }
         case .parakeet:
             preference = .parakeet
@@ -436,6 +437,7 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
                 storedEngine: defaults.string(forKey: SpeechEnginePreference.defaultsKey),
                 storedLanguage: SpeechEnginePreference.whisperDefaultLanguage(defaults: defaults),
                 storedNemotronLanguage: SpeechEnginePreference.nemotronDefaultLanguage(defaults: defaults),
+                storedCohereLanguage: SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults),
                 explicitLanguage: self.language
             )
             let resolvedSpeakerDetection = Self.resolveSpeakerDetection(

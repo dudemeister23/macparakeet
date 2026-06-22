@@ -175,6 +175,36 @@ final class TranscribeCommandTests: XCTestCase {
         XCTAssertEqual(selection.language, "en-US")
     }
 
+    func testResolveSpeechEngineUsesStoredCohereLanguageForAppDefault() {
+        // Cohere has no auto-detect and its engine defaults to English, so an
+        // app-default run with no explicit --language must carry the stored
+        // Cohere picker language, not silently fall back to English.
+        let selection = TranscribeCommand.resolveSpeechEngine(
+            .appDefault,
+            storedEngine: SpeechEnginePreference.cohere.rawValue,
+            storedLanguage: "ko",
+            storedNemotronLanguage: "en_US",
+            storedCohereLanguage: "fr",
+            explicitLanguage: nil
+        )
+
+        XCTAssertEqual(selection.engine, .cohere)
+        XCTAssertEqual(selection.language, "fr")
+    }
+
+    func testResolveSpeechEngineExplicitLanguageOverridesStoredCohereLanguage() {
+        let selection = TranscribeCommand.resolveSpeechEngine(
+            .appDefault,
+            storedEngine: SpeechEnginePreference.cohere.rawValue,
+            storedLanguage: "ko",
+            storedCohereLanguage: "fr",
+            explicitLanguage: "ja"
+        )
+
+        XCTAssertEqual(selection.engine, .cohere)
+        XCTAssertEqual(selection.language, "ja")
+    }
+
     func testResolveSpeechEngineExplicitNemotronUsesExplicitLanguage() {
         let selection = TranscribeCommand.resolveSpeechEngine(
             .nemotron,
