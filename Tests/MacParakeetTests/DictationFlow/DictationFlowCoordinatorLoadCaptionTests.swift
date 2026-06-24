@@ -257,17 +257,16 @@ final class DictationFlowCoordinatorLoadCaptionTests: XCTestCase {
             dictationInsertionStyle: .inline
         )
 
+        // The paste uses the insertion style captured when the transcript was
+        // produced. With the success checkmark removed, paste is immediate, so a
+        // later preference change can no longer race ahead of it — the captured
+        // (inline) style is applied. (When the finalize queue lands, the deferred
+        // paste will snapshot the style into the job, re-establishing this
+        // guarantee against a mid-flight preference change.)
         harness.coordinator.startDictation(mode: .persistent, trigger: .hotkey)
         let started = await waitUntil { harness.coordinator.overlayStateForTesting?.isRecordingForTest == true }
         XCTAssertTrue(started)
         harness.coordinator.stopDictation()
-        let completed = await waitUntil { harness.coordinator.overlayStateForTesting?.isSuccessForTest == true }
-        XCTAssertTrue(completed)
-
-        harness.preferencesDefaults.set(
-            DictationInsertionStyle.sentence.rawValue,
-            forKey: UserDefaultsAppRuntimePreferences.dictationInsertionStyleKey
-        )
 
         let pasted = await waitUntilAsync {
             await harness.clipboard.snapshot().lastPastedText != nil

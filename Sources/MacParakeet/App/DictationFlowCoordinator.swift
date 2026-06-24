@@ -584,6 +584,11 @@ final class DictationFlowCoordinator {
             overlayController?.resignKeyWindow()
 
         case .pasteTranscript:
+            // Transcription succeeded — clear the engine-warmup caption with a
+            // success outcome here (there is no longer a `.showSuccess` checkmark
+            // effect to carry it). Idempotent: a later `.hideOverlay` dismiss is a
+            // no-op once this has recorded the duration.
+            dismissCaption(outcome: .success)
             let gen = stateMachine.generation
             guard let dictation = currentDictation else {
                 sendEvent(.pasteFailed(generation: gen, message: "No transcription available."))
@@ -592,8 +597,8 @@ final class DictationFlowCoordinator {
             let transcript = dictation.cleanTranscript ?? dictation.rawTranscript
             let insertionStyle = currentDictationInsertionStyle
             actionTask = Task { @MainActor in
-                // Brief pause so user sees the checkmark before paste
-                try? await Task.sleep(for: .milliseconds(200))
+                // Paste immediately — there's no success checkmark to wait for;
+                // the pasted text is the confirmation.
                 guard !Task.isCancelled else { return }
 
                 let action = self.pendingPostPasteAction
