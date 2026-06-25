@@ -36,6 +36,9 @@ public final class SettingsViewModel {
     public static let systemDefaultMicrophoneSelection = "__system_default__"
     private static let microphoneTestSilenceThreshold: Float = 0.01
     public let engine: EngineSettingsViewModel
+    /// Speaker voice profiles for named meeting diarization. Configured by
+    /// `AppEnvironmentConfigurer`; surfaced in the Meetings settings tab.
+    public let speakerProfiles = SpeakerProfilesViewModel()
 
     // General
     public var launchAtLogin: Bool {

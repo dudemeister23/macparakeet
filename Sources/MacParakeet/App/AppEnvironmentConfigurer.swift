@@ -108,6 +108,11 @@ final class AppEnvironmentConfigurer {
             promptResultsViewModel: promptResultsViewModel
         )
         historyViewModel.configure(dictationRepo: env.dictationRepo)
+        settingsViewModel.speakerProfiles.configure(
+            repo: env.speakerProfileRepo,
+            embedder: env.speakerEmbeddingService,
+            recorder: SpeakerEnrollmentRecorder(sharedStream: env.sharedMicStream)
+        )
         libraryViewModel.configure(transcriptionRepo: env.transcriptionRepo)
         meetingsWorkspaceViewModel.configure(
             transcriptionRepo: env.transcriptionRepo,

@@ -1378,6 +1378,33 @@ new scheduling architecture.
 - Single-speaker files correctly return one speaker label with no overhead
 - Total file transcription time: ~53-79 seconds per hour of audio (ASR ~23s + diarization ~30-56s)
 
+#### F13a: Speaker Voice Profiles (named recognition)
+
+**What:** Enroll known speakers once so meetings come back with their real names
+instead of anonymous "Others 1/2". Adds the cross-session speaker identity that
+plain diarization deliberately omits.
+
+**How it works:**
+- Enroll a speaker by recording a short mic sample (~20s) in
+  Settings → Meetings → Known speakers, or headlessly via
+  `macparakeet-cli speaker enroll <name> <file>`. The sample is embedded with
+  FluidAudio's WeSpeaker v2 model into a 256-d vector stored locally
+  (`speaker_profiles` table); audio is not retained.
+- During meeting finalization (when Speaker detection is on and profiles exist),
+  each anonymous diarization cluster is re-embedded with the same model and
+  cosine-matched against enrolled profiles. A confident match (distance ≤ ~0.5)
+  relabels the cluster with the enrolled name; otherwise it stays "Others N".
+- Recognition is best-effort and never blocks finalization; the existing
+  click-to-rename speaker UI remains the manual correction path.
+- Matching is layered on top of the offline diarizer rather than replacing it,
+  so who-spoke-when accuracy is unchanged. Enrollment and recognition use the
+  identical embedding path so vectors are comparable.
+- Fully on-device; embeddings never leave the Mac. Validated margin is wide on
+  real audio (same-speaker ~0.03 vs different-speaker ~0.8).
+- CLI: `speaker enroll | list | recognize | remove` (see
+  `Sources/CLI/CHANGELOG.md`). `recognize` prints per-cluster distances for
+  tuning/validation.
+
 **Acceptance criteria:**
 - [x] Speakers automatically detected and separated in transcript
 - [x] Speaker labels displayed in transcript view with colors (Step 8 — UI PR)
