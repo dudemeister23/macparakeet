@@ -256,10 +256,12 @@ struct MeetingRecordingTile: View {
             .frame(width: 64)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.state == .completing ? "Wrapping up…" : "Transcribing…")
+                Text(viewModel.state == .completing
+                    ? "Wrapping up…"
+                    : (viewModel.willTranscribe ? "Transcribing…" : "Saving…"))
                     .font(DesignSystem.Typography.sectionTitle)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text("Processing entirely on this Mac.")
+                Text(viewModel.willTranscribe ? "Processing entirely on this Mac." : "Saved on this Mac.")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
                     .lineLimit(1)

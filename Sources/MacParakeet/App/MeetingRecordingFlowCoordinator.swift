@@ -581,7 +581,9 @@ final class MeetingRecordingFlowCoordinator {
             stopPillPolling()
             stopTranscriptObservation()
             stopSpeechWarmUpObservation()
-            // Begin a fresh saved-completion celebration.
+            // Begin a fresh saved-completion celebration. When auto-transcribe is
+            // off the post-stop bloom is a save, not a transcription.
+            pillViewModel.willTranscribe = autoTranscribeMeetingsProvider()
             cancelSavedCompletion()
             pillViewModel.micLevel = 0
             pillViewModel.systemLevel = 0
