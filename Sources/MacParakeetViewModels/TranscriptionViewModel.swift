@@ -1326,16 +1326,21 @@ public final class TranscriptionViewModel {
     public var speakerDetectionState: SpeakerDetectionState = .idle
     public var speakerDetectionError: String?
 
-    /// Whether "Detect speakers" applies: a meeting that was transcribed without
-    /// diarization and whose audio is still on disk.
+    /// Whether "Detect speakers" applies: any meeting whose audio is still on
+    /// disk. Available even when already diarized, so a poor result can be re-run
+    /// (e.g. after a fix). `detectSpeakersIsRerun` drives the button label.
     public func canDetectSpeakers(for transcription: Transcription) -> Bool {
         guard transcriptionService != nil,
               transcription.sourceType == .meeting,
-              (transcription.diarizationSegments?.isEmpty ?? true),
               let path = transcription.filePath,
               FileManager.default.fileExists(atPath: path)
         else { return false }
         return true
+    }
+
+    /// True when the meeting already has speaker turns (so the action re-runs).
+    public func detectSpeakersIsRerun(for transcription: Transcription) -> Bool {
+        !(transcription.diarizationSegments?.isEmpty ?? true)
     }
 
     /// Diarize an already-transcribed meeting in place (no re-ASR), adding

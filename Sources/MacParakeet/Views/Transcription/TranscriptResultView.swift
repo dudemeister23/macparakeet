@@ -523,12 +523,16 @@ struct TranscriptResultView: View {
                         } else {
                             Image(systemName: "person.2.wave.2")
                         }
-                        Text(viewModel.speakerDetectionState == .running ? "Detecting speakers…" : "Detect speakers")
+                        Text(
+                            viewModel.speakerDetectionState == .running
+                                ? "Detecting speakers…"
+                                : (viewModel.detectSpeakersIsRerun(for: transcription) ? "Re-detect speakers" : "Detect speakers")
+                        )
                     }
                 }
                 .parakeetAction(.secondary)
                 .disabled(viewModel.speakerDetectionState == .running)
-                .help("Diarize this meeting and label speakers without re-transcribing")
+                .help("Diarize this meeting and label speakers")
             }
 
             if onRetranscribe != nil, let filePath = transcription.filePath,

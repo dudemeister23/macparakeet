@@ -1315,13 +1315,16 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         guard diarizationService != nil else {
             throw STTError.transcriptionFailed("Speaker detection is unavailable.")
         }
-        guard recording.sourceAlignment.system != nil else {
-            throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
-        }
-        // Word-engine meetings (Parakeet/Nemotron) carry word timestamps: re-tag
-        // those words with diarized speakers in place. Cohere meetings have no
-        // words, so they fall through to per-turn re-transcription below.
-        if let existingWords = original.wordTimestamps, !existingWords.isEmpty {
+
+        // Route by engine, not by whether words exist: a prior per-turn run leaves
+        // synthetic "words" on a Cohere meeting, but Cohere never has real word
+        // timing, so it must always diarize-then-transcribe-per-turn. Word engines
+        // (Parakeet/Nemotron) carry real word timestamps and re-tag them in place.
+        let producedRealWords = original.engine != SpeechEnginePreference.cohere.rawValue
+        if producedRealWords, let existingWords = original.wordTimestamps, !existingWords.isEmpty {
+            guard recording.sourceAlignment.system != nil else {
+                throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
+            }
             onProgress?(.identifyingSpeakers)
             let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
             defer { try? FileManager.default.removeItem(at: systemWavURL) }
