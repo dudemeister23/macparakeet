@@ -1031,6 +1031,21 @@ public final class DatabaseManager: Sendable {
             }
         }
 
+        // v0.23 — Speaker voice profiles. Stores enrolled known speakers
+        // (display name + 256-d L2-normalized embedding) so meeting diarization
+        // can attribute anonymous speaker clusters to real names by
+        // cosine-matching embeddings. Embeddings stay on-device.
+        migrator.registerMigration("v0.23-speaker-profiles") { db in
+            try db.create(table: "speaker_profiles") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("embedding", .text).notNull()
+                t.column("enrolledSeconds", .double).notNull().defaults(to: 0)
+                t.column("createdAt", .text).notNull()
+                t.column("updatedAt", .text).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
         try reconcileBuiltInPrompts()
         try reconcileBuiltInQuickPrompts()

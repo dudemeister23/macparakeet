@@ -18,6 +18,7 @@ final class AppEnvironment {
     let aiFormatterProfileRepo: AIFormatterProfileRepository
     let transformHistoryRepo: TransformHistoryRepository
     let quickPromptRepo: QuickPromptRepository
+    let speakerProfileRepo: SpeakerProfileRepository
     let sttRuntime: STTRuntime
     let sttScheduler: STTScheduler
     let sharedMicStream: SharedMicrophoneStream
@@ -28,6 +29,7 @@ final class AppEnvironment {
     let transcriptionService: TranscriptionService
     let youtubeDownloader: YouTubeDownloader
     let diarizationService: DiarizationService
+    let speakerEmbeddingService: SpeakerEmbeddingService
     /// Stateless; fetches the Silero VAD model for VAD-guided meeting live
     /// chunking. Consumed by `AppDelegate.scheduleDeferredSpeechPreWarm` on every
     /// launch (gated on `AppFeatures.meetingVadLiveChunkingEnabled`) so the
@@ -65,6 +67,7 @@ final class AppEnvironment {
         aiFormatterProfileRepo = AIFormatterProfileRepository(dbQueue: databaseManager.dbQueue)
         transformHistoryRepo = TransformHistoryRepository(dbQueue: databaseManager.dbQueue)
         quickPromptRepo = QuickPromptRepository(dbQueue: databaseManager.dbQueue)
+        speakerProfileRepo = SpeakerProfileRepository(dbQueue: databaseManager.dbQueue)
 
         // Services
         let llmConfigStore = LLMConfigStore()
@@ -202,6 +205,7 @@ final class AppEnvironment {
             await binaryBootstrap.autoUpdateYtDlpIfNeeded()
         }
         diarizationService = DiarizationService()
+        speakerEmbeddingService = SpeakerEmbeddingService()
 
         let voiceReturnTriggerClosure: @Sendable () -> String? = { [runtimePreferences] in
             runtimePreferences.voiceReturnTrigger
