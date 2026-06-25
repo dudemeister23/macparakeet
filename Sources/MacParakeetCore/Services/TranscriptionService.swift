@@ -1318,6 +1318,12 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         guard recording.sourceAlignment.system != nil else {
             throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
         }
+        // Speaker labels attach to word timestamps. Cohere produces none, so there
+        // is nothing to tag — fail loudly instead of silently writing an empty
+        // result. The user can re-transcribe with Parakeet for word-level timing.
+        guard let existingWords = original.wordTimestamps, !existingWords.isEmpty else {
+            throw STTError.transcriptionFailed("This meeting was transcribed with Cohere, which doesn't produce word-level timing, so speakers can't be added to the existing text. Re-transcribe with Parakeet (the Retranscribe button) to label speakers.")
+        }
 
         onProgress?(.identifyingSpeakers)
         let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
@@ -1336,7 +1342,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         }
 
         let finalized = MeetingTranscriptFinalizer.applyDiarization(
-            toExistingWords: original.wordTimestamps ?? [],
+            toExistingWords: existingWords,
             systemDiarization: systemDiarization
         )
 
