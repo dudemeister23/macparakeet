@@ -360,7 +360,11 @@ final class AppEnvironment {
             podcastResolver: PodcastEpisodeResolver(),
             podcastSearchResolver: PodcastQueryResolver(),
             podcastAudioFetcher: PodcastAudioDownloader(),
-            diarizationService: diarizationService
+            diarizationService: diarizationService,
+            speakerRecognizer: SpeakerRecognizer(embedding: speakerEmbeddingService),
+            enrolledSpeakerProfiles: { [speakerProfileRepo] in
+                (try? speakerProfileRepo.fetchAll()) ?? []
+            }
         )
 
         meetingRecordingRecoveryService = MeetingRecordingRecoveryService(

@@ -240,6 +240,10 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     private let podcastAudioFetcher: PodcastAudioFetching?
     private let promptResultRepo: PromptResultRepositoryProtocol?
     private let diarizationService: DiarizationServiceProtocol?
+    /// Optional: layers enrolled-speaker names onto anonymous diarization. When
+    /// nil (or no profiles enrolled), diarization stays anonymous as before.
+    private let speakerRecognizer: SpeakerRecognizer?
+    private let enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])?
     private let mediaMetadataExtractor: MediaMetadataExtracting
     private let thumbnailCache: ThumbnailCaching
     private let playbackConverter: YouTubeAudioPlaybackConverting
@@ -267,6 +271,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         podcastSearchResolver: PodcastSearchResolving? = nil,
         podcastAudioFetcher: PodcastAudioFetching? = nil,
         diarizationService: DiarizationServiceProtocol? = nil,
+        speakerRecognizer: SpeakerRecognizer? = nil,
+        enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])? = nil,
         mediaMetadataExtractor: MediaMetadataExtracting = AVMediaMetadataExtractor(),
         thumbnailCache: ThumbnailCaching = ThumbnailCacheService.shared,
         playbackConverter: YouTubeAudioPlaybackConverting = YouTubeAudioPlaybackConverter(),
@@ -294,6 +300,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         self.podcastAudioFetcher = podcastAudioFetcher
         self.promptResultRepo = promptResultRepo
         self.diarizationService = diarizationService
+        self.speakerRecognizer = speakerRecognizer
+        self.enrolledSpeakerProfiles = enrolledSpeakerProfiles
         self.mediaMetadataExtractor = mediaMetadataExtractor
         self.thumbnailCache = thumbnailCache
         self.playbackConverter = playbackConverter
@@ -1303,10 +1311,20 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
 
             guard !diarResult.segments.isEmpty else { return nil }
 
+            // Layer enrolled-speaker names onto the anonymous clusters. Resilient:
+            // any failure or no match leaves the cluster's "Others N" label, and
+            // the user can still rename speakers by hand in the transcript view.
+            let recognizedNames = await recognizeSpeakerNames(
+                diarization: diarResult,
+                systemWavURL: systemWavURL
+            )
+
             let mappedSpeakers = diarResult.speakers.enumerated().map { index, speaker in
-                SpeakerInfo(
+                let label = recognizedNames[speaker.id]
+                    ?? "\(AudioSource.system.displayLabel) \(index + 1)"
+                return SpeakerInfo(
                     id: "\(AudioSource.system.rawValue):\(speaker.id)",
-                    label: "\(AudioSource.system.displayLabel) \(index + 1)"
+                    label: label
                 )
             }
             let speakerIDMap = Dictionary(uniqueKeysWithValues: zip(
@@ -1335,6 +1353,40 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 errorDetail: TelemetryErrorClassifier.errorDetail(error)
             ))
             return nil
+        }
+    }
+
+    /// Match each anonymous diarization cluster against enrolled speaker
+    /// profiles, returning a `diarizationSpeakerID -> name` map for those that
+    /// match confidently. Returns empty (all anonymous) when recognition is not
+    /// configured, no profiles are enrolled, or anything fails — this is a
+    /// best-effort enhancement and must never break finalization.
+    private func recognizeSpeakerNames(
+        diarization: MacParakeetDiarizationResult,
+        systemWavURL: URL
+    ) async -> [String: String] {
+        guard let speakerRecognizer, let enrolledSpeakerProfiles else { return [:] }
+        let profiles = enrolledSpeakerProfiles()
+        guard !profiles.isEmpty else { return [:] }
+
+        do {
+            let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: systemWavURL)
+            let recognitions = try await speakerRecognizer.recognize(
+                diarization: diarization,
+                samples16k: samples,
+                profiles: profiles
+            )
+            var names: [String: String] = [:]
+            for recognition in recognitions {
+                if let name = recognition.match?.name {
+                    names[recognition.speakerID] = name
+                }
+            }
+            logger.info("meeting_speaker_recognition matched=\(names.count, privacy: .public) of=\(diarization.speakers.count, privacy: .public)")
+            return names
+        } catch {
+            logger.error("meeting_speaker_recognition_failed error=\(error.localizedDescription, privacy: .public)")
+            return [:]
         }
     }
 
