@@ -194,6 +194,16 @@ public final class SettingsViewModel {
             Telemetry.send(.settingChanged(setting: .meetingAutoStop))
         }
     }
+    /// When false, a stopped meeting is saved as `.recorded` (audio only) and
+    /// transcription is skipped until requested on demand.
+    public var autoTranscribeMeetings: Bool {
+        didSet {
+            defaults.set(
+                autoTranscribeMeetings,
+                forKey: UserDefaultsAppRuntimePreferences.autoTranscribeMeetingsKey
+            )
+        }
+    }
     public var pauseMediaDuringDictation: Bool {
         didSet {
             defaults.set(
@@ -634,6 +644,9 @@ public final class SettingsViewModel {
         meetingAutoStopEnabled = defaults.object(
             forKey: UserDefaultsAppRuntimePreferences.meetingAutoStopEnabledKey
         ) as? Bool ?? false
+        autoTranscribeMeetings = defaults.object(
+            forKey: UserDefaultsAppRuntimePreferences.autoTranscribeMeetingsKey
+        ) as? Bool ?? true
         pauseMediaDuringDictation = defaults.object(
             forKey: UserDefaultsAppRuntimePreferences.pauseMediaDuringDictationKey
         ) as? Bool ?? false

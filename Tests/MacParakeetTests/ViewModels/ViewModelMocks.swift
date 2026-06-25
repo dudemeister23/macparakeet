@@ -523,6 +523,29 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
         )
     }
 
+    var prepareRecordedMeetingCallCount = 0
+    func prepareRecordedMeeting(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription {
+        prepareRecordedMeetingCallCount += 1
+        preparedMeetingRecordings.append(recording)
+        lastMeetingRecording = recording
+        lastSource = .meeting
+
+        if let error = transcribeError {
+            throw error
+        }
+
+        return Transcription(
+            fileName: recording.displayName,
+            filePath: recording.mixedAudioURL.path,
+            durationMs: Int((recording.durationSeconds * 1000).rounded()),
+            rawTranscript: nil,
+            status: .recorded,
+            sourceType: .meeting
+        )
+    }
+
     func finalizeMeetingTranscription(
         recording: MeetingRecordingOutput,
         updating transcriptionID: UUID,

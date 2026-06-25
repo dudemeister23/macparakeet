@@ -10,6 +10,9 @@ public protocol AppRuntimePreferencesProtocol: Sendable {
     var meetingAudioRetention: MeetingAudioRetention { get }
     var shouldSaveMeetingAudio: Bool { get }
     var shouldAutoGenerateMeetingTitles: Bool { get }
+    /// When false, stopping a meeting saves the audio + record but skips
+    /// auto-transcription (the meeting lands as `.recorded`).
+    var autoTranscribeMeetings: Bool { get }
     var youtubeAudioQuality: YouTubeAudioQuality { get }
     var shouldDiarize: Bool { get }
     var aiFormatterEnabled: Bool { get }
@@ -468,6 +471,7 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
     public static let meetingAudioRetentionAutoDeleteConfirmedKey = "meetingAudioRetentionAutoDeleteConfirmed"
     public static let lastMeetingAudioRetentionSweepAtKey = "lastMeetingAudioRetentionSweepAt"
     public static let autoGenerateMeetingTitlesKey = "autoGenerateMeetingTitles"
+    public static let autoTranscribeMeetingsKey = "autoTranscribeMeetings"
     public static let youtubeAudioQualityKey = "youtubeAudioQuality"
     public static let speakerDiarizationKey = "speakerDiarization"
     public static let aiFormatterEnabledKey = "aiFormatterEnabled"
@@ -586,6 +590,10 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
 
     public var meetingAudioSourceMode: MeetingAudioSourceMode {
         MeetingAudioSourceMode.current(defaults: defaults)
+    }
+
+    public var autoTranscribeMeetings: Bool {
+        defaults.object(forKey: Self.autoTranscribeMeetingsKey) as? Bool ?? true
     }
 
     public var pauseMediaDuringDictation: Bool {

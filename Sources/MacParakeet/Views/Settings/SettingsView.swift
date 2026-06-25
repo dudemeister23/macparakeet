@@ -1874,6 +1874,14 @@ struct SettingsView: View {
 
                 Divider()
 
+                settingsToggleRow(
+                    title: "Auto-transcribe meetings",
+                    detail: "Transcribe automatically when a meeting recording ends. Turn off to just save the audio — a recording can still be transcribed on demand later.",
+                    isOn: $viewModel.autoTranscribeMeetings
+                )
+
+                Divider()
+
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 190), spacing: DesignSystem.Spacing.md)],
                     spacing: DesignSystem.Spacing.md

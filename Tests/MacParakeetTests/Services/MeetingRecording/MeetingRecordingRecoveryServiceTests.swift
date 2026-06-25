@@ -605,6 +605,10 @@ private final class RecoveryMockTranscriptionService: TranscriptionServiceProtoc
         fatalError("Not used")
     }
 
+    func prepareRecordedMeeting(recording: MeetingRecordingOutput) async throws -> Transcription {
+        fatalError("Not used")
+    }
+
     func finalizeMeetingTranscription(
         recording: MeetingRecordingOutput,
         updating transcriptionID: UUID,

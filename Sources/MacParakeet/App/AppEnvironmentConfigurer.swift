@@ -306,6 +306,7 @@ final class AppEnvironmentConfigurer {
             configStore: env.llmConfigStore,
             sttManager: env.sttScheduler,
             meetingAudioSourceModeProvider: { env.runtimePreferences.meetingAudioSourceMode },
+            autoTranscribeMeetingsProvider: { env.runtimePreferences.autoTranscribeMeetings },
             llmService: hasLLMConfig ? env.llmService : nil,
             pillViewModel: meetingPillViewModel,
             onMenuBarIconUpdate: { _ in callbacks.onMenuBarIconUpdate() },

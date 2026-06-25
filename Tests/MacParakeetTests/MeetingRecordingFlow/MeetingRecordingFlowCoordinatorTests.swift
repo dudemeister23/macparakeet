@@ -19,6 +19,52 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAutoTranscribeOffSavesRecordedMeetingWithoutTranscribing() async throws {
+        let output = makeRecordingOutput()
+        let recordingService = MeetingRecordingServiceSpy(output: output)
+        let transcriptionService = MockTranscriptionService()
+
+        var readyTranscriptions: [Transcription] = []
+        var readySelections: [Bool] = []
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: recordingService,
+            transcriptionService: transcriptionService,
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            autoTranscribeMeetingsProvider: { false },
+            llmService: nil,
+            pillViewModel: MeetingRecordingPillViewModel(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { readyTranscriptions.append($0) },
+            onQueuedTranscriptionReady: { transcription, select in
+                readyTranscriptions.append(transcription)
+                readySelections.append(select)
+            }
+        )
+        coordinator.testHook_enterRecording()
+
+        XCTAssertTrue(coordinator.stopRecording(operationTrigger: .manual))
+        await coordinator.testHook_waitForActionTask()
+
+        let recordingSnapshot = await recordingService.snapshot()
+        let transcriptionSnapshot = await transcriptionService.meetingFlowSnapshot()
+        XCTAssertEqual(coordinator.testHook_state, .idle)
+        XCTAssertFalse(coordinator.isMeetingRecordingActive)
+        // Recording stopped + artifact finalized, but transcription was skipped.
+        XCTAssertEqual(recordingSnapshot.stopCallCount, 1)
+        XCTAssertEqual(recordingSnapshot.completedTranscriptionSessionIDs, [output.sessionID])
+        XCTAssertEqual(transcriptionSnapshot.prepareMeetingCallCount, 0)
+        XCTAssertEqual(transcriptionSnapshot.finalizeMeetingCallCount, 0)
+        XCTAssertEqual(transcriptionSnapshot.transcribeCallCount, 0)
+        // The meeting is surfaced as `.recorded`, not auto-opened.
+        XCTAssertEqual(readyTranscriptions.map(\.status), [.recorded])
+        XCTAssertEqual(readyTranscriptions.map(\.filePath), [output.mixedAudioURL.path])
+        XCTAssertEqual(readySelections, [false])
+    }
+
     func testAutoStopTriggerUsesNormalStopTranscribeFlow() async throws {
         let output = makeRecordingOutput()
         let recordingService = MeetingRecordingServiceSpy(output: output)

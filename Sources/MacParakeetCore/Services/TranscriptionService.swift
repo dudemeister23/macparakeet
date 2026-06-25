@@ -20,6 +20,11 @@ public protocol TranscriptionServiceProtocol: Sendable {
     func prepareMeetingTranscription(
         recording: MeetingRecordingOutput
     ) async throws -> Transcription
+    /// Persists a meeting row as `.recorded` (audio saved, transcription
+    /// intentionally skipped). Must not run or queue speech-to-text.
+    func prepareRecordedMeeting(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription
     /// Finalizes the existing meeting row. Must update `transcriptionID`
     /// rather than inserting another row.
     func finalizeMeetingTranscription(
@@ -393,6 +398,15 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         recording: MeetingRecordingOutput
     ) async throws -> Transcription {
         let transcription = makeMeetingTranscriptionStub(recording: recording)
+        try transcriptionRepo.save(transcription)
+        return transcription
+    }
+
+    public func prepareRecordedMeeting(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription {
+        var transcription = makeMeetingTranscriptionStub(recording: recording)
+        transcription.status = .recorded
         try transcriptionRepo.save(transcription)
         return transcription
     }

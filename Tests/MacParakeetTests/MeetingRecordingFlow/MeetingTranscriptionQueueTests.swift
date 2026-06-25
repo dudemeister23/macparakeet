@@ -202,6 +202,15 @@ private actor QueueTranscriptionServiceSpy: TranscriptionServiceProtocol {
         )
     }
 
+    func prepareRecordedMeeting(recording: MeetingRecordingOutput) async throws -> Transcription {
+        Transcription(
+            fileName: recording.displayName,
+            filePath: recording.mixedAudioURL.path,
+            status: .recorded,
+            sourceType: .meeting
+        )
+    }
+
     func finalizeMeetingTranscription(
         recording: MeetingRecordingOutput,
         updating transcriptionID: UUID,
