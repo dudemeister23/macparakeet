@@ -93,6 +93,7 @@ public actor DictationService: DictationServiceProtocol {
     private let logger = Logger(subsystem: "com.macparakeet.core", category: "DictationService")
     private let audioProcessor: AudioProcessorProtocol
     private let sttTranscriber: STTTranscribing
+    private let enginePriority: STTEnginePriorityCoordinator?
     private let dictationRepo: DictationRepositoryProtocol
     private let shouldSaveAudio: (@Sendable () -> Bool)?
     private let shouldSaveDictationHistory: (@Sendable () -> Bool)?
@@ -116,7 +117,19 @@ public actor DictationService: DictationServiceProtocol {
     private let dictationPreviewCancellationTimeout: Duration
     private let dictationPreviewWindowSampleCount: Int
 
-    private var _state: DictationState = .idle
+    private var _state: DictationState = .idle {
+        didSet {
+            // Signal engine priority so background STT (per-turn "Detect speakers")
+            // yields the shared Cohere engine while a dictation needs it.
+            enginePriority?.setDictationActive(Self.dictationNeedsEngine(_state))
+        }
+    }
+    private static func dictationNeedsEngine(_ state: DictationState) -> Bool {
+        switch state {
+        case .recording, .processing: return true
+        case .idle, .success, .cancelled, .error: return false
+        }
+    }
     private var cancelResetTask: Task<Void, Never>?
     private var cancelGeneration: Int = 0
     private var pendingCancelledAudioURL: URL?
@@ -173,10 +186,12 @@ public actor DictationService: DictationServiceProtocol {
         cancelWindow: Duration = .seconds(5),
         dictationPreviewInterval: Duration = .seconds(1),
         dictationPreviewCancellationTimeout: Duration = .seconds(2),
-        dictationPreviewWindowSeconds: Double = 15
+        dictationPreviewWindowSeconds: Double = 15,
+        enginePriority: STTEnginePriorityCoordinator? = nil
     ) {
         self.audioProcessor = audioProcessor
         self.sttTranscriber = sttTranscriber
+        self.enginePriority = enginePriority
         self.dictationRepo = dictationRepo
         self.shouldSaveAudio = shouldSaveAudio
         self.shouldSaveDictationHistory = shouldSaveDictationHistory

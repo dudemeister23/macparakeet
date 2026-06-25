@@ -268,6 +268,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     /// nil (or no profiles enrolled), diarization stays anonymous as before.
     private let speakerRecognizer: SpeakerRecognizer?
     private let enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])?
+    /// Lets an in-progress dictation pause the per-turn loop so it yields the
+    /// shared Cohere engine. nil = no coordination (per-turn never pauses).
+    private let enginePriority: STTEnginePriorityCoordinator?
     private let mediaMetadataExtractor: MediaMetadataExtracting
     private let thumbnailCache: ThumbnailCaching
     private let playbackConverter: YouTubeAudioPlaybackConverting
@@ -297,6 +300,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         diarizationService: DiarizationServiceProtocol? = nil,
         speakerRecognizer: SpeakerRecognizer? = nil,
         enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])? = nil,
+        enginePriority: STTEnginePriorityCoordinator? = nil,
         mediaMetadataExtractor: MediaMetadataExtracting = AVMediaMetadataExtractor(),
         thumbnailCache: ThumbnailCaching = ThumbnailCacheService.shared,
         playbackConverter: YouTubeAudioPlaybackConverting = YouTubeAudioPlaybackConverter(),
@@ -326,6 +330,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         self.diarizationService = diarizationService
         self.speakerRecognizer = speakerRecognizer
         self.enrolledSpeakerProfiles = enrolledSpeakerProfiles
+        self.enginePriority = enginePriority
         self.mediaMetadataExtractor = mediaMetadataExtractor
         self.thumbnailCache = thumbnailCache
         self.playbackConverter = playbackConverter
@@ -1384,6 +1389,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
 
     private static let perTurnMergeGapMs = 1000
     private static let perTurnMinSpanSamples = 5120  // 0.32 s @ 16 kHz
+    private static let perTurnMaxSpanMs = 20_000     // cap each Cohere call so the engine yields fast
 
     /// One contiguous speaker turn. `local*` ms index the raw track samples (for
     /// slicing); `abs*` ms are on the meeting timeline (for the emitted word).
@@ -1516,24 +1522,35 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: wavURL)
         var words: [WordTimestamp] = []
         for (index, turn) in turns.enumerated() {
-            try Task.checkCancellation()
             if totalTurns > 0 {
                 onProgress?(.transcribing(percent: min(99, (progressOffset + index + 1) * 100 / totalTurns)))
             }
-            let segment = SpeakerSegment(speakerId: turn.speakerId, startMs: turn.localStartMs, endMs: turn.localEndMs)
-            let slice = SpeakerRecognizer.gatherSamples(
-                segments: [segment], from: samples, sampleRate: 16_000, maxSamples: Int.max
-            )
-            guard slice.count >= Self.perTurnMinSpanSamples else { continue }
-            let text = try await transcribeSpan(samples16k: slice, language: language)
-            guard !text.isEmpty else { continue }
-            words.append(WordTimestamp(
-                word: text,
-                startMs: turn.absStartMs,
-                endMs: turn.absEndMs,
-                confidence: 1.0,
-                speakerId: turn.speakerId
-            ))
+            // Split a turn into capped sub-spans: each Cohere call is short, so the
+            // shared engine is never held long and a dictation can take over
+            // quickly. `enginePriority` yields between calls.
+            let offsetMs = turn.absStartMs - turn.localStartMs
+            var subStart = turn.localStartMs
+            while subStart < turn.localEndMs {
+                try Task.checkCancellation()
+                await enginePriority?.awaitDictationIdle()
+
+                let subEnd = min(subStart + Self.perTurnMaxSpanMs, turn.localEndMs)
+                let segment = SpeakerSegment(speakerId: turn.speakerId, startMs: subStart, endMs: subEnd)
+                let slice = SpeakerRecognizer.gatherSamples(
+                    segments: [segment], from: samples, sampleRate: 16_000, maxSamples: Int.max
+                )
+                subStart = subEnd
+                guard slice.count >= Self.perTurnMinSpanSamples else { continue }
+                let text = try await transcribeSpan(samples16k: slice, language: language)
+                guard !text.isEmpty else { continue }
+                words.append(WordTimestamp(
+                    word: text,
+                    startMs: segment.startMs + offsetMs,
+                    endMs: segment.endMs + offsetMs,
+                    confidence: 1.0,
+                    speakerId: turn.speakerId
+                ))
+            }
         }
         return words
     }

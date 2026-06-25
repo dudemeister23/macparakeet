@@ -265,6 +265,9 @@ final class AppEnvironment {
             )
         )
 
+        // Shared so an active dictation can pause background per-turn Cohere work
+        // (Detect speakers) and take the single serial engine.
+        let enginePriority = STTEnginePriorityCoordinator()
         dictationService = DictationService(
             audioProcessor: audioProcessor,
             sttTranscriber: sttScheduler,
@@ -329,7 +332,8 @@ final class AppEnvironment {
                 Telemetry.send(.firstDictationCompleted(
                     activationWindow: TelemetryActivationWindow(secondsSinceOnboarding: secondsSinceOnboarding)
                 ))
-            }
+            },
+            enginePriority: enginePriority
         )
 
         let telemetry = TelemetryService()
@@ -364,7 +368,8 @@ final class AppEnvironment {
             speakerRecognizer: SpeakerRecognizer(embedding: speakerEmbeddingService),
             enrolledSpeakerProfiles: { [speakerProfileRepo] in
                 (try? speakerProfileRepo.fetchAll()) ?? []
-            }
+            },
+            enginePriority: enginePriority
         )
 
         meetingRecordingRecoveryService = MeetingRecordingRecoveryService(
