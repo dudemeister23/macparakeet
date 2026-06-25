@@ -2438,7 +2438,7 @@ struct TranscriptResultView: View {
                         .fill(DesignSystem.Colors.surfaceElevated.opacity(0.45))
                 )
             }
-            Text("Speaker labels are approximate. Click a name to rename.")
+            Text("Speaker labels are approximate. Click a name to rename — naming an unknown speaker offers to remember their voice for future meetings.")
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textTertiary)
             } // end if speakerOverviewExpanded
@@ -2448,6 +2448,56 @@ struct TranscriptResultView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                 .fill(DesignSystem.Colors.surfaceElevated.opacity(0.25))
         )
+        .confirmationDialog(
+            "Remember this voice?",
+            isPresented: Binding(
+                get: { viewModel.pendingVoiceEnrollment != nil },
+                set: { if !$0 { viewModel.pendingVoiceEnrollment = nil } }
+            ),
+            presenting: viewModel.pendingVoiceEnrollment
+        ) { pending in
+            Button("Remember \(pending.name)") {
+                Task { await viewModel.enrollSpeaker(id: pending.speakerId, name: pending.name) }
+                viewModel.pendingVoiceEnrollment = nil
+            }
+            Button("Not now", role: .cancel) { viewModel.pendingVoiceEnrollment = nil }
+        } message: { pending in
+            Text("MacParakeet will recognize \(pending.name) automatically in future meetings. The voiceprint stays on this Mac.")
+        }
+        .alert(
+            voiceEnrollmentAlertTitle,
+            isPresented: Binding(
+                get: { viewModel.lastVoiceEnrollmentResult != nil },
+                set: { if !$0 { viewModel.lastVoiceEnrollmentResult = nil } }
+            ),
+            presenting: viewModel.lastVoiceEnrollmentResult
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.lastVoiceEnrollmentResult = nil }
+        } message: { result in
+            Text(voiceEnrollmentAlertMessage(result))
+        }
+    }
+
+    private var voiceEnrollmentAlertTitle: String {
+        switch viewModel.lastVoiceEnrollmentResult {
+        case .created, .updated: return "Voice saved"
+        default: return "Couldn't save voice"
+        }
+    }
+
+    private func voiceEnrollmentAlertMessage(_ result: TranscriptionViewModel.VoiceEnrollmentResult) -> String {
+        switch result {
+        case .created(let name):
+            return "\(name)'s voice is saved. Future meetings will recognize them automatically."
+        case .updated(let name):
+            return "Updated \(name)'s saved voice."
+        case .audioUnavailable:
+            return "The audio for this recording is no longer available, so this voice can't be saved."
+        case .tooShort:
+            return "There isn't enough of this speaker's audio to save a reliable voice."
+        case .failed(let message):
+            return message
+        }
     }
 
     @ViewBuilder
@@ -2484,7 +2534,30 @@ struct TranscriptResultView: View {
                     editingSpeakerLabel = speaker.label
                 }
                 .help("Click to rename")
+                .contextMenu {
+                    Button("Rename") {
+                        if editingSpeakerId != nil { commitSpeakerRename() }
+                        editingSpeakerId = speaker.id
+                        editingSpeakerLabel = speaker.label
+                    }
+                    if !isAnonymousSpeakerLabel(speaker.label), viewModel.canEnrollSpeaker(id: speaker.id) {
+                        Button("Remember this voice…") {
+                            viewModel.pendingVoiceEnrollment = .init(speakerId: speaker.id, name: speaker.label)
+                        }
+                    }
+                }
         }
+    }
+
+    /// Auto-generated labels like "Others 2" / "Speaker 1" the user hasn't named.
+    private func isAnonymousSpeakerLabel(_ label: String) -> Bool {
+        let lower = label.lowercased()
+        for prefix in ["others ", "speaker ", "system "] where lower.hasPrefix(prefix) {
+            if Int(lower.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private func commitSpeakerRename() {

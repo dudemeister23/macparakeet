@@ -92,8 +92,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 ### Added
 
 - `speaker` command group for native speaker voice profiles and recognition:
-  `speaker enroll <name> <file> [--start --duration --replace]` enrolls a known
-  speaker from an audio clip (assumed single-speaker), `speaker list` shows
+  `speaker enroll <name> <file> [--start --duration --speaker --replace]` enrolls
+  a known speaker from a recording — a time window, or `--speaker <clusterId>`
+  (e.g. `S2`) to diarize a multi-speaker recording and bank just that cluster
+  (run `speaker recognize <file>` first to see cluster ids). `speaker list` shows
   enrolled profiles, `speaker remove <name|id>` deletes one, and
   `speaker recognize <file> [--start --duration --max-distance --speakers
   --speaker-min --speaker-max]` diarizes a recording (optionally just a

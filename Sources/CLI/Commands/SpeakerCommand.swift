@@ -28,7 +28,7 @@ struct SpeakerCommand: AsyncParsableCommand {
 struct SpeakerEnrollCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "enroll",
-        abstract: "Enroll a speaker from an audio clip (assumed single-speaker)."
+        abstract: "Enroll a speaker from a recording — a time window, or one diarized cluster via --speaker."
     )
 
     @Argument(help: "Display name for the speaker, e.g. \"Sara\".")
@@ -42,6 +42,9 @@ struct SpeakerEnrollCommand: AsyncParsableCommand {
 
     @Option(name: .long, help: "Seconds of audio to use from --start. Default: whole file.")
     var duration: Double?
+
+    @Option(name: .long, help: "Enroll one diarized speaker cluster (e.g. S2) from a multi-speaker recording instead of a time window. Run `speaker recognize <file>` first to see cluster ids. Overrides --start/--duration.")
+    var speaker: String?
 
     @Flag(name: .long, help: "Replace an existing profile with the same name instead of adding a second.")
     var replace: Bool = false
@@ -57,8 +60,13 @@ struct SpeakerEnrollCommand: AsyncParsableCommand {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { throw ValidationError("Speaker name cannot be empty.") }
 
-        let allSamples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
-        let samples = Self.slice(allSamples, start: start, duration: duration, sampleRate: 16_000)
+        let samples: [Float]
+        if let speaker {
+            samples = try await Self.clusterSamples(url: url, speakerId: speaker)
+        } else {
+            let allSamples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
+            samples = Self.slice(allSamples, start: start, duration: duration, sampleRate: 16_000)
+        }
         let seconds = Double(samples.count) / 16_000
         guard seconds >= 1 else {
             throw ValidationError(String(format: "Need at least 1s of audio to enroll; got %.2fs.", seconds))
@@ -95,6 +103,26 @@ struct SpeakerEnrollCommand: AsyncParsableCommand {
             endIdx = samples.count
         }
         return Array(samples[startIdx..<endIdx])
+    }
+
+    /// Diarize `url` and gather the chosen cluster's audio (longest segments first).
+    static func clusterSamples(url: URL, speakerId: String) async throws -> [Float] {
+        FileHandle.standardError.write(Data("Diarizing to find speaker \(speakerId)…\n".utf8))
+        let diarization = try await DiarizationService().diarize(audioURL: url)
+        let segments = diarization.segments.filter { $0.speakerId == speakerId }
+        guard !segments.isEmpty else {
+            let available = diarization.speakers.map(\.id).joined(separator: ", ")
+            throw ValidationError(
+                "No speaker \"\(speakerId)\" in \(url.lastPathComponent). Found: \(available.isEmpty ? "none" : available)"
+            )
+        }
+        let allSamples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
+        return SpeakerRecognizer.gatherSamples(
+            segments: segments.sorted { ($0.endMs - $0.startMs) > ($1.endMs - $1.startMs) },
+            from: allSamples,
+            sampleRate: 16_000,
+            maxSamples: 30 * 16_000
+        )
     }
 }
 

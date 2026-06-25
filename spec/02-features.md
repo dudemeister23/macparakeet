@@ -1385,11 +1385,20 @@ instead of anonymous "Others 1/2". Adds the cross-session speaker identity that
 plain diarization deliberately omits.
 
 **How it works:**
-- Enroll a speaker by recording a short mic sample (~20s) in
-  Settings → Meetings → Known speakers, or headlessly via
-  `macparakeet-cli speaker enroll <name> <file>`. The sample is embedded with
-  FluidAudio's WeSpeaker v2 model into a 256-d vector stored locally
-  (`speaker_profiles` table); audio is not retained.
+- Enroll a speaker three ways: (a) record a short mic sample (~20s) in
+  Settings → Meetings → Known speakers; (b) **label them in a recording** —
+  open a diarized meeting transcript, name an anonymous speaker (e.g.
+  "Others 2" → "Sara") and accept the "remember this voice?" prompt, which banks
+  Sara's voiceprint from that recording's audio; (c) headlessly via
+  `macparakeet-cli speaker enroll <name> <file>` (a `--start/--duration` window
+  or `--speaker <clusterId>` to bank one diarized cluster). The sample is
+  embedded with FluidAudio's WeSpeaker v2 model into a 256-d vector stored
+  locally (`speaker_profiles` table); the voice audio itself is not retained.
+- The label-in-a-recording path is the primary flow: you name people once, and
+  every future meeting recognizes them automatically. It requires the
+  recording's audio still on disk (meeting audio defaults to a 30-day retention),
+  so enroll while the recording is available; if audio has been purged the app
+  says so rather than failing silently.
 - During meeting finalization (when Speaker detection is on and profiles exist),
   each anonymous diarization cluster is re-embedded with the same model and
   cosine-matched against enrolled profiles. A confident match (distance ≤ ~0.5)
