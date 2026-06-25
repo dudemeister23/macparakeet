@@ -1394,77 +1394,53 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     ) async throws -> Transcription {
         let language = original.language
 
-        // 1. System track (others) → named/anonymous speaker turns.
+        // Diarize the MIXED meeting audio into distinct voices. This is robust to
+        // how the meeting was captured: for an in-person/room meeting both the mic
+        // and system tracks carry everyone, so a mic="you" / system="others" split
+        // transcribes — and mislabels — every utterance twice. Diarizing the single
+        // mixed track (like the reference pyannote pipeline) finds the actual
+        // speakers; recognition names the enrolled ones, and the user names
+        // themselves once like any other speaker.
         onProgress?(.identifyingSpeakers)
-        let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
-        defer { try? FileManager.default.removeItem(at: systemWavURL) }
-        var stage: TelemetryTranscriptionStage = .diarization
-        let systemDiarization = try await diarizeMeetingSystemIfNeeded(
-            recording: recording,
-            sourceWavURLs: [.system: systemWavURL],
-            requested: true,
-            lifecycleStage: &stage,
-            onProgress: onProgress
-        )
-        let systemOffset = recording.sourceAlignment.system?.startOffsetMs ?? 0
-        let systemTurns = Self.buildTurns(
-            // diarizeMeetingSystemIfNeeded shifts segments to the meeting timeline;
-            // un-shift to track-local for slicing the raw system samples.
-            segments: (systemDiarization?.segments ?? []).map {
-                (speakerId: $0.speakerId, localStart: $0.startMs - systemOffset, localEnd: $0.endMs - systemOffset)
+        guard let diarizationService else {
+            throw STTError.transcriptionFailed("Speaker detection is unavailable.")
+        }
+        let mixedWavURL = try await audioProcessor.convert(fileURL: recording.mixedAudioURL)
+        defer { try? FileManager.default.removeItem(at: mixedWavURL) }
+
+        let diarization = try await diarizationService.diarize(audioURL: mixedWavURL)
+        guard !diarization.segments.isEmpty, !diarization.speakers.isEmpty else {
+            throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
+        }
+
+        // Name enrolled speakers; unmatched keep "Speaker N".
+        let recognizedNames = await recognizeSpeakerNames(diarization: diarization, audioURL: mixedWavURL)
+        let speakers = diarization.speakers.map { speaker in
+            SpeakerInfo(id: speaker.id, label: recognizedNames[speaker.id] ?? speaker.label)
+        }
+
+        // Coalesce into turns on the single mixed timeline (no offset), then
+        // transcribe each turn's audio span with Cohere.
+        let turns = Self.buildTurns(
+            segments: diarization.segments.map {
+                (speakerId: $0.speakerId, localStart: $0.startMs, localEnd: $0.endMs)
             },
-            offsetMs: systemOffset,
+            offsetMs: 0,
             mergeGapMs: Self.perTurnMergeGapMs
         )
-
-        // 2. Microphone track (you) → a single "Me" speaker's turns.
-        var micWavURL: URL?
-        defer { if let micWavURL { try? FileManager.default.removeItem(at: micWavURL) } }
-        var micTurns: [PerTurn] = []
-        if recording.sourceAlignment.microphone != nil {
-            let url = try await audioProcessor.convert(fileURL: recording.microphoneAudioURL)
-            micWavURL = url
-            let micResult = try await DiarizationService(speakerConstraint: .exact(1)).diarize(audioURL: url)
-            let micOffset = recording.sourceAlignment.microphone?.startOffsetMs ?? 0
-            micTurns = Self.buildTurns(
-                segments: micResult.segments.map {
-                    (speakerId: AudioSource.microphone.rawValue, localStart: $0.startMs, localEnd: $0.endMs)
-                },
-                offsetMs: micOffset,
-                mergeGapMs: Self.perTurnMergeGapMs
-            )
-        }
-
-        guard !systemTurns.isEmpty || !micTurns.isEmpty else {
-            throw STTError.transcriptionFailed("No speech turns were detected in this meeting.")
-        }
-
-        // 3. Transcribe each turn with Cohere, per track (so each track's samples
-        //    are released after its turns finish).
-        let totalTurns = systemTurns.count + micTurns.count
-        var words = try await transcribeTurns(
-            wavURL: systemWavURL, turns: systemTurns, language: language,
-            progressOffset: 0, totalTurns: totalTurns, onProgress: onProgress
+        let words = try await transcribeTurns(
+            wavURL: mixedWavURL, turns: turns, language: language,
+            progressOffset: 0, totalTurns: turns.count, onProgress: onProgress
         )
-        if let micWavURL {
-            words += try await transcribeTurns(
-                wavURL: micWavURL, turns: micTurns, language: language,
-                progressOffset: systemTurns.count, totalTurns: totalTurns, onProgress: onProgress
-            )
-        }
         guard !words.isEmpty else {
             throw STTError.transcriptionFailed("Couldn't transcribe any speaker turns in this meeting.")
         }
 
-        // 4. Speakers present in the result.
-        let micSpeaker = SpeakerInfo(
-            id: AudioSource.microphone.rawValue,
-            label: AudioSource.microphone.displayLabel
-        )
         let presentIDs = Set(words.compactMap(\.speakerId))
-        let speakers = ((systemDiarization?.speakers ?? []) + [micSpeaker]).filter { presentIDs.contains($0.id) }
-
-        let finalized = MeetingTranscriptFinalizer.assemblePerTurn(turns: words, speakers: speakers)
+        let finalized = MeetingTranscriptFinalizer.assemblePerTurn(
+            turns: words,
+            speakers: speakers.filter { presentIDs.contains($0.id) }
+        )
         return try persistDetectedSpeakers(finalized, onto: original)
     }
 
@@ -1585,7 +1561,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             // the user can still rename speakers by hand in the transcript view.
             let recognizedNames = await recognizeSpeakerNames(
                 diarization: diarResult,
-                systemWavURL: systemWavURL
+                audioURL: systemWavURL
             )
 
             let mappedSpeakers = diarResult.speakers.enumerated().map { index, speaker in
@@ -1632,14 +1608,14 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     /// best-effort enhancement and must never break finalization.
     private func recognizeSpeakerNames(
         diarization: MacParakeetDiarizationResult,
-        systemWavURL: URL
+        audioURL: URL
     ) async -> [String: String] {
         guard let speakerRecognizer, let enrolledSpeakerProfiles else { return [:] }
         let profiles = enrolledSpeakerProfiles()
         guard !profiles.isEmpty else { return [:] }
 
         do {
-            let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: systemWavURL)
+            let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: audioURL)
             let recognitions = try await speakerRecognizer.recognize(
                 diarization: diarization,
                 samples16k: samples,

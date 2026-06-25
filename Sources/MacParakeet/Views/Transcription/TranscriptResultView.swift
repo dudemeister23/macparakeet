@@ -186,7 +186,9 @@ struct TranscriptResultView: View {
             }
             rebuildSegmentCache()
             headerExpanded = false
-            speakerOverviewExpanded = false
+            // Expand the speaker list when the transcript has speakers, so the
+            // click-to-rename / remember-voice controls are visible by default.
+            speakerOverviewExpanded = cachedHasSpeakers
             editingMeetingTitle = false
             meetingTitleDraft = ""
             editingTranscript = false
