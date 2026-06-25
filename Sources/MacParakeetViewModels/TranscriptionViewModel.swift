@@ -1346,7 +1346,16 @@ public final class TranscriptionViewModel {
     /// Diarize an already-transcribed meeting in place (no re-ASR), adding
     /// speaker turns and recognizing any enrolled speakers. `speakerCount`, when
     /// provided, constrains the diarizer to that many people.
-    public func detectSpeakers(for original: Transcription, speakerCount: Int? = nil) {
+    /// Enrolled speaker profiles, for the "who's present" picker.
+    public func enrolledSpeakerProfilesForPicker() -> [SpeakerProfile] {
+        (try? speakerProfileRepo?.fetchAll()) ?? []
+    }
+
+    public func detectSpeakers(
+        for original: Transcription,
+        speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil
+    ) {
         guard let service = transcriptionService else {
             reportMissingConfiguration("transcriptionService", action: "detectSpeakers")
             return
@@ -1371,6 +1380,7 @@ public final class TranscriptionViewModel {
                     existing: original,
                     recording: recording,
                     speakerCount: speakerCount,
+                    presentProfileIDs: presentProfileIDs,
                     onProgress: nil
                 )
                 if currentTranscription?.id == updated.id {

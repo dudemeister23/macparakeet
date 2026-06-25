@@ -77,6 +77,11 @@ struct TranscriptResultView: View {
     @State private var speakerOverviewExpanded = false
     /// Expected number of people for "Detect speakers" (nil = auto-detect).
     @State private var detectSpeakerCount: Int?
+    /// "Who's here?" selection: enrolled people present + count of unknown others.
+    @State private var presentProfileIDs: Set<UUID> = []
+    @State private var unknownOthers: Int = 0
+    @State private var showPresencePicker = false
+    @State private var pickerProfiles: [SpeakerProfile] = []
     @State private var copied = false
     @State private var copiedResultID: UUID?
     @State private var copiedButtonResultID: UUID?
@@ -199,6 +204,10 @@ struct TranscriptResultView: View {
             transcriptDisplayModeBeforeEdit = nil
             editingSpeakerId = nil
             editingSpeakerLabel = ""
+            presentProfileIDs = []
+            unknownOthers = 0
+            detectSpeakerCount = nil
+            showPresencePicker = false
             showConversationPopover = false
             hoveredConversationId = nil
             lastScrolledSegmentMs = -1
@@ -523,7 +532,7 @@ struct TranscriptResultView: View {
             if viewModel.canDetectSpeakers(for: transcription) {
                 HStack(spacing: 6) {
                     Button {
-                        viewModel.detectSpeakers(for: transcription, speakerCount: detectSpeakerCount)
+                        runDetectSpeakers()
                     } label: {
                         HStack(spacing: 6) {
                             if viewModel.speakerDetectionState == .running {
@@ -542,21 +551,22 @@ struct TranscriptResultView: View {
                     .disabled(viewModel.speakerDetectionState == .running)
                     .help("Diarize this meeting and label speakers")
 
-                    Menu {
-                        Button("Auto-detect count") { detectSpeakerCount = nil }
-                        Divider()
-                        ForEach(Array(2...12), id: \.self) { count in
-                            Button("\(count) people") { detectSpeakerCount = count }
-                        }
+                    Button {
+                        pickerProfiles = viewModel.enrolledSpeakerProfilesForPicker()
+                        showPresencePicker = true
                     } label: {
-                        Text(detectSpeakerCount.map { "\($0) ppl" } ?? "Auto")
+                        Text(presenceSummary)
                             .font(DesignSystem.Typography.caption)
-                            .frame(minWidth: 34)
+                            .frame(minWidth: 44)
                     }
-                    .menuStyle(.borderlessButton)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .fixedSize()
                     .disabled(viewModel.speakerDetectionState == .running)
-                    .help("How many people were in the meeting? A count helps the diarizer split them when auto-detect under-counts a long meeting.")
+                    .help("Who's in this meeting? Naming the people present sets the speaker count and auto-labels anyone enrolled.")
+                    .popover(isPresented: $showPresencePicker, arrowEdge: .top) {
+                        presencePicker
+                    }
                 }
             }
 
@@ -2656,6 +2666,97 @@ struct TranscriptResultView: View {
         if !playerViewModel.isPlaying {
             playerViewModel.togglePlayPause()
         }
+    }
+
+    /// Speaker count for a detect run: from the "who's present" selection when
+    /// set, else the plain count stepper, else nil (auto-detect).
+    private var effectiveSpeakerCount: Int? {
+        if !presentProfileIDs.isEmpty || unknownOthers > 0 {
+            let total = presentProfileIDs.count + unknownOthers
+            return total > 0 ? total : nil
+        }
+        return detectSpeakerCount
+    }
+
+    private func runDetectSpeakers() {
+        viewModel.detectSpeakers(
+            for: transcription,
+            speakerCount: effectiveSpeakerCount,
+            presentProfileIDs: presentProfileIDs.isEmpty ? nil : presentProfileIDs
+        )
+    }
+
+    private var presenceSummary: String {
+        if !presentProfileIDs.isEmpty {
+            let names = pickerProfiles.filter { presentProfileIDs.contains($0.id) }.map(\.name)
+            let shown = names.prefix(2).joined(separator: ", ")
+            let extra = max(0, names.count - 2) + unknownOthers
+            if shown.isEmpty { return "Who's here?" }
+            return extra > 0 ? "\(shown) +\(extra)" : shown
+        }
+        if let count = detectSpeakerCount { return "\(count) people" }
+        if unknownOthers > 0 { return "\(unknownOthers) people" }
+        return "Who's here?"
+    }
+
+    @ViewBuilder
+    private var presencePicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Who's in this meeting?")
+                .font(.headline)
+            Text("Sets the number of speakers and auto-labels anyone enrolled.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if pickerProfiles.isEmpty {
+                Stepper(
+                    detectSpeakerCount.map { "\($0) people" } ?? "Auto-detect count",
+                    value: Binding(
+                        get: { detectSpeakerCount ?? 0 },
+                        set: { detectSpeakerCount = $0 == 0 ? nil : $0 }
+                    ),
+                    in: 0...20
+                )
+                Text("Enroll people (name a speaker here, or Settings → Meetings → Known speakers) to pick them by name next time.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(pickerProfiles) { profile in
+                            Toggle(profile.name, isOn: Binding(
+                                get: { presentProfileIDs.contains(profile.id) },
+                                set: { isOn in
+                                    if isOn { presentProfileIDs.insert(profile.id) }
+                                    else { presentProfileIDs.remove(profile.id) }
+                                }
+                            ))
+                        }
+                    }
+                }
+                .frame(maxHeight: 180)
+                Divider()
+                Stepper("+ \(unknownOthers) not enrolled", value: $unknownOthers, in: 0...20)
+            }
+
+            Divider()
+            HStack {
+                let total = presentProfileIDs.count + unknownOthers
+                Text(total > 0 ? "\(total) people" : "Auto-detect")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Re-detect") {
+                    showPresencePicker = false
+                    runDetectSpeakers()
+                }
+                .parakeetAction(.primaryProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
     }
 
 

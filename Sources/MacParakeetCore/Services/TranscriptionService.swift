@@ -51,6 +51,7 @@ public protocol TranscriptionServiceProtocol: Sendable {
         existing transcription: Transcription,
         recording: MeetingRecordingOutput,
         speakerCount: Int?,
+        presentProfileIDs: Set<UUID>?,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription
     func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
@@ -65,6 +66,7 @@ extension TranscriptionServiceProtocol {
         existing transcription: Transcription,
         recording: MeetingRecordingOutput,
         speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         throw STTError.transcriptionFailed("Speaker detection is not available.")
@@ -1318,6 +1320,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         existing original: Transcription,
         recording: MeetingRecordingOutput,
         speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         guard diarizationService != nil else {
@@ -1362,6 +1365,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             existing: original,
             recording: recording,
             speakerCount: speakerCount,
+            presentProfileIDs: presentProfileIDs,
             onProgress: onProgress
         )
     }
@@ -1409,6 +1413,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         existing original: Transcription,
         recording: MeetingRecordingOutput,
         speakerCount: Int?,
+        presentProfileIDs: Set<UUID>?,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription {
         let language = original.language
@@ -1442,7 +1447,11 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         }
 
         // Name enrolled speakers; unmatched keep "Speaker N".
-        let recognizedNames = await recognizeSpeakerNames(diarization: diarization, audioURL: mixedWavURL)
+        let recognizedNames = await recognizeSpeakerNames(
+            diarization: diarization,
+            audioURL: mixedWavURL,
+            presentProfileIDs: presentProfileIDs
+        )
         let speakers = diarization.speakers.map { speaker in
             SpeakerInfo(id: speaker.id, label: recognizedNames[speaker.id] ?? speaker.label)
         }
@@ -1647,10 +1656,16 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     /// best-effort enhancement and must never break finalization.
     private func recognizeSpeakerNames(
         diarization: MacParakeetDiarizationResult,
-        audioURL: URL
+        audioURL: URL,
+        presentProfileIDs: Set<UUID>? = nil
     ) async -> [String: String] {
         guard let speakerRecognizer, let enrolledSpeakerProfiles else { return [:] }
-        let profiles = enrolledSpeakerProfiles()
+        var profiles = enrolledSpeakerProfiles()
+        // When the user said exactly who's present, only match against them —
+        // fewer false matches than the full enrolled set.
+        if let presentProfileIDs {
+            profiles = profiles.filter { presentProfileIDs.contains($0.id) }
+        }
         guard !profiles.isEmpty else { return [:] }
 
         do {
