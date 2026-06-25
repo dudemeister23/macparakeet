@@ -95,9 +95,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   `speaker enroll <name> <file> [--start --duration --replace]` enrolls a known
   speaker from an audio clip (assumed single-speaker), `speaker list` shows
   enrolled profiles, `speaker remove <name|id>` deletes one, and
-  `speaker recognize <file> [--max-distance --speakers --speaker-min
-  --speaker-max]` diarizes a recording and matches each cluster against the
-  enrolled profiles, printing per-speaker distances. Profiles are shared with
+  `speaker recognize <file> [--start --duration --max-distance --speakers
+  --speaker-min --speaker-max]` diarizes a recording (optionally just a
+  `--start`/`--duration` window, for long meetings) and matches each cluster
+  against the enrolled profiles, printing per-speaker distances. Profiles are shared with
   the app database (same on-device `wespeaker_v2` embedding space) and never
   leave the machine. First use downloads the diarizer/embedding models.
 - `transcribe --format` now accepts `srt` and `vtt` in addition to `text`,

@@ -1,4 +1,5 @@
 import ArgumentParser
+import AVFoundation
 import Foundation
 import MacParakeetCore
 
@@ -169,6 +170,12 @@ struct SpeakerRecognizeCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Max cosine distance for a match. Lower = stricter. Default: 0.5.")
     var maxDistance: Float = SpeakerMatcher.defaultMaxDistance
 
+    @Option(name: .long, help: "Start offset in seconds. With --duration, recognizes only that window (useful for long meetings).")
+    var start: Double = 0
+
+    @Option(name: .long, help: "Seconds of audio to recognize from --start. Default: to end of file.")
+    var duration: Double?
+
     @Option(name: .long, help: "Exact expected speaker count for diarization.")
     var speakers: Int?
 
@@ -194,6 +201,26 @@ struct SpeakerRecognizeCommand: AsyncParsableCommand {
             return
         }
 
+        // Load audio; optionally trim to [--start, --start+--duration] so a long
+        // meeting can be validated on a short window instead of diarizing the
+        // whole file. When trimming, diarization runs on a temp WAV of the same
+        // samples we embed, keeping the two consistent.
+        var samples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
+        var diarizeURL = url
+        var tempURL: URL?
+        if start > 0 || duration != nil {
+            samples = SpeakerEnrollCommand.slice(samples, start: start, duration: duration, sampleRate: 16_000)
+            guard samples.count >= 16_000 else {
+                throw ValidationError("Trimmed window has too little audio (need ≥ 1s).")
+            }
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("spk_recognize_\(UUID().uuidString).wav")
+            try Self.writeMono16kWav(samples, to: tmp)
+            diarizeURL = tmp
+            tempURL = tmp
+        }
+        defer { if let tempURL { try? FileManager.default.removeItem(at: tempURL) } }
+
         FileHandle.standardError.write(Data("Diarizing…\n".utf8))
         let diarizer: DiarizationService
         if let constraint = Self.constraint(exact: speakers, min: speakerMin, max: speakerMax) {
@@ -201,13 +228,12 @@ struct SpeakerRecognizeCommand: AsyncParsableCommand {
         } else {
             diarizer = DiarizationService()
         }
-        let diarization = try await diarizer.diarize(audioURL: url)
+        let diarization = try await diarizer.diarize(audioURL: diarizeURL)
         guard !diarization.speakers.isEmpty else {
             print("No speakers detected.")
             return
         }
 
-        let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
         let embedder = SpeakerEmbeddingService()
         try await embedder.prepareModels { FileHandle.standardError.write(Data(("  " + $0 + "\n").utf8)) }
 
@@ -250,5 +276,31 @@ struct SpeakerRecognizeCommand: AsyncParsableCommand {
         if let exact { return .exact(exact) }
         if min != nil || max != nil { return .range(min: min, max: max) }
         return nil
+    }
+
+    /// Write mono 16 kHz Float samples to a WAV file for diarization input.
+    static func writeMono16kWav(_ samples: [Float], to url: URL) throws {
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false
+        ) else {
+            throw ValidationError("Could not create 16 kHz mono audio format.")
+        }
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let chunk = 1 << 16
+        var offset = 0
+        while offset < samples.count {
+            let n = min(chunk, samples.count - offset)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else {
+                throw ValidationError("Could not allocate audio buffer.")
+            }
+            buffer.frameLength = AVAudioFrameCount(n)
+            if let dst = buffer.floatChannelData?[0] {
+                samples.withUnsafeBufferPointer { src in
+                    dst.update(from: src.baseAddress!.advanced(by: offset), count: n)
+                }
+            }
+            try file.write(from: buffer)
+            offset += n
+        }
     }
 }
