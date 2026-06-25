@@ -125,6 +125,39 @@ struct MeetingTranscriptFinalizer {
         )
     }
 
+    /// Assemble a speaker-attributed transcript from per-turn results (used by the
+    /// Cohere diarize-then-transcribe-per-turn path). Each input `WordTimestamp`
+    /// is one whole turn (its `word` holds the turn's full text); they are sorted
+    /// chronologically and the readable `rawTranscript` ("Label: text" lines) and
+    /// diarization segments are rebuilt with the same helpers as `finalize`.
+    static func assemblePerTurn(
+        turns: [WordTimestamp],
+        speakers: [SpeakerInfo]
+    ) -> FinalizedTranscript {
+        var sorted = turns
+        sorted.sort {
+            if $0.startMs == $1.startMs {
+                return sourceOrder(id: $0.speakerId) < sourceOrder(id: $1.speakerId)
+            }
+            return $0.startMs < $1.startMs
+        }
+
+        let labelByID = Dictionary(speakers.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
+        let lines: [String] = sorted.map { turn in
+            let label: String = labelByID[turn.speakerId ?? ""] ?? (turn.speakerId ?? "Speaker")
+            return label + ": " + turn.word
+        }
+        let rawTranscript = lines.joined(separator: "\n\n")
+
+        return FinalizedTranscript(
+            rawTranscript: rawTranscript,
+            words: sorted,
+            speakers: speakers,
+            diarizationSegments: buildDiarizationSegments(from: sorted),
+            durationMs: sorted.map(\.endMs).max()
+        )
+    }
+
     private static func shiftedWords(
         for result: STTResult,
         source: AudioSource,

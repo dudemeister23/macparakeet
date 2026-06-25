@@ -1318,17 +1318,86 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         guard recording.sourceAlignment.system != nil else {
             throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
         }
-        // Speaker labels attach to word timestamps. Cohere produces none, so there
-        // is nothing to tag — fail loudly instead of silently writing an empty
-        // result. The user can re-transcribe with Parakeet for word-level timing.
-        guard let existingWords = original.wordTimestamps, !existingWords.isEmpty else {
-            throw STTError.transcriptionFailed("This meeting was transcribed with Cohere, which doesn't produce word-level timing, so speakers can't be added to the existing text. Re-transcribe with Parakeet (the Retranscribe button) to label speakers.")
+        // Word-engine meetings (Parakeet/Nemotron) carry word timestamps: re-tag
+        // those words with diarized speakers in place. Cohere meetings have no
+        // words, so they fall through to per-turn re-transcription below.
+        if let existingWords = original.wordTimestamps, !existingWords.isEmpty {
+            onProgress?(.identifyingSpeakers)
+            let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
+            defer { try? FileManager.default.removeItem(at: systemWavURL) }
+
+            var stage: TelemetryTranscriptionStage = .diarization
+            let systemDiarization = try await diarizeMeetingSystemIfNeeded(
+                recording: recording,
+                sourceWavURLs: [.system: systemWavURL],
+                requested: true,
+                lifecycleStage: &stage,
+                onProgress: onProgress
+            )
+            guard let systemDiarization, !systemDiarization.segments.isEmpty else {
+                throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
+            }
+
+            let finalized = MeetingTranscriptFinalizer.applyDiarization(
+                toExistingWords: existingWords,
+                systemDiarization: systemDiarization
+            )
+            return try persistDetectedSpeakers(finalized, onto: original)
         }
 
+        // Cohere / no word timestamps: diarize, then transcribe each speaker turn.
+        return try await detectSpeakersPerTurn(existing: original, recording: recording, onProgress: onProgress)
+    }
+
+    private func persistDetectedSpeakers(
+        _ finalized: MeetingTranscriptFinalizer.FinalizedTranscript,
+        onto original: Transcription
+    ) throws -> Transcription {
+        var updated = original
+        updated.wordTimestamps = finalized.words
+        updated.speakers = finalized.speakers
+        updated.diarizationSegments = finalized.diarizationSegments
+        updated.speakerCount = finalized.speakers.count
+        // The word-merge path returns an empty rawTranscript (keep the original
+        // text); the per-turn path returns assembled "Label: text" lines.
+        if !finalized.rawTranscript.isEmpty {
+            updated.rawTranscript = finalized.rawTranscript
+        }
+        updated.updatedAt = Date()
+        try transcriptionRepo.save(updated)
+        return updated
+    }
+
+    // MARK: - Per-turn diarized transcription (Cohere meetings)
+
+    private static let perTurnMergeGapMs = 1000
+    private static let perTurnMinSpanSamples = 5120  // 0.32 s @ 16 kHz
+
+    /// One contiguous speaker turn. `local*` ms index the raw track samples (for
+    /// slicing); `abs*` ms are on the meeting timeline (for the emitted word).
+    /// Internal (not private) so the merge logic in `buildTurns` is unit-testable.
+    struct PerTurn: Sendable, Equatable {
+        let speakerId: String
+        let localStartMs: Int
+        let localEndMs: Int
+        let absStartMs: Int
+        let absEndMs: Int
+    }
+
+    /// Diarize both tracks, transcribe each speaker turn's audio span with Cohere,
+    /// and assemble a speaker-attributed transcript. For Cohere meetings, which
+    /// have no word timestamps to re-tag.
+    private func detectSpeakersPerTurn(
+        existing original: Transcription,
+        recording: MeetingRecordingOutput,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> Transcription {
+        let language = original.language
+
+        // 1. System track (others) → named/anonymous speaker turns.
         onProgress?(.identifyingSpeakers)
         let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
         defer { try? FileManager.default.removeItem(at: systemWavURL) }
-
         var stage: TelemetryTranscriptionStage = .diarization
         let systemDiarization = try await diarizeMeetingSystemIfNeeded(
             recording: recording,
@@ -1337,23 +1406,152 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             lifecycleStage: &stage,
             onProgress: onProgress
         )
-        guard let systemDiarization, !systemDiarization.segments.isEmpty else {
-            throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
-        }
-
-        let finalized = MeetingTranscriptFinalizer.applyDiarization(
-            toExistingWords: existingWords,
-            systemDiarization: systemDiarization
+        let systemOffset = recording.sourceAlignment.system?.startOffsetMs ?? 0
+        let systemTurns = Self.buildTurns(
+            // diarizeMeetingSystemIfNeeded shifts segments to the meeting timeline;
+            // un-shift to track-local for slicing the raw system samples.
+            segments: (systemDiarization?.segments ?? []).map {
+                (speakerId: $0.speakerId, localStart: $0.startMs - systemOffset, localEnd: $0.endMs - systemOffset)
+            },
+            offsetMs: systemOffset,
+            mergeGapMs: Self.perTurnMergeGapMs
         )
 
-        var updated = original
-        updated.wordTimestamps = finalized.words
-        updated.speakers = finalized.speakers
-        updated.diarizationSegments = finalized.diarizationSegments
-        updated.speakerCount = finalized.speakers.count
-        updated.updatedAt = Date()
-        try transcriptionRepo.save(updated)
-        return updated
+        // 2. Microphone track (you) → a single "Me" speaker's turns.
+        var micWavURL: URL?
+        defer { if let micWavURL { try? FileManager.default.removeItem(at: micWavURL) } }
+        var micTurns: [PerTurn] = []
+        if recording.sourceAlignment.microphone != nil {
+            let url = try await audioProcessor.convert(fileURL: recording.microphoneAudioURL)
+            micWavURL = url
+            let micResult = try await DiarizationService(speakerConstraint: .exact(1)).diarize(audioURL: url)
+            let micOffset = recording.sourceAlignment.microphone?.startOffsetMs ?? 0
+            micTurns = Self.buildTurns(
+                segments: micResult.segments.map {
+                    (speakerId: AudioSource.microphone.rawValue, localStart: $0.startMs, localEnd: $0.endMs)
+                },
+                offsetMs: micOffset,
+                mergeGapMs: Self.perTurnMergeGapMs
+            )
+        }
+
+        guard !systemTurns.isEmpty || !micTurns.isEmpty else {
+            throw STTError.transcriptionFailed("No speech turns were detected in this meeting.")
+        }
+
+        // 3. Transcribe each turn with Cohere, per track (so each track's samples
+        //    are released after its turns finish).
+        let totalTurns = systemTurns.count + micTurns.count
+        var words = try await transcribeTurns(
+            wavURL: systemWavURL, turns: systemTurns, language: language,
+            progressOffset: 0, totalTurns: totalTurns, onProgress: onProgress
+        )
+        if let micWavURL {
+            words += try await transcribeTurns(
+                wavURL: micWavURL, turns: micTurns, language: language,
+                progressOffset: systemTurns.count, totalTurns: totalTurns, onProgress: onProgress
+            )
+        }
+        guard !words.isEmpty else {
+            throw STTError.transcriptionFailed("Couldn't transcribe any speaker turns in this meeting.")
+        }
+
+        // 4. Speakers present in the result.
+        let micSpeaker = SpeakerInfo(
+            id: AudioSource.microphone.rawValue,
+            label: AudioSource.microphone.displayLabel
+        )
+        let presentIDs = Set(words.compactMap(\.speakerId))
+        let speakers = ((systemDiarization?.speakers ?? []) + [micSpeaker]).filter { presentIDs.contains($0.id) }
+
+        let finalized = MeetingTranscriptFinalizer.assemblePerTurn(turns: words, speakers: speakers)
+        return try persistDetectedSpeakers(finalized, onto: original)
+    }
+
+    /// Coalesce diarization segments into contiguous turns (merging adjacent
+    /// same-speaker segments within `mergeGapMs`). `offsetMs` maps track-local ms
+    /// to the meeting timeline.
+    static func buildTurns(
+        segments: [(speakerId: String, localStart: Int, localEnd: Int)],
+        offsetMs: Int,
+        mergeGapMs: Int
+    ) -> [PerTurn] {
+        let sorted = segments
+            .map { (speakerId: $0.speakerId, localStart: max(0, $0.localStart), localEnd: max(0, $0.localEnd)) }
+            .filter { $0.localEnd > $0.localStart }
+            .sorted { $0.localStart < $1.localStart }
+        var turns: [PerTurn] = []
+        for seg in sorted {
+            if let last = turns.last,
+               last.speakerId == seg.speakerId,
+               seg.localStart - last.localEndMs <= mergeGapMs {
+                let mergedEnd = max(last.localEndMs, seg.localEnd)
+                turns[turns.count - 1] = PerTurn(
+                    speakerId: last.speakerId,
+                    localStartMs: last.localStartMs,
+                    localEndMs: mergedEnd,
+                    absStartMs: last.absStartMs,
+                    absEndMs: mergedEnd + offsetMs
+                )
+            } else {
+                turns.append(PerTurn(
+                    speakerId: seg.speakerId,
+                    localStartMs: seg.localStart,
+                    localEndMs: seg.localEnd,
+                    absStartMs: seg.localStart + offsetMs,
+                    absEndMs: seg.localEnd + offsetMs
+                ))
+            }
+        }
+        return turns
+    }
+
+    private func transcribeTurns(
+        wavURL: URL,
+        turns: [PerTurn],
+        language: String?,
+        progressOffset: Int,
+        totalTurns: Int,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> [WordTimestamp] {
+        guard !turns.isEmpty else { return [] }
+        let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: wavURL)
+        var words: [WordTimestamp] = []
+        for (index, turn) in turns.enumerated() {
+            try Task.checkCancellation()
+            if totalTurns > 0 {
+                onProgress?(.transcribing(percent: min(99, (progressOffset + index + 1) * 100 / totalTurns)))
+            }
+            let segment = SpeakerSegment(speakerId: turn.speakerId, startMs: turn.localStartMs, endMs: turn.localEndMs)
+            let slice = SpeakerRecognizer.gatherSamples(
+                segments: [segment], from: samples, sampleRate: 16_000, maxSamples: Int.max
+            )
+            guard slice.count >= Self.perTurnMinSpanSamples else { continue }
+            let text = try await transcribeSpan(samples16k: slice, language: language)
+            guard !text.isEmpty else { continue }
+            words.append(WordTimestamp(
+                word: text,
+                startMs: turn.absStartMs,
+                endMs: turn.absEndMs,
+                confidence: 1.0,
+                speakerId: turn.speakerId
+            ))
+        }
+        return words
+    }
+
+    private func transcribeSpan(samples16k: [Float], language: String?) async throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("turn_\(UUID().uuidString).wav")
+        try AudioSampleWAVWriter.writeMono16k(samples16k, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let result = try await transcribeSpeech(
+            audioPath: url.path,
+            job: .meetingFinalize,
+            speechEngine: SpeechEngineSelection(engine: .cohere, language: language),
+            onProgress: nil
+        )
+        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func diarizeMeetingSystemIfNeeded(
