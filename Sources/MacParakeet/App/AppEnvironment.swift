@@ -111,7 +111,11 @@ final class AppEnvironment {
             )
         }
         sharedMicStream = SharedMicrophoneStream(
-            platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
+            platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder),
+            // Re-prepare the stopped dictation engine each time the stream goes
+            // idle, so a press only pays `engine.start()` — instant first words
+            // without holding the mic open (no indicator, no Bluetooth HFP pin).
+            autoPrewarmWhenIdle: true
         )
         // The Instant Dictation warm lease asks this before holding the mic
         // open while idle. First attempt in the chain = the device the engine

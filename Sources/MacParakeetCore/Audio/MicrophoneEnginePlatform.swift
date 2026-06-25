@@ -40,6 +40,25 @@ public protocol MicrophoneEnginePlatform: AnyObject, Sendable {
     /// (`CADefaultDeviceAggregate-<pid>-N`). Mirrors the ephemeral-engine
     /// pattern proven in `MicrophoneCapture` (PR #186).
     func stopEngine()
+
+    /// Pre-pay device acquisition + format negotiation + tap install on a
+    /// *stopped* engine so a later matching `configureAndStart` only pays
+    /// `audioEngine.start()`. Best-effort and optional: the default
+    /// implementation is a no-op, so a later full `configureAndStart` is always
+    /// correct on its own.
+    func prepare(
+        vpioEnabled: Bool,
+        bufferSize: AVAudioFrameCount,
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    )
+}
+
+public extension MicrophoneEnginePlatform {
+    func prepare(
+        vpioEnabled: Bool,
+        bufferSize: AVAudioFrameCount,
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    ) {}
 }
 
 /// Production adapter that drives a real `AVAudioEngine`. Mirrors the
@@ -102,6 +121,16 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         let tapHandler: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
     }
     private var lastStartRequestLocked: StartRequest?
+
+    // Prepared-but-stopped engine: device + format + tap are paid, but the engine
+    // is not started, so there is no capture and no mic indicator. A later
+    // `configureAndStart` with a matching request just calls `audioEngine.start()`
+    // (~the engine-start cost only), shaving the ~device+format cold-start.
+    private var prepared = false
+    private var preparedAttempt: MeetingInputDeviceAttempt?
+    private var preparedVPIO = false
+    private var preparedBufferSize: AVAudioFrameCount = 0
+    private var preparedTapHandler: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
 
     deinit {
         tearDownLocked()
@@ -190,6 +219,47 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         }
     }
 
+    /// Pre-pay device acquisition + format negotiation + tap install on a
+    /// *stopped* engine (no capture, no mic indicator), so a later matching
+    /// `configureAndStart` only pays `audioEngine.start()`. Best-effort: a no-op
+    /// when the engine is already running/prepared or a test engineStarter is
+    /// injected; a failure leaves the platform un-prepared (next start is full).
+    public func prepare(
+        vpioEnabled: Bool,
+        bufferSize: AVAudioFrameCount,
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    ) {
+        queue.sync {
+            guard engineStarter == nil, !running, !prepared else { return }
+            // Never pre-acquire a Bluetooth input: holding it open pins the
+            // headset into low-quality HFP/SCO. Let those starts pay the full
+            // cold path on key-down instead.
+            if let firstDeviceID = deviceAttemptsBuilder?().first?.deviceID {
+                let transport = AudioDeviceManager.transportType(firstDeviceID)
+                guard transport != kAudioDeviceTransportTypeBluetooth,
+                      transport != kAudioDeviceTransportTypeBluetoothLE else {
+                    AudioCaptureDiagnostics.append(
+                        "shared_mic_engine_prepare_skipped reason=bluetooth"
+                    )
+                    return
+                }
+            }
+            do {
+                try configureAndStartLocked(
+                    vpioEnabled: vpioEnabled,
+                    bufferSize: bufferSize,
+                    tapHandler: tapHandler,
+                    startNow: false
+                )
+            } catch {
+                prepared = false
+                AudioCaptureDiagnostics.append(
+                    "shared_mic_engine_prepare_failed \(AudioCaptureDiagnostics.errorFields(error))"
+                )
+            }
+        }
+    }
+
     public func stopEngine() {
         queue.sync {
             // Clear the stored start request unconditionally so the tap-handler
@@ -212,9 +282,26 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private func configureAndStartLocked(
         vpioEnabled: Bool,
         bufferSize: AVAudioFrameCount,
-        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void,
+        startNow: Bool = true
     ) throws {
         lastStartRequestLocked = nil
+        // Fast path: a matching prepared engine (device + format + tap already
+        // paid, same VPIO/buffer/device) — just start it.
+        if startNow, !running, prepared, engineStarter == nil,
+           preparedVPIO == vpioEnabled, preparedBufferSize == bufferSize,
+           deviceAttemptsBuilder?().first == preparedAttempt,
+           goPreparedLocked() {
+            lastSucceededAttemptLocked = preparedAttempt
+            lastStartRequestLocked = StartRequest(
+                vpioEnabled: vpioEnabled,
+                bufferSize: bufferSize,
+                tapHandler: preparedTapHandler ?? tapHandler
+            )
+            return
+        }
+        // Anything else is a full (re)configure; drop any stale prepared engine.
+        prepared = false
         // VPIO toggle requires a stop → setVoiceProcessingEnabled → start
         // sequence; the engine cannot be reconfigured while running.
         if running {
@@ -227,14 +314,19 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             try startConfiguredEngineLocked(
                 vpioEnabled: vpioEnabled,
                 bufferSize: bufferSize,
-                tapHandler: tapHandler
+                tapHandler: tapHandler,
+                startNow: startNow
             )
-            lastSucceededAttemptLocked = nil
-            lastStartRequestLocked = StartRequest(
-                vpioEnabled: vpioEnabled,
-                bufferSize: bufferSize,
-                tapHandler: tapHandler
-            )
+            if startNow {
+                lastSucceededAttemptLocked = nil
+                lastStartRequestLocked = StartRequest(
+                    vpioEnabled: vpioEnabled,
+                    bufferSize: bufferSize,
+                    tapHandler: tapHandler
+                )
+            } else {
+                markPreparedLocked(attempt: nil, vpioEnabled: vpioEnabled, bufferSize: bufferSize, tapHandler: tapHandler)
+            }
             return
         }
 
@@ -271,25 +363,40 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                 try startConfiguredEngineLocked(
                     vpioEnabled: vpioEnabled,
                     bufferSize: bufferSize,
-                    tapHandler: tapHandler
+                    tapHandler: tapHandler,
+                    startNow: startNow
                 )
                 let startEngineEndedAt = Self.nowNanos()
                 let startEngineMilliseconds = Self.elapsedMilliseconds(
                     from: startEngineStartedAt,
                     to: startEngineEndedAt
                 )
-                lastSucceededAttemptLocked = attempt
-                lastStartRequestLocked = StartRequest(
-                    vpioEnabled: vpioEnabled,
-                    bufferSize: bufferSize,
-                    tapHandler: tapHandler
-                )
+                if startNow {
+                    lastSucceededAttemptLocked = attempt
+                    lastStartRequestLocked = StartRequest(
+                        vpioEnabled: vpioEnabled,
+                        bufferSize: bufferSize,
+                        tapHandler: tapHandler
+                    )
+                } else {
+                    markPreparedLocked(attempt: attempt, vpioEnabled: vpioEnabled, bufferSize: bufferSize, tapHandler: tapHandler)
+                }
                 logger.info(
-                    "shared_mic_engine_input_device_started source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
+                    "shared_mic_engine_input_device_\(startNow ? "started" : "prepared") source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
                 )
-                AudioCaptureDiagnostics.append(
-                    "shared_mic_engine_input_device_started source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport) vpio=\(vpioEnabled) set_device_ms=\(setDeviceMilliseconds) start_engine_ms=\(startEngineMilliseconds)"
-                )
+                if startNow {
+                    AudioCaptureDiagnostics.append(
+                        "shared_mic_engine_input_device_started source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport) vpio=\(vpioEnabled) set_device_ms=\(setDeviceMilliseconds) start_engine_ms=\(startEngineMilliseconds)"
+                    )
+                } else {
+                    // Prepare-only: the engine is configured but stopped (no
+                    // capture, no indicator). `prepare_engine_ms` is format +
+                    // tap + AVAudioEngine.prepare(), NOT a real start — keep it
+                    // a distinct event so latency reads aren't conflated.
+                    AudioCaptureDiagnostics.append(
+                        "shared_mic_engine_input_device_prepared source=\(attempt.source.logValue) device=\(deviceLabel) transport=\(transport) vpio=\(vpioEnabled) set_device_ms=\(setDeviceMilliseconds) prepare_engine_ms=\(startEngineMilliseconds)"
+                    )
+                }
                 return
             } catch {
                 lastError = error
@@ -311,16 +418,20 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private func startConfiguredEngineLocked(
         vpioEnabled: Bool,
         bufferSize: AVAudioFrameCount,
-        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void,
+        startNow: Bool = true
     ) throws {
         guard let engineStarter else {
             try startEngineLocked(
                 vpioEnabled: vpioEnabled,
                 bufferSize: bufferSize,
-                tapHandler: tapHandler
+                tapHandler: tapHandler,
+                startNow: startNow
             )
             return
         }
+        // The injected engineStarter (tests) always starts; prepare() is gated to
+        // engineStarter == nil, so startNow is always true here.
 
         do {
             try engineStarter(audioEngine, vpioEnabled, bufferSize, tapHandler)
@@ -335,7 +446,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private func startEngineLocked(
         vpioEnabled: Bool,
         bufferSize: AVAudioFrameCount,
-        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void,
+        startNow: Bool = true
     ) throws {
         let totalStartedAt = Self.nowNanos()
         var setVPIOMilliseconds = "0.000"
@@ -442,6 +554,22 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             throw error
         }
 
+        // Prepare-only: device + format + tap are paid; stop here so the engine
+        // is configured but not capturing (no mic indicator). The caller marks it
+        // prepared; a later go just runs the `audioEngine.start()` below.
+        guard startNow else {
+            // Pre-allocate render resources so the eventual `start()` is cheaper.
+            // Best-effort: a throw here just means start() does the work instead.
+            try? catchingObjCException {
+                audioEngine.prepare()
+            }
+            let preparedMilliseconds = Self.elapsedMilliseconds(from: totalStartedAt, to: Self.nowNanos())
+            AudioCaptureDiagnostics.append(
+                "shared_mic_engine_prepare_timing vpio=\(vpioEnabled) buffer_size=\(bufferSize) set_vpio_ms=\(setVPIOMilliseconds) output_format_ms=\(outputFormatMilliseconds) install_tap_ms=\(installTapMilliseconds) total_ms=\(preparedMilliseconds)"
+            )
+            return
+        }
+
         do {
             let phaseStartedAt = Self.nowNanos()
             try catchingObjCException {
@@ -473,7 +601,46 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         )
     }
 
+    /// Record that the current engine is configured-but-stopped for this request.
+    private func markPreparedLocked(
+        attempt: MeetingInputDeviceAttempt?,
+        vpioEnabled: Bool,
+        bufferSize: AVAudioFrameCount,
+        tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void
+    ) {
+        prepared = true
+        preparedAttempt = attempt
+        preparedVPIO = vpioEnabled
+        preparedBufferSize = bufferSize
+        preparedTapHandler = tapHandler
+    }
+
+    /// Start a prepared engine (only the `audioEngine.start()` cost). Returns
+    /// false if it fails, leaving the platform un-prepared so the caller does a
+    /// full configure.
+    private func goPreparedLocked() -> Bool {
+        let phaseStartedAt = Self.nowNanos()
+        do {
+            try catchingObjCException {
+                try audioEngine.start()
+            }
+        } catch {
+            replaceEngineAfterFailureLocked()  // clears prepared
+            return false
+        }
+        running = true
+        prepared = false
+        installConfigurationChangeObserverLocked()
+        installDefaultInputChangeObserverLocked()
+        AudioCaptureDiagnostics.append(
+            "shared_mic_engine_started_from_prepared audio_engine_start_ms=\(Self.elapsedMilliseconds(from: phaseStartedAt, to: Self.nowNanos()))"
+        )
+        return true
+    }
+
     private func tearDownLocked() {
+        prepared = false
+        preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
         removeDefaultInputChangeObserverLocked()
         guard engineStarter == nil else {
@@ -503,6 +670,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     /// Reset between failed device attempts (no tap installed yet, just
     /// hand back a fresh engine for the next try).
     private func resetEngineLocked() {
+        prepared = false
+        preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
         removeDefaultInputChangeObserverLocked()
         try? catchingObjCException {
@@ -514,6 +683,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     }
 
     private func replaceEngineAfterFailureLocked() {
+        prepared = false
+        preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
         removeDefaultInputChangeObserverLocked()
         try? catchingObjCException {

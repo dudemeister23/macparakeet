@@ -178,6 +178,26 @@ starts/stops, when the setting is disabled, and when the warm engine
 dies. The only persisted audio remains the normal dictation WAV after
 the user starts dictation.
 
+**Idle prepare keeps cold starts cheap without opening the mic.**
+Independent of the Instant Dictation warm hold, the shared stream can
+re-*prepare* the raw dictation engine whenever it goes idle
+(`SharedMicrophoneStream(autoPrewarmWhenIdle:)`, plus a one-shot
+`prewarmDictation()` at launch). Prepare pays the expensive cold-path
+work up front — set input device, negotiate the output format, install
+the tap, `AVAudioEngine.prepare()` — but leaves the engine **stopped**,
+so there is no capture and no mic indicator while idle. The next
+dictation press matches the prepared engine
+(`AVAudioEngineMicrophonePlatform.prepare`/`goPreparedLocked`) and pays
+only `audioEngine.start()` (~tens of ms) instead of the full
+device-acquisition + format negotiation. A mismatched start (VPIO on,
+different buffer size, or a changed selected device — e.g. a meeting)
+discards the prepared engine and does a full configure, so meetings are
+unaffected. Like the warm hold, prepare is **suppressed on Bluetooth
+inputs**: pre-acquiring a Bluetooth mic would pin HFP/SCO even while
+stopped, so the platform declines and that press pays the full cold
+path. This is the no-warm-window path: instant first words after
+key-down without holding the mic open.
+
 **The warm hold must never pin a Bluetooth input (issue #481).** An
 idle open Bluetooth microphone forces the headset into HFP/SCO, which
 degrades playback the entire time and can flap the default input.
