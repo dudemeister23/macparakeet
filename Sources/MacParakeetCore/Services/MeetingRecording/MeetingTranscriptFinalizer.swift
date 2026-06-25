@@ -84,6 +84,47 @@ struct MeetingTranscriptFinalizer {
         )
     }
 
+    /// Re-tag an already-finalized meeting transcript's words with diarized
+    /// speakers, without re-running ASR ("Detect speakers" on a transcript that
+    /// was transcribed with speaker detection off).
+    ///
+    /// Existing words carry `speakerId` = source raw value ("microphone" /
+    /// "system"); only the system words are re-assigned to the diarized (and
+    /// recognized) speaker ids. The transcript text is unchanged — the caller
+    /// keeps the existing `rawTranscript`, so `FinalizedTranscript.rawTranscript`
+    /// is returned empty here.
+    static func applyDiarization(
+        toExistingWords words: [WordTimestamp],
+        systemDiarization: SystemDiarization
+    ) -> FinalizedTranscript {
+        let microphoneWords = words.filter { $0.speakerId == AudioSource.microphone.rawValue }
+        let systemWords = words.filter { $0.speakerId == AudioSource.system.rawValue }
+        let alreadyTaggedWords = words.filter {
+            $0.speakerId != AudioSource.microphone.rawValue
+                && $0.speakerId != AudioSource.system.rawValue
+        }
+        let mergedSystemWords = SpeakerMerger.mergeWordTimestampsWithSpeakers(
+            words: systemWords,
+            segments: systemDiarization.segments
+        )
+
+        var mergedWords = microphoneWords + mergedSystemWords + alreadyTaggedWords
+        mergedWords.sort {
+            if $0.startMs == $1.startMs {
+                return sourceOrder(id: $0.speakerId) < sourceOrder(id: $1.speakerId)
+            }
+            return $0.startMs < $1.startMs
+        }
+
+        return FinalizedTranscript(
+            rawTranscript: "",
+            words: mergedWords,
+            speakers: activeSpeakers(from: mergedWords, systemDiarization: systemDiarization),
+            diarizationSegments: buildDiarizationSegments(from: mergedWords),
+            durationMs: mergedWords.map(\.endMs).max()
+        )
+    }
+
     private static func shiftedWords(
         for result: STTResult,
         source: AudioSource,

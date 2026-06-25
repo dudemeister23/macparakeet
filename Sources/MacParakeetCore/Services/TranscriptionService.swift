@@ -43,8 +43,30 @@ public protocol TranscriptionServiceProtocol: Sendable {
         recording: MeetingRecordingOutput,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription
+    /// Adds speaker diarization (+ enrolled-speaker recognition) to an already
+    /// transcribed meeting *in place*: re-tags the existing words with speaker
+    /// turns without re-running ASR, preserving the transcript text. Use when a
+    /// meeting was transcribed with speaker detection off.
+    func detectSpeakers(
+        existing transcription: Transcription,
+        recording: MeetingRecordingOutput,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> Transcription
     func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
     func transcribeURLTransient(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
+}
+
+extension TranscriptionServiceProtocol {
+    /// Default no-op-throwing implementation so conformers (e.g. test mocks) that
+    /// don't support in-place speaker detection compile unchanged. The real
+    /// `TranscriptionService` overrides this.
+    public func detectSpeakers(
+        existing transcription: Transcription,
+        recording: MeetingRecordingOutput,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        throw STTError.transcriptionFailed("Speaker detection is not available.")
+    }
 }
 
 public protocol SpeechEngineOverrideTranscriptionService: TranscriptionServiceProtocol {
@@ -1283,6 +1305,49 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         }
 
         return outputs
+    }
+
+    public func detectSpeakers(
+        existing original: Transcription,
+        recording: MeetingRecordingOutput,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        guard diarizationService != nil else {
+            throw STTError.transcriptionFailed("Speaker detection is unavailable.")
+        }
+        guard recording.sourceAlignment.system != nil else {
+            throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
+        }
+
+        onProgress?(.identifyingSpeakers)
+        let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
+        defer { try? FileManager.default.removeItem(at: systemWavURL) }
+
+        var stage: TelemetryTranscriptionStage = .diarization
+        let systemDiarization = try await diarizeMeetingSystemIfNeeded(
+            recording: recording,
+            sourceWavURLs: [.system: systemWavURL],
+            requested: true,
+            lifecycleStage: &stage,
+            onProgress: onProgress
+        )
+        guard let systemDiarization, !systemDiarization.segments.isEmpty else {
+            throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
+        }
+
+        let finalized = MeetingTranscriptFinalizer.applyDiarization(
+            toExistingWords: original.wordTimestamps ?? [],
+            systemDiarization: systemDiarization
+        )
+
+        var updated = original
+        updated.wordTimestamps = finalized.words
+        updated.speakers = finalized.speakers
+        updated.diarizationSegments = finalized.diarizationSegments
+        updated.speakerCount = finalized.speakers.count
+        updated.updatedAt = Date()
+        try transcriptionRepo.save(updated)
+        return updated
     }
 
     private func diarizeMeetingSystemIfNeeded(

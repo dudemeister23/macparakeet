@@ -511,6 +511,24 @@ struct TranscriptResultView: View {
                       : "Meeting artifact folder is not available")
             }
 
+            if viewModel.canDetectSpeakers(for: transcription) {
+                Button {
+                    viewModel.detectSpeakers(for: transcription)
+                } label: {
+                    HStack(spacing: 6) {
+                        if viewModel.speakerDetectionState == .running {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "person.2.wave.2")
+                        }
+                        Text(viewModel.speakerDetectionState == .running ? "Detecting speakers…" : "Detect speakers")
+                    }
+                }
+                .parakeetAction(.secondary)
+                .disabled(viewModel.speakerDetectionState == .running)
+                .help("Diarize this meeting and label speakers without re-transcribing")
+            }
+
             if onRetranscribe != nil, let filePath = transcription.filePath,
                FileManager.default.fileExists(atPath: filePath) {
                 let engineOption = viewModel.retranscriptionEngineOption(for: transcription)
@@ -575,6 +593,18 @@ struct TranscriptResultView: View {
             pendingRetranscribePick = nil
             retranscriptionConfirmation = nil
             showingRetranscribeOptions = false
+        }
+        .alert(
+            "Couldn't detect speakers",
+            isPresented: Binding(
+                get: { viewModel.speakerDetectionError != nil },
+                set: { if !$0 { viewModel.speakerDetectionError = nil } }
+            ),
+            presenting: viewModel.speakerDetectionError
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.speakerDetectionError = nil }
+        } message: { message in
+            Text(message)
         }
         .alert(
             retranscriptionConfirmation?.title ?? "Retranscribe this file?",

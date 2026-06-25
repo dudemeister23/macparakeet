@@ -1378,6 +1378,13 @@ new scheduling architecture.
 - Single-speaker files correctly return one speaker label with no overhead
 - Total file transcription time: ~53-79 seconds per hour of audio (ASR ~23s + diarization ~30-56s)
 
+**Detect speakers (retroactive):** A meeting transcribed with speaker detection
+off can be diarized later, in place. The transcript view's "Detect speakers"
+action runs diarization on the saved audio and tags the *existing* words with
+speaker turns (and enrolled-speaker names) without re-running ASR, so the
+transcript text is unchanged. Faster and non-destructive vs. full retranscription;
+requires the meeting's audio still on disk.
+
 #### F13a: Speaker Voice Profiles (named recognition)
 
 **What:** Enroll known speakers once so meetings come back with their real names

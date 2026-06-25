@@ -1316,6 +1316,70 @@ public final class TranscriptionViewModel {
         }
     }
 
+    // MARK: - Detect speakers (diarize an existing transcript in place)
+
+    public enum SpeakerDetectionState: Equatable, Sendable {
+        case idle
+        case running
+    }
+
+    public var speakerDetectionState: SpeakerDetectionState = .idle
+    public var speakerDetectionError: String?
+
+    /// Whether "Detect speakers" applies: a meeting that was transcribed without
+    /// diarization and whose audio is still on disk.
+    public func canDetectSpeakers(for transcription: Transcription) -> Bool {
+        guard transcriptionService != nil,
+              transcription.sourceType == .meeting,
+              (transcription.diarizationSegments?.isEmpty ?? true),
+              let path = transcription.filePath,
+              FileManager.default.fileExists(atPath: path)
+        else { return false }
+        return true
+    }
+
+    /// Diarize an already-transcribed meeting in place (no re-ASR), adding
+    /// speaker turns and recognizing any enrolled speakers.
+    public func detectSpeakers(for original: Transcription) {
+        guard let service = transcriptionService else {
+            reportMissingConfiguration("transcriptionService", action: "detectSpeakers")
+            return
+        }
+        guard let filePath = original.filePath,
+              FileManager.default.fileExists(atPath: filePath) else {
+            speakerDetectionError = "The audio for this meeting is no longer available."
+            return
+        }
+        guard let recording = archivedMeetingRecording(
+            for: original,
+            mixedAudioURL: URL(fileURLWithPath: filePath)
+        ) else {
+            speakerDetectionError = "Couldn't load this meeting's audio to detect speakers."
+            return
+        }
+        speakerDetectionState = .running
+        speakerDetectionError = nil
+        Task {
+            do {
+                let updated = try await service.detectSpeakers(
+                    existing: original,
+                    recording: recording,
+                    onProgress: nil
+                )
+                if currentTranscription?.id == updated.id {
+                    currentTranscription = updated
+                }
+                if let index = transcriptions.firstIndex(where: { $0.id == updated.id }) {
+                    transcriptions[index] = updated
+                }
+                speakerDetectionState = .idle
+            } catch {
+                speakerDetectionError = error.localizedDescription
+                speakerDetectionState = .idle
+            }
+        }
+    }
+
     public func renameCurrentTranscription(to newFileName: String) {
         guard var transcription = currentTranscription else { return }
         let trimmed = newFileName.trimmingCharacters(in: .whitespacesAndNewlines)
