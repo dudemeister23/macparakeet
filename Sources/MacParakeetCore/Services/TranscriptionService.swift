@@ -50,6 +50,7 @@ public protocol TranscriptionServiceProtocol: Sendable {
     func detectSpeakers(
         existing transcription: Transcription,
         recording: MeetingRecordingOutput,
+        speakerCount: Int?,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription
     func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
@@ -63,6 +64,7 @@ extension TranscriptionServiceProtocol {
     public func detectSpeakers(
         existing transcription: Transcription,
         recording: MeetingRecordingOutput,
+        speakerCount: Int? = nil,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         throw STTError.transcriptionFailed("Speaker detection is not available.")
@@ -1310,6 +1312,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     public func detectSpeakers(
         existing original: Transcription,
         recording: MeetingRecordingOutput,
+        speakerCount: Int? = nil,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         guard diarizationService != nil else {
@@ -1348,8 +1351,14 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             return try persistDetectedSpeakers(finalized, onto: original)
         }
 
-        // Cohere / no word timestamps: diarize, then transcribe each speaker turn.
-        return try await detectSpeakersPerTurn(existing: original, recording: recording, onProgress: onProgress)
+        // Cohere / no real word timestamps: diarize the mixed audio, then
+        // transcribe each speaker turn.
+        return try await detectSpeakersPerTurn(
+            existing: original,
+            recording: recording,
+            speakerCount: speakerCount,
+            onProgress: onProgress
+        )
     }
 
     private func persistDetectedSpeakers(
@@ -1393,6 +1402,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     private func detectSpeakersPerTurn(
         existing original: Transcription,
         recording: MeetingRecordingOutput,
+        speakerCount: Int?,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription {
         let language = original.language
@@ -1411,7 +1421,16 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         let mixedWavURL = try await audioProcessor.convert(fileURL: recording.mixedAudioURL)
         defer { try? FileManager.default.removeItem(at: mixedWavURL) }
 
-        let diarization = try await diarizationService.diarize(audioURL: mixedWavURL)
+        // When the user says how many people were present, constrain the diarizer
+        // to that count — the unconstrained offline clusterer under-splits long
+        // meetings with similar/overlapping voices.
+        let diarizer: DiarizationServiceProtocol
+        if let speakerCount, speakerCount > 0 {
+            diarizer = DiarizationService(speakerConstraint: .exact(speakerCount))
+        } else {
+            diarizer = diarizationService
+        }
+        let diarization = try await diarizer.diarize(audioURL: mixedWavURL)
         guard !diarization.segments.isEmpty, !diarization.speakers.isEmpty else {
             throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
         }

@@ -75,6 +75,8 @@ struct TranscriptResultView: View {
     @State private var backHovered = false
     @State private var headerExpanded = false
     @State private var speakerOverviewExpanded = false
+    /// Expected number of people for "Detect speakers" (nil = auto-detect).
+    @State private var detectSpeakerCount: Int?
     @State private var copied = false
     @State private var copiedResultID: UUID?
     @State private var copiedButtonResultID: UUID?
@@ -212,6 +214,11 @@ struct TranscriptResultView: View {
         }
         .onChange(of: activeTranscription.speakers) {
             rebuildSegmentCache()
+            // Surface the rename / listen controls when speakers appear or change
+            // (e.g. after Detect speakers on the same meeting).
+            if cachedHasSpeakers {
+                speakerOverviewExpanded = true
+            }
         }
         .onChange(of: activeTranscription.wordTimestamps) {
             rebuildSegmentCache()
@@ -514,25 +521,43 @@ struct TranscriptResultView: View {
             }
 
             if viewModel.canDetectSpeakers(for: transcription) {
-                Button {
-                    viewModel.detectSpeakers(for: transcription)
-                } label: {
-                    HStack(spacing: 6) {
-                        if viewModel.speakerDetectionState == .running {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "person.2.wave.2")
+                HStack(spacing: 6) {
+                    Button {
+                        viewModel.detectSpeakers(for: transcription, speakerCount: detectSpeakerCount)
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.speakerDetectionState == .running {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "person.2.wave.2")
+                            }
+                            Text(
+                                viewModel.speakerDetectionState == .running
+                                    ? "Detecting speakers…"
+                                    : (viewModel.detectSpeakersIsRerun(for: transcription) ? "Re-detect speakers" : "Detect speakers")
+                            )
                         }
-                        Text(
-                            viewModel.speakerDetectionState == .running
-                                ? "Detecting speakers…"
-                                : (viewModel.detectSpeakersIsRerun(for: transcription) ? "Re-detect speakers" : "Detect speakers")
-                        )
                     }
+                    .parakeetAction(.secondary)
+                    .disabled(viewModel.speakerDetectionState == .running)
+                    .help("Diarize this meeting and label speakers")
+
+                    Menu {
+                        Button("Auto-detect count") { detectSpeakerCount = nil }
+                        Divider()
+                        ForEach(Array(2...12), id: \.self) { count in
+                            Button("\(count) people") { detectSpeakerCount = count }
+                        }
+                    } label: {
+                        Text(detectSpeakerCount.map { "\($0) ppl" } ?? "Auto")
+                            .font(DesignSystem.Typography.caption)
+                            .frame(minWidth: 34)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(viewModel.speakerDetectionState == .running)
+                    .help("How many people were in the meeting? A count helps the diarizer split them when auto-detect under-counts a long meeting.")
                 }
-                .parakeetAction(.secondary)
-                .disabled(viewModel.speakerDetectionState == .running)
-                .help("Diarize this meeting and label speakers")
             }
 
             if onRetranscribe != nil, let filePath = transcription.filePath,
@@ -2467,6 +2492,18 @@ struct TranscriptResultView: View {
                     }
 
                     Spacer()
+
+                    if representativeStartMs(for: speaker.id) != nil {
+                        Button {
+                            listenToSpeaker(speaker.id)
+                        } label: {
+                            Image(systemName: "play.circle")
+                                .font(.system(size: 17))
+                                .foregroundStyle(colorMap[speaker.id] ?? DesignSystem.Colors.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play a sample of this speaker so you can tell who it is")
+                    }
                 }
                 .padding(DesignSystem.Spacing.md)
                 .background(
@@ -2601,6 +2638,24 @@ struct TranscriptResultView: View {
         viewModel.renameSpeaker(id: speakerId, to: editingSpeakerLabel)
         rebuildSegmentCache()
         editingSpeakerId = nil
+    }
+
+    /// Start (ms) of a speaker's longest diarized segment — a representative
+    /// sample to play so the user can identify who it is before renaming.
+    private func representativeStartMs(for speakerId: String) -> Int? {
+        guard let segments = activeTranscription.diarizationSegments else { return nil }
+        return segments
+            .filter { $0.speakerId == speakerId }
+            .max(by: { ($0.endMs - $0.startMs) < ($1.endMs - $1.startMs) })?
+            .startMs
+    }
+
+    private func listenToSpeaker(_ speakerId: String) {
+        guard let startMs = representativeStartMs(for: speakerId) else { return }
+        playerViewModel.seek(toMs: startMs)
+        if !playerViewModel.isPlaying {
+            playerViewModel.togglePlayPause()
+        }
     }
 
 
