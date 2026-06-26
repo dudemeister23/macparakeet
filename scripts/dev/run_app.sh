@@ -79,6 +79,16 @@ binary_has_rpath() {
   return 1
 }
 
+# Stop any running dev instance BEFORE building. xcodebuild overwrites the app
+# binary in place; a live process still mapped to it is SIGKILL'd with
+# "code signature invalid (invalid page)" the moment it pages in a not-yet-
+# resident code page (commonly the AVFAudio tap thread while the mic is live).
+# Killing it first closes that window. The post-build [3/5] stop still runs to
+# catch the installed/dist apps and anything that restarted during the build.
+echo "[0/5] Stopping running dev instance before rebuild…"
+pkill -f "MacParakeet-Dev.app/Contents/MacOS/MacParakeet" || true
+pkill -f "$PRODUCT_DIR/MacParakeet" || true
+
 echo "[1/5] Building $CONFIG app bundle (xcodebuild, target signing disabled)…"
 if ! xcodebuild build \
   -scheme MacParakeet \

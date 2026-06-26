@@ -20,6 +20,11 @@ public protocol TranscriptionServiceProtocol: Sendable {
     func prepareMeetingTranscription(
         recording: MeetingRecordingOutput
     ) async throws -> Transcription
+    /// Persists a meeting row as `.recorded` (audio saved, transcription
+    /// intentionally skipped). Must not run or queue speech-to-text.
+    func prepareRecordedMeeting(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription
     /// Finalizes the existing meeting row. Must update `transcriptionID`
     /// rather than inserting another row.
     func finalizeMeetingTranscription(
@@ -38,8 +43,34 @@ public protocol TranscriptionServiceProtocol: Sendable {
         recording: MeetingRecordingOutput,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription
+    /// Adds speaker diarization (+ enrolled-speaker recognition) to an already
+    /// transcribed meeting *in place*: re-tags the existing words with speaker
+    /// turns without re-running ASR, preserving the transcript text. Use when a
+    /// meeting was transcribed with speaker detection off.
+    func detectSpeakers(
+        existing transcription: Transcription,
+        recording: MeetingRecordingOutput,
+        speakerCount: Int?,
+        presentProfileIDs: Set<UUID>?,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> Transcription
     func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
     func transcribeURLTransient(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)?) async throws -> Transcription
+}
+
+extension TranscriptionServiceProtocol {
+    /// Default no-op-throwing implementation so conformers (e.g. test mocks) that
+    /// don't support in-place speaker detection compile unchanged. The real
+    /// `TranscriptionService` overrides this.
+    public func detectSpeakers(
+        existing transcription: Transcription,
+        recording: MeetingRecordingOutput,
+        speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        throw STTError.transcriptionFailed("Speaker detection is not available.")
+    }
 }
 
 public protocol SpeechEngineOverrideTranscriptionService: TranscriptionServiceProtocol {
@@ -235,6 +266,13 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     private let podcastAudioFetcher: PodcastAudioFetching?
     private let promptResultRepo: PromptResultRepositoryProtocol?
     private let diarizationService: DiarizationServiceProtocol?
+    /// Optional: layers enrolled-speaker names onto anonymous diarization. When
+    /// nil (or no profiles enrolled), diarization stays anonymous as before.
+    private let speakerRecognizer: SpeakerRecognizer?
+    private let enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])?
+    /// Lets an in-progress dictation pause the per-turn loop so it yields the
+    /// shared Cohere engine. nil = no coordination (per-turn never pauses).
+    private let enginePriority: STTEnginePriorityCoordinator?
     private let mediaMetadataExtractor: MediaMetadataExtracting
     private let thumbnailCache: ThumbnailCaching
     private let playbackConverter: YouTubeAudioPlaybackConverting
@@ -262,6 +300,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         podcastSearchResolver: PodcastSearchResolving? = nil,
         podcastAudioFetcher: PodcastAudioFetching? = nil,
         diarizationService: DiarizationServiceProtocol? = nil,
+        speakerRecognizer: SpeakerRecognizer? = nil,
+        enrolledSpeakerProfiles: (@Sendable () -> [SpeakerProfile])? = nil,
+        enginePriority: STTEnginePriorityCoordinator? = nil,
         mediaMetadataExtractor: MediaMetadataExtracting = AVMediaMetadataExtractor(),
         thumbnailCache: ThumbnailCaching = ThumbnailCacheService.shared,
         playbackConverter: YouTubeAudioPlaybackConverting = YouTubeAudioPlaybackConverter(),
@@ -289,6 +330,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         self.podcastAudioFetcher = podcastAudioFetcher
         self.promptResultRepo = promptResultRepo
         self.diarizationService = diarizationService
+        self.speakerRecognizer = speakerRecognizer
+        self.enrolledSpeakerProfiles = enrolledSpeakerProfiles
+        self.enginePriority = enginePriority
         self.mediaMetadataExtractor = mediaMetadataExtractor
         self.thumbnailCache = thumbnailCache
         self.playbackConverter = playbackConverter
@@ -393,6 +437,15 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         recording: MeetingRecordingOutput
     ) async throws -> Transcription {
         let transcription = makeMeetingTranscriptionStub(recording: recording)
+        try transcriptionRepo.save(transcription)
+        return transcription
+    }
+
+    public func prepareRecordedMeeting(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription {
+        var transcription = makeMeetingTranscriptionStub(recording: recording)
+        transcription.status = .recorded
         try transcriptionRepo.save(transcription)
         return transcription
     }
@@ -1263,6 +1316,319 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         return outputs
     }
 
+    public func detectSpeakers(
+        existing original: Transcription,
+        recording: MeetingRecordingOutput,
+        speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        guard diarizationService != nil else {
+            throw STTError.transcriptionFailed("Speaker detection is unavailable.")
+        }
+
+        // Route by engine, not by whether words exist: a prior per-turn run leaves
+        // synthetic "words" on a Cohere meeting, but Cohere never has real word
+        // timing, so it must always diarize-then-transcribe-per-turn. Word engines
+        // (Parakeet/Nemotron) carry real word timestamps and re-tag them in place.
+        let producedRealWords = original.engine != SpeechEnginePreference.cohere.rawValue
+        if producedRealWords, let existingWords = original.wordTimestamps, !existingWords.isEmpty {
+            guard recording.sourceAlignment.system != nil else {
+                throw STTError.transcriptionFailed("This meeting has no separate participant audio to detect speakers from.")
+            }
+            onProgress?(.identifyingSpeakers)
+            let systemWavURL = try await audioProcessor.convert(fileURL: recording.systemAudioURL)
+            defer { try? FileManager.default.removeItem(at: systemWavURL) }
+
+            var stage: TelemetryTranscriptionStage = .diarization
+            let systemDiarization = try await diarizeMeetingSystemIfNeeded(
+                recording: recording,
+                sourceWavURLs: [.system: systemWavURL],
+                requested: true,
+                lifecycleStage: &stage,
+                onProgress: onProgress
+            )
+            guard let systemDiarization, !systemDiarization.segments.isEmpty else {
+                throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
+            }
+
+            let finalized = MeetingTranscriptFinalizer.applyDiarization(
+                toExistingWords: existingWords,
+                systemDiarization: systemDiarization
+            )
+            return try persistDetectedSpeakers(finalized, onto: original)
+        }
+
+        // Cohere / no real word timestamps: diarize the mixed audio, then
+        // transcribe each speaker turn.
+        return try await detectSpeakersPerTurn(
+            existing: original,
+            recording: recording,
+            speakerCount: speakerCount,
+            presentProfileIDs: presentProfileIDs,
+            onProgress: onProgress
+        )
+    }
+
+    private func persistDetectedSpeakers(
+        _ finalized: MeetingTranscriptFinalizer.FinalizedTranscript,
+        onto original: Transcription
+    ) throws -> Transcription {
+        var updated = original
+        updated.wordTimestamps = finalized.words
+        updated.speakers = finalized.speakers
+        updated.diarizationSegments = finalized.diarizationSegments
+        updated.speakerCount = finalized.speakers.count
+        // The word-merge path returns an empty rawTranscript (keep the original
+        // text); the per-turn path returns assembled "Label: text" lines.
+        if !finalized.rawTranscript.isEmpty {
+            updated.rawTranscript = finalized.rawTranscript
+        }
+        updated.updatedAt = Date()
+        try transcriptionRepo.save(updated)
+        return updated
+    }
+
+    // MARK: - Per-turn diarized transcription (Cohere meetings)
+
+    private static let perTurnMergeGapMs = 1000
+    private static let perTurnMinSpanSamples = 5120  // 0.32 s @ 16 kHz
+    private static let perTurnMaxSpanMs = 20_000     // cap each Cohere call so the engine yields fast
+
+    /// One contiguous speaker turn. `local*` ms index the raw track samples (for
+    /// slicing); `abs*` ms are on the meeting timeline (for the emitted word).
+    /// Internal (not private) so the merge logic in `buildTurns` is unit-testable.
+    struct PerTurn: Sendable, Equatable {
+        let speakerId: String
+        let localStartMs: Int
+        let localEndMs: Int
+        let absStartMs: Int
+        let absEndMs: Int
+    }
+
+    /// Diarize both tracks, transcribe each speaker turn's audio span with Cohere,
+    /// and assemble a speaker-attributed transcript. For Cohere meetings, which
+    /// have no word timestamps to re-tag.
+    private func detectSpeakersPerTurn(
+        existing original: Transcription,
+        recording: MeetingRecordingOutput,
+        speakerCount: Int?,
+        presentProfileIDs: Set<UUID>?,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> Transcription {
+        let language = original.language
+
+        // Diarize the MIXED meeting audio into distinct voices. This is robust to
+        // how the meeting was captured: for an in-person/room meeting both the mic
+        // and system tracks carry everyone, so a mic="you" / system="others" split
+        // transcribes — and mislabels — every utterance twice. Diarizing the single
+        // mixed track (like the reference pyannote pipeline) finds the actual
+        // speakers; recognition names the enrolled ones, and the user names
+        // themselves once like any other speaker.
+        onProgress?(.identifyingSpeakers)
+        guard let diarizationService else {
+            throw STTError.transcriptionFailed("Speaker detection is unavailable.")
+        }
+        let mixedWavURL = try await audioProcessor.convert(fileURL: recording.mixedAudioURL)
+        defer { try? FileManager.default.removeItem(at: mixedWavURL) }
+
+        // When the user says how many people were present, constrain the diarizer
+        // to that count — the unconstrained offline clusterer under-splits long
+        // meetings with similar/overlapping voices.
+        let diarizer: DiarizationServiceProtocol
+        if let speakerCount, speakerCount > 0 {
+            diarizer = DiarizationService(speakerConstraint: .exact(speakerCount))
+        } else {
+            diarizer = diarizationService
+        }
+        let diarization = try await diarizer.diarize(audioURL: mixedWavURL)
+        guard !diarization.segments.isEmpty, !diarization.speakers.isEmpty else {
+            throw STTError.transcriptionFailed("No distinct speakers were detected in this meeting.")
+        }
+
+        // Name enrolled speakers; unmatched keep "Speaker N".
+        let recognizedNames = await recognizeSpeakerNames(
+            diarization: diarization,
+            audioURL: mixedWavURL,
+            presentProfileIDs: presentProfileIDs
+        )
+        let speakers = diarization.speakers.map { speaker in
+            SpeakerInfo(id: speaker.id, label: recognizedNames[speaker.id] ?? speaker.label)
+        }
+
+        // Coalesce into turns on the single mixed timeline (no offset), then
+        // transcribe each turn's audio span with Cohere.
+        let turns = Self.buildTurns(
+            segments: diarization.segments.map {
+                (speakerId: $0.speakerId, localStart: $0.startMs, localEnd: $0.endMs)
+            },
+            offsetMs: 0,
+            mergeGapMs: Self.perTurnMergeGapMs
+        )
+        let words = try await transcribeTurns(
+            wavURL: mixedWavURL, turns: turns, language: language,
+            progressOffset: 0, totalTurns: turns.count, onProgress: onProgress
+        )
+        guard !words.isEmpty else {
+            throw STTError.transcriptionFailed("Couldn't transcribe any speaker turns in this meeting.")
+        }
+
+        let presentIDs = Set(words.compactMap(\.speakerId))
+        let finalized = MeetingTranscriptFinalizer.assemblePerTurn(
+            turns: words,
+            speakers: speakers.filter { presentIDs.contains($0.id) }
+        )
+        return try persistDetectedSpeakers(finalized, onto: original)
+    }
+
+    /// Coalesce diarization segments into contiguous turns (merging adjacent
+    /// same-speaker segments within `mergeGapMs`). `offsetMs` maps track-local ms
+    /// to the meeting timeline.
+    static func buildTurns(
+        segments: [(speakerId: String, localStart: Int, localEnd: Int)],
+        offsetMs: Int,
+        mergeGapMs: Int
+    ) -> [PerTurn] {
+        let sorted = segments
+            .map { (speakerId: $0.speakerId, localStart: max(0, $0.localStart), localEnd: max(0, $0.localEnd)) }
+            .filter { $0.localEnd > $0.localStart }
+            .sorted { $0.localStart < $1.localStart }
+        var turns: [PerTurn] = []
+        for seg in sorted {
+            if let last = turns.last,
+               last.speakerId == seg.speakerId,
+               seg.localStart - last.localEndMs <= mergeGapMs {
+                let mergedEnd = max(last.localEndMs, seg.localEnd)
+                turns[turns.count - 1] = PerTurn(
+                    speakerId: last.speakerId,
+                    localStartMs: last.localStartMs,
+                    localEndMs: mergedEnd,
+                    absStartMs: last.absStartMs,
+                    absEndMs: mergedEnd + offsetMs
+                )
+            } else {
+                turns.append(PerTurn(
+                    speakerId: seg.speakerId,
+                    localStartMs: seg.localStart,
+                    localEndMs: seg.localEnd,
+                    absStartMs: seg.localStart + offsetMs,
+                    absEndMs: seg.localEnd + offsetMs
+                ))
+            }
+        }
+        return turns
+    }
+
+    private func transcribeTurns(
+        wavURL: URL,
+        turns: [PerTurn],
+        language: String?,
+        progressOffset: Int,
+        totalTurns: Int,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> [WordTimestamp] {
+        guard !turns.isEmpty else { return [] }
+        let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: wavURL)
+        var words: [WordTimestamp] = []
+        for (index, turn) in turns.enumerated() {
+            if totalTurns > 0 {
+                onProgress?(.transcribing(percent: min(99, (progressOffset + index + 1) * 100 / totalTurns)))
+            }
+            // Split a turn into capped sub-spans: each Cohere call is short, so the
+            // shared engine is never held long and a dictation can take over
+            // quickly. Before each span we wait for the engine to be free
+            // (`awaitDictationIdle`); the span itself runs preemptibly, so a
+            // dictation that arrives *mid-span* cancels it and we redo that same
+            // span afterwards — no diarization output is lost.
+            let offsetMs = turn.absStartMs - turn.localStartMs
+            var subStart = turn.localStartMs
+            while subStart < turn.localEndMs {
+                try Task.checkCancellation()
+                await enginePriority?.awaitDictationIdle()
+
+                let subEnd = min(subStart + Self.perTurnMaxSpanMs, turn.localEndMs)
+                let segment = SpeakerSegment(speakerId: turn.speakerId, startMs: subStart, endMs: subEnd)
+                let slice = SpeakerRecognizer.gatherSamples(
+                    segments: [segment], from: samples, sampleRate: 16_000, maxSamples: Int.max
+                )
+                guard slice.count >= Self.perTurnMinSpanSamples else {
+                    subStart = subEnd
+                    continue
+                }
+
+                let text: String
+                do {
+                    text = try await transcribeSpanPreemptibly(samples16k: slice, language: language)
+                } catch is DictationPreemptedError {
+                    // Dictation took the engine mid-span. Loop back: the next
+                    // `awaitDictationIdle()` blocks until it's done, then we
+                    // retry the same span (subStart unchanged).
+                    continue
+                }
+
+                subStart = subEnd
+                guard !text.isEmpty else { continue }
+                words.append(WordTimestamp(
+                    word: text,
+                    startMs: segment.startMs + offsetMs,
+                    endMs: segment.endMs + offsetMs,
+                    confidence: 1.0,
+                    speakerId: turn.speakerId
+                ))
+            }
+        }
+        return words
+    }
+
+    private func transcribeSpan(samples16k: [Float], language: String?) async throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("turn_\(UUID().uuidString).wav")
+        try AudioSampleWAVWriter.writeMono16k(samples16k, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let result = try await transcribeSpeech(
+            audioPath: url.path,
+            job: .meetingFinalize,
+            speechEngine: SpeechEngineSelection(engine: .cohere, language: language),
+            onProgress: nil
+        )
+        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Run one diarization span so an arriving dictation can preempt it. The
+    /// span executes in a child task; the priority coordinator cancels that task
+    /// when dictation goes active, which frees the shared engine (the engine's
+    /// `defer` clears its busy flag on the thrown cancellation). A preemption is
+    /// surfaced as `DictationPreemptedError` so the caller retries the same span;
+    /// a real cancellation of *this* task (user aborting "Detect speakers") and
+    /// genuine transcription errors propagate unchanged.
+    private func transcribeSpanPreemptibly(samples16k: [Float], language: String?) async throws -> String {
+        guard let enginePriority else {
+            return try await transcribeSpan(samples16k: samples16k, language: language)
+        }
+        let preemption = PreemptionFlag()
+        let spanTask = Task { try await transcribeSpan(samples16k: samples16k, language: language) }
+        let token = enginePriority.registerPreemption {
+            preemption.mark()
+            spanTask.cancel()
+        }
+        defer { enginePriority.unregisterPreemption(token) }
+        do {
+            return try await withTaskCancellationHandler {
+                try await spanTask.value
+            } onCancel: {
+                spanTask.cancel()
+            }
+        } catch {
+            // A dictation preemption (we cancelled the span) is retryable, as
+            // long as the surrounding detect-speakers task wasn't itself
+            // cancelled by the user.
+            if preemption.isSet, !Task.isCancelled {
+                throw DictationPreemptedError()
+            }
+            throw error
+        }
+    }
+
     private func diarizeMeetingSystemIfNeeded(
         recording: MeetingRecordingOutput,
         sourceWavURLs: [AudioSource: URL],
@@ -1289,10 +1655,20 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
 
             guard !diarResult.segments.isEmpty else { return nil }
 
+            // Layer enrolled-speaker names onto the anonymous clusters. Resilient:
+            // any failure or no match leaves the cluster's "Others N" label, and
+            // the user can still rename speakers by hand in the transcript view.
+            let recognizedNames = await recognizeSpeakerNames(
+                diarization: diarResult,
+                audioURL: systemWavURL
+            )
+
             let mappedSpeakers = diarResult.speakers.enumerated().map { index, speaker in
-                SpeakerInfo(
+                let label = recognizedNames[speaker.id]
+                    ?? "\(AudioSource.system.displayLabel) \(index + 1)"
+                return SpeakerInfo(
                     id: "\(AudioSource.system.rawValue):\(speaker.id)",
-                    label: "\(AudioSource.system.displayLabel) \(index + 1)"
+                    label: label
                 )
             }
             let speakerIDMap = Dictionary(uniqueKeysWithValues: zip(
@@ -1321,6 +1697,46 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 errorDetail: TelemetryErrorClassifier.errorDetail(error)
             ))
             return nil
+        }
+    }
+
+    /// Match each anonymous diarization cluster against enrolled speaker
+    /// profiles, returning a `diarizationSpeakerID -> name` map for those that
+    /// match confidently. Returns empty (all anonymous) when recognition is not
+    /// configured, no profiles are enrolled, or anything fails — this is a
+    /// best-effort enhancement and must never break finalization.
+    private func recognizeSpeakerNames(
+        diarization: MacParakeetDiarizationResult,
+        audioURL: URL,
+        presentProfileIDs: Set<UUID>? = nil
+    ) async -> [String: String] {
+        guard let speakerRecognizer, let enrolledSpeakerProfiles else { return [:] }
+        var profiles = enrolledSpeakerProfiles()
+        // When the user said exactly who's present, only match against them —
+        // fewer false matches than the full enrolled set.
+        if let presentProfileIDs {
+            profiles = profiles.filter { presentProfileIDs.contains($0.id) }
+        }
+        guard !profiles.isEmpty else { return [:] }
+
+        do {
+            let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: audioURL)
+            let recognitions = try await speakerRecognizer.recognize(
+                diarization: diarization,
+                samples16k: samples,
+                profiles: profiles
+            )
+            var names: [String: String] = [:]
+            for recognition in recognitions {
+                if let name = recognition.match?.name {
+                    names[recognition.speakerID] = name
+                }
+            }
+            logger.info("meeting_speaker_recognition matched=\(names.count, privacy: .public) of=\(diarization.speakers.count, privacy: .public)")
+            return names
+        } catch {
+            logger.error("meeting_speaker_recognition_failed error=\(error.localizedDescription, privacy: .public)")
+            return [:]
         }
     }
 
@@ -1849,5 +2265,24 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
 
     private static func isVideoFile(_ url: URL) -> Bool {
         videoExtensions.contains(url.pathExtension.lowercased())
+    }
+}
+
+/// Thrown internally when a diarization span is cancelled because dictation
+/// preempted the shared engine. Signals "retry this span", distinct from a real
+/// transcription failure or the user cancelling "Detect speakers".
+private struct DictationPreemptedError: Error {}
+
+/// Minimal thread-safe flag: the preemption handler (any thread) marks it; the
+/// span's error handler reads it to tell a preemption from a real failure.
+private final class PreemptionFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flagged = false
+    func mark() {
+        lock.lock(); flagged = true; lock.unlock()
+    }
+    var isSet: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return flagged
     }
 }

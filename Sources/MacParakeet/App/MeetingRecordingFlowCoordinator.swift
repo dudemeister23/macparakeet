@@ -49,6 +49,7 @@ final class MeetingRecordingFlowCoordinator {
     private let cliConfigStore: LocalCLIConfigStore
     private let sttManager: (any STTRuntimeManaging)?
     private let meetingAudioSourceModeProvider: @MainActor @Sendable () -> MeetingAudioSourceMode
+    private let autoTranscribeMeetingsProvider: @MainActor @Sendable () -> Bool
     private var llmService: LLMServiceProtocol?
     private let onMenuBarIconUpdate: (BreathWaveIcon.MenuBarState) -> Void
     private let onTranscriptionReady: (Transcription) -> Void
@@ -106,6 +107,7 @@ final class MeetingRecordingFlowCoordinator {
         meetingAudioSourceModeProvider: @escaping @MainActor @Sendable () -> MeetingAudioSourceMode = {
             .microphoneAndSystem
         },
+        autoTranscribeMeetingsProvider: @escaping @MainActor @Sendable () -> Bool = { true },
         llmService: LLMServiceProtocol?,
         pillViewModel: MeetingRecordingPillViewModel,
         meetingTranscriptionQueue: MeetingTranscriptionQueue? = nil,
@@ -126,6 +128,7 @@ final class MeetingRecordingFlowCoordinator {
         self.cliConfigStore = cliConfigStore
         self.sttManager = sttManager
         self.meetingAudioSourceModeProvider = meetingAudioSourceModeProvider
+        self.autoTranscribeMeetingsProvider = autoTranscribeMeetingsProvider
         self.llmService = llmService
         self.pillViewModel = pillViewModel
         self.meetingTranscriptionQueue =
@@ -578,7 +581,9 @@ final class MeetingRecordingFlowCoordinator {
             stopPillPolling()
             stopTranscriptObservation()
             stopSpeechWarmUpObservation()
-            // Begin a fresh saved-completion celebration.
+            // Begin a fresh saved-completion celebration. When auto-transcribe is
+            // off the post-stop bloom is a save, not a transcription.
+            pillViewModel.willTranscribe = autoTranscribeMeetingsProvider()
             cancelSavedCompletion()
             pillViewModel.micLevel = 0
             pillViewModel.systemLevel = 0
@@ -621,6 +626,18 @@ final class MeetingRecordingFlowCoordinator {
                                 liveWordCount: liveWordCount,
                                 liveTranscriptLagged: liveTranscriptLagged
                             ))
+                        guard self.autoTranscribeMeetingsProvider() else {
+                            // Auto-transcribe off: save the audio + meeting row as
+                            // `.recorded` and finalize the artifact, but skip STT.
+                            // The user can transcribe on demand later.
+                            let prepared = try await transcriptionService.prepareRecordedMeeting(recording: output)
+                            self.persistLiveAskConversationIfNeeded(transcriptionID: prepared.id)
+                            await meetingRecordingService.completeTranscription(for: output)
+                            // Surface it in the list now (no queue completion will),
+                            // without auto-opening it.
+                            self.onQueuedTranscriptionReady(prepared, false)
+                            return prepared
+                        }
                         let prepared = try await transcriptionService.prepareMeetingTranscription(recording: output)
                         self.persistLiveAskConversationIfNeeded(transcriptionID: prepared.id)
                         meetingTranscriptionQueue.enqueue(

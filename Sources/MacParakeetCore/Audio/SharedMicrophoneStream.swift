@@ -131,13 +131,19 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
     private let callbackQueue = DispatchQueue(label: "com.macparakeet.shared-mic-stream.callbacks")
     private let platform: any MicrophoneEnginePlatform
     private let bufferSize: AVAudioFrameCount
+    /// When true, the engine re-prepares the raw (non-VPIO) dictation path each
+    /// time the stream goes idle, so the next dictation press only pays
+    /// `audioEngine.start()`. See `prewarmDictation()`.
+    private let autoPrewarmWhenIdle: Bool
 
     public init(
         platform: any MicrophoneEnginePlatform,
-        bufferSize: AVAudioFrameCount = 4096
+        bufferSize: AVAudioFrameCount = 4096,
+        autoPrewarmWhenIdle: Bool = false
     ) {
         self.platform = platform
         self.bufferSize = bufferSize
+        self.autoPrewarmWhenIdle = autoPrewarmWhenIdle
     }
 
     // MARK: - Public API
@@ -161,6 +167,27 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                 vpioEngaged: state.vpioEngaged,
                 vpioDeferred: state.vpioDeferred,
                 vpioDeferralCount: state.vpioDeferralCount
+            )
+        }
+    }
+
+    /// Pre-warm the raw (non-VPIO) dictation engine while idle so the next
+    /// dictation press only pays `audioEngine.start()` instead of the full
+    /// device-acquisition + format-negotiation cold path. Best-effort: skips
+    /// when any subscriber is active or the engine is already running, and the
+    /// platform itself declines on Bluetooth inputs. Serialized through
+    /// `engineQueue` so it can never race a real subscribe/unsubscribe.
+    public func prewarmDictation() {
+        engineQueue.async { [weak self] in
+            guard let self else { return }
+            let idle = self.lock.withLock { state in
+                state.subscribers.isEmpty && !state.engineRunning
+            }
+            guard idle else { return }
+            self.platform.prepare(
+                vpioEnabled: false,
+                bufferSize: self.bufferSize,
+                tapHandler: self.makeFanOut()
             )
         }
     }
@@ -371,6 +398,12 @@ public final class SharedMicrophoneStream: @unchecked Sendable {
                         wantsVPIO: nil,
                         blocksVPIOPromotion: nil
                     )
+                    // Engine just stopped and no subscribers remain: re-prepare
+                    // the raw dictation path so the next press is warm. Re-checks
+                    // idle on the engine queue, so a racing subscribe wins.
+                    if action == .stopEngine, self.autoPrewarmWhenIdle {
+                        self.prewarmDictation()
+                    }
                 } catch {
                     switch action {
                     case .reconfigureToVPIO, .restartEngine:

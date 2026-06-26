@@ -29,6 +29,7 @@ struct CLI: AsyncParsableCommand {
             QuickPromptsCommand.self,
             TransformsCommand.self,
             MeetingsCommand.self,
+            SpeakerCommand.self,
             CalendarCommand.self,
             MeetingVADSimCommand.self,
             FeedbackCommand.self,

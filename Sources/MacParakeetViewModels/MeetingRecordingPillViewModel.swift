@@ -19,6 +19,10 @@ public final class MeetingRecordingPillViewModel {
     public var micLevel: Float = 0
     public var systemLevel: Float = 0
     public var backgroundTranscriptionCount: Int = 0
+    /// False when the stopped meeting is being saved without transcription
+    /// (auto-transcribe-meetings off), so the post-stop bloom reads "Saving…"
+    /// instead of "Transcribing…".
+    public var willTranscribe: Bool = true
     public var onStop: (() -> Void)?
     public var onPauseToggle: (() -> Void)?
     public var onCompletionAnimationFinished: (() -> Void)?

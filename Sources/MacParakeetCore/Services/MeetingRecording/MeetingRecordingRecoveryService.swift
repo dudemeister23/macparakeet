@@ -308,7 +308,9 @@ public final class MeetingRecordingRecoveryService: MeetingRecordingRecoveryServ
 
     private func existingIncompleteTranscriptions(for mixedURL: URL) throws -> [Transcription] {
         try existingTranscriptions(for: mixedURL)
-            .filter { $0.status != .completed }
+            // `.recorded` is a deliberate, complete save (audio kept, transcription
+            // intentionally skipped) — terminal like `.completed`, not recoverable.
+            .filter { $0.status != .completed && $0.status != .recorded }
     }
 
     private func selectedIncompleteTranscription(from rows: [Transcription]) -> Transcription? {
@@ -332,6 +334,10 @@ public final class MeetingRecordingRecoveryService: MeetingRecordingRecoveryServ
             return 2
         case .completed:
             return 3
+        case .recorded:
+            // Terminal/non-recoverable (filtered out of candidates above); ranked
+            // last so it never wins selection even if it slips through.
+            return 4
         }
     }
 

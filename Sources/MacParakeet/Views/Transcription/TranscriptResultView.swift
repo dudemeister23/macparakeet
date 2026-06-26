@@ -75,6 +75,13 @@ struct TranscriptResultView: View {
     @State private var backHovered = false
     @State private var headerExpanded = false
     @State private var speakerOverviewExpanded = false
+    /// Expected number of people for "Detect speakers" (nil = auto-detect).
+    @State private var detectSpeakerCount: Int?
+    /// "Who's here?" selection: enrolled people present + count of unknown others.
+    @State private var presentProfileIDs: Set<UUID> = []
+    @State private var unknownOthers: Int = 0
+    @State private var showPresencePicker = false
+    @State private var pickerProfiles: [SpeakerProfile] = []
     @State private var copied = false
     @State private var copiedResultID: UUID?
     @State private var copiedButtonResultID: UUID?
@@ -186,7 +193,9 @@ struct TranscriptResultView: View {
             }
             rebuildSegmentCache()
             headerExpanded = false
-            speakerOverviewExpanded = false
+            // Expand the speaker list when the transcript has speakers, so the
+            // click-to-rename / remember-voice controls are visible by default.
+            speakerOverviewExpanded = cachedHasSpeakers
             editingMeetingTitle = false
             meetingTitleDraft = ""
             editingTranscript = false
@@ -195,6 +204,10 @@ struct TranscriptResultView: View {
             transcriptDisplayModeBeforeEdit = nil
             editingSpeakerId = nil
             editingSpeakerLabel = ""
+            presentProfileIDs = []
+            unknownOthers = 0
+            detectSpeakerCount = nil
+            showPresencePicker = false
             showConversationPopover = false
             hoveredConversationId = nil
             lastScrolledSegmentMs = -1
@@ -210,6 +223,11 @@ struct TranscriptResultView: View {
         }
         .onChange(of: activeTranscription.speakers) {
             rebuildSegmentCache()
+            // Surface the rename / listen controls when speakers appear or change
+            // (e.g. after Detect speakers on the same meeting).
+            if cachedHasSpeakers {
+                speakerOverviewExpanded = true
+            }
         }
         .onChange(of: activeTranscription.wordTimestamps) {
             rebuildSegmentCache()
@@ -511,6 +529,61 @@ struct TranscriptResultView: View {
                       : "Meeting artifact folder is not available")
             }
 
+            if viewModel.canDetectSpeakers(for: transcription) {
+                HStack(spacing: 6) {
+                    Button {
+                        runDetectSpeakers()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.speakerDetectionState == .running {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "person.2.wave.2")
+                            }
+                            Text(
+                                viewModel.speakerDetectionState == .running
+                                    ? "Detecting speakers…"
+                                    : (viewModel.detectSpeakersIsRerun(for: transcription) ? "Re-detect speakers" : "Detect speakers")
+                            )
+                        }
+                    }
+                    .parakeetAction(.secondary)
+                    .disabled(viewModel.speakerDetectionState == .running)
+                    .help("Diarize this meeting and label speakers")
+
+                    if viewModel.speakerDetectionState == .running {
+                        Button {
+                            viewModel.cancelDetectSpeakers()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "stop.circle")
+                                Text("Cancel")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Stop detecting speakers and free the speech engine")
+                    }
+
+                    Button {
+                        pickerProfiles = viewModel.enrolledSpeakerProfilesForPicker()
+                        showPresencePicker = true
+                    } label: {
+                        Text(presenceSummary)
+                            .font(DesignSystem.Typography.caption)
+                            .frame(minWidth: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(viewModel.speakerDetectionState == .running)
+                    .help("Who's in this meeting? Naming the people present sets the speaker count and auto-labels anyone enrolled.")
+                    .popover(isPresented: $showPresencePicker, arrowEdge: .top) {
+                        presencePicker
+                    }
+                }
+            }
+
             if onRetranscribe != nil, let filePath = transcription.filePath,
                FileManager.default.fileExists(atPath: filePath) {
                 let engineOption = viewModel.retranscriptionEngineOption(for: transcription)
@@ -575,6 +648,18 @@ struct TranscriptResultView: View {
             pendingRetranscribePick = nil
             retranscriptionConfirmation = nil
             showingRetranscribeOptions = false
+        }
+        .alert(
+            "Couldn't detect speakers",
+            isPresented: Binding(
+                get: { viewModel.speakerDetectionError != nil },
+                set: { if !$0 { viewModel.speakerDetectionError = nil } }
+            ),
+            presenting: viewModel.speakerDetectionError
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.speakerDetectionError = nil }
+        } message: { message in
+            Text(message)
         }
         .alert(
             retranscriptionConfirmation?.title ?? "Retranscribe this file?",
@@ -2431,6 +2516,18 @@ struct TranscriptResultView: View {
                     }
 
                     Spacer()
+
+                    if representativeStartMs(for: speaker.id) != nil {
+                        Button {
+                            listenToSpeaker(speaker.id)
+                        } label: {
+                            Image(systemName: "play.circle")
+                                .font(.system(size: 17))
+                                .foregroundStyle(colorMap[speaker.id] ?? DesignSystem.Colors.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play a sample of this speaker so you can tell who it is")
+                    }
                 }
                 .padding(DesignSystem.Spacing.md)
                 .background(
@@ -2438,7 +2535,7 @@ struct TranscriptResultView: View {
                         .fill(DesignSystem.Colors.surfaceElevated.opacity(0.45))
                 )
             }
-            Text("Speaker labels are approximate. Click a name to rename.")
+            Text("Speaker labels are approximate. Click a name to rename — naming an unknown speaker offers to remember their voice for future meetings.")
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textTertiary)
             } // end if speakerOverviewExpanded
@@ -2448,6 +2545,56 @@ struct TranscriptResultView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                 .fill(DesignSystem.Colors.surfaceElevated.opacity(0.25))
         )
+        .confirmationDialog(
+            "Remember this voice?",
+            isPresented: Binding(
+                get: { viewModel.pendingVoiceEnrollment != nil },
+                set: { if !$0 { viewModel.pendingVoiceEnrollment = nil } }
+            ),
+            presenting: viewModel.pendingVoiceEnrollment
+        ) { pending in
+            Button("Remember \(pending.name)") {
+                Task { await viewModel.enrollSpeaker(id: pending.speakerId, name: pending.name) }
+                viewModel.pendingVoiceEnrollment = nil
+            }
+            Button("Not now", role: .cancel) { viewModel.pendingVoiceEnrollment = nil }
+        } message: { pending in
+            Text("MacParakeet will recognize \(pending.name) automatically in future meetings. The voiceprint stays on this Mac.")
+        }
+        .alert(
+            voiceEnrollmentAlertTitle,
+            isPresented: Binding(
+                get: { viewModel.lastVoiceEnrollmentResult != nil },
+                set: { if !$0 { viewModel.lastVoiceEnrollmentResult = nil } }
+            ),
+            presenting: viewModel.lastVoiceEnrollmentResult
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.lastVoiceEnrollmentResult = nil }
+        } message: { result in
+            Text(voiceEnrollmentAlertMessage(result))
+        }
+    }
+
+    private var voiceEnrollmentAlertTitle: String {
+        switch viewModel.lastVoiceEnrollmentResult {
+        case .created, .updated: return "Voice saved"
+        default: return "Couldn't save voice"
+        }
+    }
+
+    private func voiceEnrollmentAlertMessage(_ result: TranscriptionViewModel.VoiceEnrollmentResult) -> String {
+        switch result {
+        case .created(let name):
+            return "\(name)'s voice is saved. Future meetings will recognize them automatically."
+        case .updated(let name):
+            return "Updated \(name)'s saved voice."
+        case .audioUnavailable:
+            return "The audio for this recording is no longer available, so this voice can't be saved."
+        case .tooShort:
+            return "There isn't enough of this speaker's audio to save a reliable voice."
+        case .failed(let message):
+            return message
+        }
     }
 
     @ViewBuilder
@@ -2484,7 +2631,30 @@ struct TranscriptResultView: View {
                     editingSpeakerLabel = speaker.label
                 }
                 .help("Click to rename")
+                .contextMenu {
+                    Button("Rename") {
+                        if editingSpeakerId != nil { commitSpeakerRename() }
+                        editingSpeakerId = speaker.id
+                        editingSpeakerLabel = speaker.label
+                    }
+                    if !isAnonymousSpeakerLabel(speaker.label), viewModel.canEnrollSpeaker(id: speaker.id) {
+                        Button("Remember this voice…") {
+                            viewModel.pendingVoiceEnrollment = .init(speakerId: speaker.id, name: speaker.label)
+                        }
+                    }
+                }
         }
+    }
+
+    /// Auto-generated labels like "Others 2" / "Speaker 1" the user hasn't named.
+    private func isAnonymousSpeakerLabel(_ label: String) -> Bool {
+        let lower = label.lowercased()
+        for prefix in ["others ", "speaker ", "system "] where lower.hasPrefix(prefix) {
+            if Int(lower.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private func commitSpeakerRename() {
@@ -2492,6 +2662,115 @@ struct TranscriptResultView: View {
         viewModel.renameSpeaker(id: speakerId, to: editingSpeakerLabel)
         rebuildSegmentCache()
         editingSpeakerId = nil
+    }
+
+    /// Start (ms) of a speaker's longest diarized segment — a representative
+    /// sample to play so the user can identify who it is before renaming.
+    private func representativeStartMs(for speakerId: String) -> Int? {
+        guard let segments = activeTranscription.diarizationSegments else { return nil }
+        return segments
+            .filter { $0.speakerId == speakerId }
+            .max(by: { ($0.endMs - $0.startMs) < ($1.endMs - $1.startMs) })?
+            .startMs
+    }
+
+    private func listenToSpeaker(_ speakerId: String) {
+        guard let startMs = representativeStartMs(for: speakerId) else { return }
+        playerViewModel.seek(toMs: startMs)
+        if !playerViewModel.isPlaying {
+            playerViewModel.togglePlayPause()
+        }
+    }
+
+    /// Speaker count for a detect run: from the "who's present" selection when
+    /// set, else the plain count stepper, else nil (auto-detect).
+    private var effectiveSpeakerCount: Int? {
+        if !presentProfileIDs.isEmpty || unknownOthers > 0 {
+            let total = presentProfileIDs.count + unknownOthers
+            return total > 0 ? total : nil
+        }
+        return detectSpeakerCount
+    }
+
+    private func runDetectSpeakers() {
+        viewModel.detectSpeakers(
+            for: transcription,
+            speakerCount: effectiveSpeakerCount,
+            presentProfileIDs: presentProfileIDs.isEmpty ? nil : presentProfileIDs
+        )
+    }
+
+    private var presenceSummary: String {
+        if !presentProfileIDs.isEmpty {
+            let names = pickerProfiles.filter { presentProfileIDs.contains($0.id) }.map(\.name)
+            let shown = names.prefix(2).joined(separator: ", ")
+            let extra = max(0, names.count - 2) + unknownOthers
+            if shown.isEmpty { return "Who's here?" }
+            return extra > 0 ? "\(shown) +\(extra)" : shown
+        }
+        if let count = detectSpeakerCount { return "\(count) people" }
+        if unknownOthers > 0 { return "\(unknownOthers) people" }
+        return "Who's here?"
+    }
+
+    @ViewBuilder
+    private var presencePicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Who's in this meeting?")
+                .font(.headline)
+            Text("Sets the number of speakers and auto-labels anyone enrolled.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if pickerProfiles.isEmpty {
+                Stepper(
+                    detectSpeakerCount.map { "\($0) people" } ?? "Auto-detect count",
+                    value: Binding(
+                        get: { detectSpeakerCount ?? 0 },
+                        set: { detectSpeakerCount = $0 == 0 ? nil : $0 }
+                    ),
+                    in: 0...20
+                )
+                Text("Enroll people (name a speaker here, or Settings → Meetings → Known speakers) to pick them by name next time.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(pickerProfiles) { profile in
+                            Toggle(profile.name, isOn: Binding(
+                                get: { presentProfileIDs.contains(profile.id) },
+                                set: { isOn in
+                                    if isOn { presentProfileIDs.insert(profile.id) }
+                                    else { presentProfileIDs.remove(profile.id) }
+                                }
+                            ))
+                        }
+                    }
+                }
+                .frame(maxHeight: 180)
+                Divider()
+                Stepper("+ \(unknownOthers) not enrolled", value: $unknownOthers, in: 0...20)
+            }
+
+            Divider()
+            HStack {
+                let total = presentProfileIDs.count + unknownOthers
+                Text(total > 0 ? "\(total) people" : "Auto-detect")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Re-detect") {
+                    showPresencePicker = false
+                    runDetectSpeakers()
+                }
+                .parakeetAction(.primaryProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
     }
 
 

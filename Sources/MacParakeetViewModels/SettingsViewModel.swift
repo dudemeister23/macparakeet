@@ -36,6 +36,9 @@ public final class SettingsViewModel {
     public static let systemDefaultMicrophoneSelection = "__system_default__"
     private static let microphoneTestSilenceThreshold: Float = 0.01
     public let engine: EngineSettingsViewModel
+    /// Speaker voice profiles for named meeting diarization. Configured by
+    /// `AppEnvironmentConfigurer`; surfaced in the Meetings settings tab.
+    public let speakerProfiles = SpeakerProfilesViewModel()
 
     // General
     public var launchAtLogin: Bool {
@@ -192,6 +195,16 @@ public final class SettingsViewModel {
             )
             NotificationCenter.default.post(name: .macParakeetMeetingAutoStopDidChange, object: nil)
             Telemetry.send(.settingChanged(setting: .meetingAutoStop))
+        }
+    }
+    /// When false, a stopped meeting is saved as `.recorded` (audio only) and
+    /// transcription is skipped until requested on demand.
+    public var autoTranscribeMeetings: Bool {
+        didSet {
+            defaults.set(
+                autoTranscribeMeetings,
+                forKey: UserDefaultsAppRuntimePreferences.autoTranscribeMeetingsKey
+            )
         }
     }
     public var pauseMediaDuringDictation: Bool {
@@ -634,6 +647,9 @@ public final class SettingsViewModel {
         meetingAutoStopEnabled = defaults.object(
             forKey: UserDefaultsAppRuntimePreferences.meetingAutoStopEnabledKey
         ) as? Bool ?? false
+        autoTranscribeMeetings = defaults.object(
+            forKey: UserDefaultsAppRuntimePreferences.autoTranscribeMeetingsKey
+        ) as? Bool ?? true
         pauseMediaDuringDictation = defaults.object(
             forKey: UserDefaultsAppRuntimePreferences.pauseMediaDuringDictationKey
         ) as? Bool ?? false

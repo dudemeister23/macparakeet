@@ -1378,6 +1378,54 @@ new scheduling architecture.
 - Single-speaker files correctly return one speaker label with no overhead
 - Total file transcription time: ~53-79 seconds per hour of audio (ASR ~23s + diarization ~30-56s)
 
+**Detect speakers (retroactive):** A meeting transcribed with speaker detection
+off can be diarized later, in place. The transcript view's "Detect speakers"
+action runs diarization on the saved audio and tags the *existing* words with
+speaker turns (and enrolled-speaker names) without re-running ASR, so the
+transcript text is unchanged. Faster and non-destructive vs. full retranscription;
+requires the meeting's audio still on disk. On engines without word timestamps
+(Cohere), it instead re-transcribes per diarized turn (a longer run) — this is
+cancellable, runs at background priority so it doesn't make the machine sluggish,
+and **yields the shared speech engine to dictation**: if you start dictating
+mid-run, the in-flight turn is preempted and redone afterwards, so dictation stays
+instant and no diarization output is lost (`STTEnginePriorityCoordinator`).
+
+#### F13a: Speaker Voice Profiles (named recognition)
+
+**What:** Enroll known speakers once so meetings come back with their real names
+instead of anonymous "Others 1/2". Adds the cross-session speaker identity that
+plain diarization deliberately omits.
+
+**How it works:**
+- Enroll a speaker three ways: (a) record a short mic sample (~20s) in
+  Settings → Meetings → Known speakers; (b) **label them in a recording** —
+  open a diarized meeting transcript, name an anonymous speaker (e.g.
+  "Others 2" → "Sara") and accept the "remember this voice?" prompt, which banks
+  Sara's voiceprint from that recording's audio; (c) headlessly via
+  `macparakeet-cli speaker enroll <name> <file>` (a `--start/--duration` window
+  or `--speaker <clusterId>` to bank one diarized cluster). The sample is
+  embedded with FluidAudio's WeSpeaker v2 model into a 256-d vector stored
+  locally (`speaker_profiles` table); the voice audio itself is not retained.
+- The label-in-a-recording path is the primary flow: you name people once, and
+  every future meeting recognizes them automatically. It requires the
+  recording's audio still on disk (meeting audio defaults to a 30-day retention),
+  so enroll while the recording is available; if audio has been purged the app
+  says so rather than failing silently.
+- During meeting finalization (when Speaker detection is on and profiles exist),
+  each anonymous diarization cluster is re-embedded with the same model and
+  cosine-matched against enrolled profiles. A confident match (distance ≤ ~0.5)
+  relabels the cluster with the enrolled name; otherwise it stays "Others N".
+- Recognition is best-effort and never blocks finalization; the existing
+  click-to-rename speaker UI remains the manual correction path.
+- Matching is layered on top of the offline diarizer rather than replacing it,
+  so who-spoke-when accuracy is unchanged. Enrollment and recognition use the
+  identical embedding path so vectors are comparable.
+- Fully on-device; embeddings never leave the Mac. Validated margin is wide on
+  real audio (same-speaker ~0.03 vs different-speaker ~0.8).
+- CLI: `speaker enroll | list | recognize | remove` (see
+  `Sources/CLI/CHANGELOG.md`). `recognize` prints per-cluster distances for
+  tuning/validation.
+
 **Acceptance criteria:**
 - [x] Speakers automatically detected and separated in transcript
 - [x] Speaker labels displayed in transcript view with colors (Step 8 — UI PR)

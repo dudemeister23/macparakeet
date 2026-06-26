@@ -68,6 +68,10 @@ public struct Transcription: Codable, Identifiable, Sendable {
         case completed
         case error
         case cancelled
+        /// Meeting captured and saved to disk, but transcription was
+        /// intentionally skipped (auto-transcribe-meetings is off). The audio is
+        /// present; the user can transcribe on demand later.
+        case recorded
     }
 
     public init(

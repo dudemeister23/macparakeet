@@ -162,6 +162,13 @@ struct MeetingRowCard<MenuContent: View>: View {
                 .font(DesignSystem.Typography.bodySmall)
                 .foregroundStyle(DesignSystem.Colors.textTertiary)
                 .lineLimit(1)
+        } else if transcription.status == .recorded {
+            // Auto-transcribe-meetings off: audio saved, transcription skipped on
+            // purpose. The audio plays inline; transcribe on demand from detail.
+            Text(statusLine("Recorded"))
+                .font(DesignSystem.Typography.bodySmall)
+                .foregroundStyle(DesignSystem.Colors.textTertiary)
+                .lineLimit(1)
         }
     }
 

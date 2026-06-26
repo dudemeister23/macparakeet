@@ -171,6 +171,8 @@ public final class TranscriptionViewModel {
     private var transcriptionService: TranscriptionServiceProtocol?
     private var transcriptionRepo: TranscriptionRepositoryProtocol?
     private var promptResultRepo: PromptResultRepositoryProtocol?
+    private var speakerEmbeddingService: SpeakerEmbeddingServiceProtocol?
+    private var speakerProfileRepo: SpeakerProfileRepositoryProtocol?
     private var transcriptionTask: Task<Void, Never>?
     private var activeTranscriptionTaskID: UUID?
     private var activeProgressSpeechEngine: SpeechEngineSelection?
@@ -217,13 +219,17 @@ public final class TranscriptionViewModel {
         transcriptionRepo: TranscriptionRepositoryProtocol,
         llmService: LLMServiceProtocol? = nil,
         promptResultRepo: PromptResultRepositoryProtocol? = nil,
-        promptResultsViewModel: PromptResultsViewModel? = nil
+        promptResultsViewModel: PromptResultsViewModel? = nil,
+        speakerEmbeddingService: SpeakerEmbeddingServiceProtocol? = nil,
+        speakerProfileRepo: SpeakerProfileRepositoryProtocol? = nil
     ) {
         self.transcriptionService = transcriptionService
         self.transcriptionRepo = transcriptionRepo
         self.llmAvailable = llmService != nil
         self.promptResultRepo = promptResultRepo
         self.promptResultsViewModel = promptResultsViewModel
+        self.speakerEmbeddingService = speakerEmbeddingService
+        self.speakerProfileRepo = speakerProfileRepo
         isConfigured = true
         clearError()
         loadTranscriptions()
@@ -1188,7 +1194,33 @@ public final class TranscriptionViewModel {
         }
     }
 
-    // MARK: - Speaker Rename
+    // MARK: - Speaker Rename & Voice Enrollment
+
+    public struct PendingVoiceEnrollment: Equatable, Sendable {
+        public let speakerId: String
+        public let name: String
+
+        public init(speakerId: String, name: String) {
+            self.speakerId = speakerId
+            self.name = name
+        }
+    }
+
+    public enum VoiceEnrollmentResult: Equatable, Sendable {
+        case created(String)
+        case updated(String)
+        case audioUnavailable
+        case tooShort
+        case failed(String)
+    }
+
+    /// Set when the user names a previously-anonymous speaker and their voice can
+    /// be banked; the view presents a "remember this voice?" confirmation and
+    /// clears it to dismiss.
+    public var pendingVoiceEnrollment: PendingVoiceEnrollment?
+    /// Last enrollment outcome, for transient view feedback.
+    public var lastVoiceEnrollmentResult: VoiceEnrollmentResult?
+    public var isEnrollingVoice = false
 
     public func renameSpeaker(id speakerId: String, to newLabel: String) {
         guard var transcription = currentTranscription,
@@ -1196,6 +1228,7 @@ public final class TranscriptionViewModel {
         guard let index = speakers.firstIndex(where: { $0.id == speakerId }) else { return }
         let trimmed = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, speakers[index].label != trimmed else { return }
+        let oldLabel = speakers[index].label
         speakers[index].label = trimmed
         transcription.speakers = speakers
         currentTranscription = transcription
@@ -1204,6 +1237,187 @@ public final class TranscriptionViewModel {
         } catch {
             logger.error("Failed to persist speaker rename error=\(error.localizedDescription, privacy: .public)")
         }
+        // First time this anonymous speaker is given a real name, offer to
+        // remember their voice so future meetings recognize them automatically.
+        if Self.isAnonymousSpeakerLabel(oldLabel), canEnrollSpeaker(id: speakerId) {
+            pendingVoiceEnrollment = PendingVoiceEnrollment(speakerId: speakerId, name: trimmed)
+        }
+    }
+
+    /// True for auto-generated labels like "Others 2" / "Speaker 1" that the user
+    /// hasn't personalized yet.
+    static func isAnonymousSpeakerLabel(_ label: String) -> Bool {
+        let lower = label.lowercased()
+        for prefix in ["others ", "speaker ", "system "] where lower.hasPrefix(prefix) {
+            let rest = lower.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            if Int(rest) != nil { return true }
+        }
+        return false
+    }
+
+    /// Whether this transcription's speaker can be banked as a voice profile —
+    /// requires the embedder/repo, diarization segments for the speaker, and the
+    /// recording's audio still on disk (retention may have purged it).
+    public func canEnrollSpeaker(id speakerId: String) -> Bool {
+        guard speakerEmbeddingService != nil, speakerProfileRepo != nil,
+              let transcription = currentTranscription,
+              let path = transcription.filePath,
+              FileManager.default.fileExists(atPath: path),
+              let segments = transcription.diarizationSegments,
+              segments.contains(where: { $0.speakerId == speakerId })
+        else { return false }
+        return true
+    }
+
+    /// Bank a speaker's voice as a `SpeakerProfile` from this recording. Updates
+    /// an existing profile with the same name rather than duplicating it.
+    public func enrollSpeaker(id speakerId: String, name: String) async {
+        guard let embedder = speakerEmbeddingService,
+              let repo = speakerProfileRepo,
+              let transcription = currentTranscription else {
+            lastVoiceEnrollmentResult = .failed("Speaker recognition is unavailable.")
+            return
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isEnrollingVoice = true
+        defer { isEnrollingVoice = false }
+        do {
+            // Decode + slice off the main actor — the recording may be long.
+            let extracted = try await Task.detached(priority: .userInitiated) {
+                try SpeakerEnrollmentFromRecording.extractSamples(
+                    transcription: transcription,
+                    speakerId: speakerId
+                )
+            }.value
+            let embedding = try await embedder.embed(samples: extracted.samples)
+            if var existing = try repo.fetchAll().first(where: {
+                $0.name.compare(trimmed, options: .caseInsensitive) == .orderedSame
+            }) {
+                existing.embedding = embedding
+                existing.enrolledSeconds = extracted.seconds
+                existing.updatedAt = Date()
+                try repo.save(existing)
+                lastVoiceEnrollmentResult = .updated(trimmed)
+            } else {
+                try repo.save(SpeakerProfile(
+                    name: trimmed,
+                    embedding: embedding,
+                    enrolledSeconds: extracted.seconds
+                ))
+                lastVoiceEnrollmentResult = .created(trimmed)
+            }
+        } catch SpeakerEnrollmentFromRecording.ExtractionError.audioUnavailable {
+            lastVoiceEnrollmentResult = .audioUnavailable
+        } catch SpeakerEnrollmentFromRecording.ExtractionError.tooShort {
+            lastVoiceEnrollmentResult = .tooShort
+        } catch {
+            lastVoiceEnrollmentResult = .failed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Detect speakers (diarize an existing transcript in place)
+
+    public enum SpeakerDetectionState: Equatable, Sendable {
+        case idle
+        case running
+    }
+
+    public var speakerDetectionState: SpeakerDetectionState = .idle
+    public var speakerDetectionError: String?
+    /// The in-flight "Detect speakers" run, retained so it can be cancelled.
+    private var detectSpeakersTask: Task<Void, Never>?
+
+    /// Whether "Detect speakers" applies: any meeting whose audio is still on
+    /// disk. Available even when already diarized, so a poor result can be re-run
+    /// (e.g. after a fix). `detectSpeakersIsRerun` drives the button label.
+    public func canDetectSpeakers(for transcription: Transcription) -> Bool {
+        guard transcriptionService != nil,
+              transcription.sourceType == .meeting,
+              let path = transcription.filePath,
+              FileManager.default.fileExists(atPath: path)
+        else { return false }
+        return true
+    }
+
+    /// True when the meeting already has speaker turns (so the action re-runs).
+    public func detectSpeakersIsRerun(for transcription: Transcription) -> Bool {
+        !(transcription.diarizationSegments?.isEmpty ?? true)
+    }
+
+    /// Diarize an already-transcribed meeting in place (no re-ASR), adding
+    /// speaker turns and recognizing any enrolled speakers. `speakerCount`, when
+    /// provided, constrains the diarizer to that many people.
+    /// Enrolled speaker profiles, for the "who's present" picker.
+    public func enrolledSpeakerProfilesForPicker() -> [SpeakerProfile] {
+        (try? speakerProfileRepo?.fetchAll()) ?? []
+    }
+
+    public func detectSpeakers(
+        for original: Transcription,
+        speakerCount: Int? = nil,
+        presentProfileIDs: Set<UUID>? = nil
+    ) {
+        guard let service = transcriptionService else {
+            reportMissingConfiguration("transcriptionService", action: "detectSpeakers")
+            return
+        }
+        guard let filePath = original.filePath,
+              FileManager.default.fileExists(atPath: filePath) else {
+            speakerDetectionError = "The audio for this meeting is no longer available."
+            return
+        }
+        guard let recording = archivedMeetingRecording(
+            for: original,
+            mixedAudioURL: URL(fileURLWithPath: filePath)
+        ) else {
+            speakerDetectionError = "Couldn't load this meeting's audio to detect speakers."
+            return
+        }
+        speakerDetectionState = .running
+        speakerDetectionError = nil
+        detectSpeakersTask?.cancel()
+        // `.utility` keeps the heavy diarization + per-turn Cohere work off the
+        // interactive QoS band so it doesn't make the rest of the machine
+        // sluggish while it runs.
+        detectSpeakersTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.detectSpeakersTask = nil }
+            do {
+                let updated = try await service.detectSpeakers(
+                    existing: original,
+                    recording: recording,
+                    speakerCount: speakerCount,
+                    presentProfileIDs: presentProfileIDs,
+                    onProgress: nil
+                )
+                if Task.isCancelled { self.speakerDetectionState = .idle; return }
+                if self.currentTranscription?.id == updated.id {
+                    self.currentTranscription = updated
+                }
+                if let index = self.transcriptions.firstIndex(where: { $0.id == updated.id }) {
+                    self.transcriptions[index] = updated
+                }
+                self.speakerDetectionState = .idle
+            } catch is CancellationError {
+                self.speakerDetectionState = .idle
+            } catch {
+                if Task.isCancelled {
+                    self.speakerDetectionState = .idle
+                } else {
+                    self.speakerDetectionError = error.localizedDescription
+                    self.speakerDetectionState = .idle
+                }
+            }
+        }
+    }
+
+    /// Cancel an in-flight "Detect speakers" run (e.g. the user dismisses it or
+    /// wants the engine back). Safe to call when nothing is running.
+    public func cancelDetectSpeakers() {
+        detectSpeakersTask?.cancel()
+        detectSpeakersTask = nil
+        speakerDetectionState = .idle
     }
 
     public func renameCurrentTranscription(to newFileName: String) {

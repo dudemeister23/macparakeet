@@ -569,6 +569,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard onboardingDone else { return }
             await sttRuntime.backgroundWarmUp()
 
+            // Pre-prepare the stopped dictation engine so the first press is
+            // warm. No-op when Instant Dictation already holds the mic open or
+            // on a Bluetooth input (the platform declines those).
+            env.sharedMicStream.prewarmDictation()
+
             // Universal VAD model availability (Phase 4.5,
             // plans/completed/2026-05-meeting-vad-guided-live-chunking.md §6).
             // Runs every launch for every user so flipping the live-chunking

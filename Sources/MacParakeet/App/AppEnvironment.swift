@@ -18,6 +18,7 @@ final class AppEnvironment {
     let aiFormatterProfileRepo: AIFormatterProfileRepository
     let transformHistoryRepo: TransformHistoryRepository
     let quickPromptRepo: QuickPromptRepository
+    let speakerProfileRepo: SpeakerProfileRepository
     let sttRuntime: STTRuntime
     let sttScheduler: STTScheduler
     let sharedMicStream: SharedMicrophoneStream
@@ -28,6 +29,7 @@ final class AppEnvironment {
     let transcriptionService: TranscriptionService
     let youtubeDownloader: YouTubeDownloader
     let diarizationService: DiarizationService
+    let speakerEmbeddingService: SpeakerEmbeddingService
     /// Stateless; fetches the Silero VAD model for VAD-guided meeting live
     /// chunking. Consumed by `AppDelegate.scheduleDeferredSpeechPreWarm` on every
     /// launch (gated on `AppFeatures.meetingVadLiveChunkingEnabled`) so the
@@ -65,6 +67,7 @@ final class AppEnvironment {
         aiFormatterProfileRepo = AIFormatterProfileRepository(dbQueue: databaseManager.dbQueue)
         transformHistoryRepo = TransformHistoryRepository(dbQueue: databaseManager.dbQueue)
         quickPromptRepo = QuickPromptRepository(dbQueue: databaseManager.dbQueue)
+        speakerProfileRepo = SpeakerProfileRepository(dbQueue: databaseManager.dbQueue)
 
         // Services
         let llmConfigStore = LLMConfigStore()
@@ -108,7 +111,11 @@ final class AppEnvironment {
             )
         }
         sharedMicStream = SharedMicrophoneStream(
-            platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
+            platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder),
+            // Re-prepare the stopped dictation engine each time the stream goes
+            // idle, so a press only pays `engine.start()` — instant first words
+            // without holding the mic open (no indicator, no Bluetooth HFP pin).
+            autoPrewarmWhenIdle: true
         )
         // The Instant Dictation warm lease asks this before holding the mic
         // open while idle. First attempt in the chain = the device the engine
@@ -202,6 +209,7 @@ final class AppEnvironment {
             await binaryBootstrap.autoUpdateYtDlpIfNeeded()
         }
         diarizationService = DiarizationService()
+        speakerEmbeddingService = SpeakerEmbeddingService()
 
         let voiceReturnTriggerClosure: @Sendable () -> String? = { [runtimePreferences] in
             runtimePreferences.voiceReturnTrigger
@@ -261,6 +269,9 @@ final class AppEnvironment {
             )
         )
 
+        // Shared so an active dictation can pause background per-turn Cohere work
+        // (Detect speakers) and take the single serial engine.
+        let enginePriority = STTEnginePriorityCoordinator()
         dictationService = DictationService(
             audioProcessor: audioProcessor,
             sttTranscriber: sttScheduler,
@@ -325,7 +336,8 @@ final class AppEnvironment {
                 Telemetry.send(.firstDictationCompleted(
                     activationWindow: TelemetryActivationWindow(secondsSinceOnboarding: secondsSinceOnboarding)
                 ))
-            }
+            },
+            enginePriority: enginePriority
         )
 
         let telemetry = TelemetryService()
@@ -356,7 +368,12 @@ final class AppEnvironment {
             podcastResolver: PodcastEpisodeResolver(),
             podcastSearchResolver: PodcastQueryResolver(),
             podcastAudioFetcher: PodcastAudioDownloader(),
-            diarizationService: diarizationService
+            diarizationService: diarizationService,
+            speakerRecognizer: SpeakerRecognizer(embedding: speakerEmbeddingService),
+            enrolledSpeakerProfiles: { [speakerProfileRepo] in
+                (try? speakerProfileRepo.fetchAll()) ?? []
+            },
+            enginePriority: enginePriority
         )
 
         meetingRecordingRecoveryService = MeetingRecordingRecoveryService(

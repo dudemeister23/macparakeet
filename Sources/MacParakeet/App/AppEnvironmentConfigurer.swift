@@ -105,9 +105,16 @@ final class AppEnvironmentConfigurer {
             transcriptionRepo: env.transcriptionRepo,
             llmService: hasLLMConfig ? env.llmService : nil,
             promptResultRepo: env.promptResultRepo,
-            promptResultsViewModel: promptResultsViewModel
+            promptResultsViewModel: promptResultsViewModel,
+            speakerEmbeddingService: env.speakerEmbeddingService,
+            speakerProfileRepo: env.speakerProfileRepo
         )
         historyViewModel.configure(dictationRepo: env.dictationRepo)
+        settingsViewModel.speakerProfiles.configure(
+            repo: env.speakerProfileRepo,
+            embedder: env.speakerEmbeddingService,
+            recorder: SpeakerEnrollmentRecorder(sharedStream: env.sharedMicStream)
+        )
         libraryViewModel.configure(transcriptionRepo: env.transcriptionRepo)
         meetingsWorkspaceViewModel.configure(
             transcriptionRepo: env.transcriptionRepo,
@@ -306,6 +313,7 @@ final class AppEnvironmentConfigurer {
             configStore: env.llmConfigStore,
             sttManager: env.sttScheduler,
             meetingAudioSourceModeProvider: { env.runtimePreferences.meetingAudioSourceMode },
+            autoTranscribeMeetingsProvider: { env.runtimePreferences.autoTranscribeMeetings },
             llmService: hasLLMConfig ? env.llmService : nil,
             pillViewModel: meetingPillViewModel,
             onMenuBarIconUpdate: { _ in callbacks.onMenuBarIconUpdate() },

@@ -91,6 +91,18 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Added
 
+- `speaker` command group for native speaker voice profiles and recognition:
+  `speaker enroll <name> <file> [--start --duration --speaker --replace]` enrolls
+  a known speaker from a recording — a time window, or `--speaker <clusterId>`
+  (e.g. `S2`) to diarize a multi-speaker recording and bank just that cluster
+  (run `speaker recognize <file>` first to see cluster ids). `speaker list` shows
+  enrolled profiles, `speaker remove <name|id>` deletes one, and
+  `speaker recognize <file> [--start --duration --max-distance --speakers
+  --speaker-min --speaker-max]` diarizes a recording (optionally just a
+  `--start`/`--duration` window, for long meetings) and matches each cluster
+  against the enrolled profiles, printing per-speaker distances. Profiles are shared with
+  the app database (same on-device `wespeaker_v2` embedding space) and never
+  leave the machine. First use downloads the diarizer/embedding models.
 - `transcribe --format` now accepts `srt` and `vtt` in addition to `text`,
   `transcript`, and `json`. Both emit timed subtitles through the same renderer
   as `export --format srt|vtt`, so output is byte-identical between the two

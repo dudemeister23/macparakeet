@@ -160,6 +160,7 @@ struct SettingsView: View {
     /// the shared delete-confirmation alert on the Engine tab.
     @State private var pendingModelDeletion: PendingModelDeletion?
     @State private var pendingMeetingAudioRetention: PendingMeetingAudioRetention?
+    @State private var showSpeakerProfiles = false
 
     init(
         viewModel: SettingsViewModel,
@@ -1334,6 +1335,29 @@ struct SettingsView: View {
                     isOn: $viewModel.speakerDiarization
                 )
 
+                if viewModel.speakerDiarization {
+                    Divider()
+
+                    HStack(alignment: .center) {
+                        rowText(
+                            title: "Known speakers",
+                            detail: viewModel.speakerProfiles.profiles.isEmpty
+                                ? "Enroll voices so meeting speakers show real names instead of \"Others 1/2\"."
+                                : "\(viewModel.speakerProfiles.profiles.count) enrolled — \(viewModel.speakerProfiles.profiles.map(\.name).joined(separator: ", "))"
+                        )
+                        Spacer(minLength: DesignSystem.Spacing.md)
+                        Button {
+                            showSpeakerProfiles = true
+                        } label: {
+                            Label("Manage…", systemImage: "person.2.wave.2")
+                        }
+                        .parakeetAction(.secondary)
+                    }
+                    .sheet(isPresented: $showSpeakerProfiles) {
+                        SpeakerProfilesView(viewModel: viewModel.speakerProfiles)
+                    }
+                }
+
                 Divider()
 
                 settingsToggleRow(
@@ -1871,6 +1895,14 @@ struct SettingsView: View {
                 Divider()
 
                 meetingAudioRetentionRow
+
+                Divider()
+
+                settingsToggleRow(
+                    title: "Auto-transcribe meetings",
+                    detail: "Transcribe automatically when a meeting recording ends. Turn off to just save the audio — a recording can still be transcribed on demand later.",
+                    isOn: $viewModel.autoTranscribeMeetings
+                )
 
                 Divider()
 
