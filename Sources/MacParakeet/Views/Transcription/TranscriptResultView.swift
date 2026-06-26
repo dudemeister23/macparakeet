@@ -551,6 +551,20 @@ struct TranscriptResultView: View {
                     .disabled(viewModel.speakerDetectionState == .running)
                     .help("Diarize this meeting and label speakers")
 
+                    if viewModel.speakerDetectionState == .running {
+                        Button {
+                            viewModel.cancelDetectSpeakers()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "stop.circle")
+                                Text("Cancel")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Stop detecting speakers and free the speech engine")
+                    }
+
                     Button {
                         pickerProfiles = viewModel.enrolledSpeakerProfilesForPicker()
                         showPresencePicker = true

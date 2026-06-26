@@ -1146,6 +1146,29 @@ public actor DictationService: DictationServiceProtocol {
         }
     }
 
+    /// Transcribe the captured dictation WAV, briefly riding out a transient
+    /// `engineBusy`. Dictation owns the engine via `STTEnginePriorityCoordinator`,
+    /// which preempts any in-flight per-turn "Detect speakers" span — but that
+    /// span needs a beat to unwind and release the single serial engine, so a
+    /// transcribe landing inside that handoff window can momentarily see
+    /// `engineBusy`. Wait it out instead of failing the dictation. Bounded, so a
+    /// genuinely occupied engine (e.g. a meeting transcribing) still surfaces the
+    /// error rather than hanging.
+    private func transcribeDictationAudio(at audioURL: URL) async throws -> STTResult {
+        let maxAttempts = 8
+        var attempt = 0
+        while true {
+            do {
+                return try await sttTranscriber.transcribe(audioPath: audioURL.path, job: .dictation)
+            } catch STTError.engineBusy {
+                attempt += 1
+                guard attempt < maxAttempts else { throw STTError.engineBusy }
+                AudioCaptureDiagnostics.append("dictation_transcribe_engine_busy_retry attempt=\(attempt)")
+                try await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+
     private func processCapturedAudio(
         audioURL: URL,
         formatterContext: AppPromptContext?
@@ -1162,7 +1185,7 @@ public actor DictationService: DictationServiceProtocol {
         AudioCaptureDiagnostics.append(
             "dictation_transcribe_begin file_bytes=\(Self.fileSizeBytes(at: audioURL).map(String.init) ?? "unknown")"
         )
-        let result = try await sttTranscriber.transcribe(audioPath: audioURL.path, job: .dictation)
+        let result = try await transcribeDictationAudio(at: audioURL)
         logger.debug("dictation_transcription_complete chars=\(result.text.count, privacy: .public)")
         let transcriptWordCount = result.words.isEmpty
             ? Observability.wordCount(result.text)

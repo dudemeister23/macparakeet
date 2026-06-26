@@ -1383,7 +1383,12 @@ off can be diarized later, in place. The transcript view's "Detect speakers"
 action runs diarization on the saved audio and tags the *existing* words with
 speaker turns (and enrolled-speaker names) without re-running ASR, so the
 transcript text is unchanged. Faster and non-destructive vs. full retranscription;
-requires the meeting's audio still on disk.
+requires the meeting's audio still on disk. On engines without word timestamps
+(Cohere), it instead re-transcribes per diarized turn (a longer run) — this is
+cancellable, runs at background priority so it doesn't make the machine sluggish,
+and **yields the shared speech engine to dictation**: if you start dictating
+mid-run, the in-flight turn is preempted and redone afterwards, so dictation stays
+instant and no diarization output is lost (`STTEnginePriorityCoordinator`).
 
 #### F13a: Speaker Voice Profiles (named recognition)
 

@@ -1536,7 +1536,10 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             }
             // Split a turn into capped sub-spans: each Cohere call is short, so the
             // shared engine is never held long and a dictation can take over
-            // quickly. `enginePriority` yields between calls.
+            // quickly. Before each span we wait for the engine to be free
+            // (`awaitDictationIdle`); the span itself runs preemptibly, so a
+            // dictation that arrives *mid-span* cancels it and we redo that same
+            // span afterwards — no diarization output is lost.
             let offsetMs = turn.absStartMs - turn.localStartMs
             var subStart = turn.localStartMs
             while subStart < turn.localEndMs {
@@ -1548,9 +1551,22 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 let slice = SpeakerRecognizer.gatherSamples(
                     segments: [segment], from: samples, sampleRate: 16_000, maxSamples: Int.max
                 )
+                guard slice.count >= Self.perTurnMinSpanSamples else {
+                    subStart = subEnd
+                    continue
+                }
+
+                let text: String
+                do {
+                    text = try await transcribeSpanPreemptibly(samples16k: slice, language: language)
+                } catch is DictationPreemptedError {
+                    // Dictation took the engine mid-span. Loop back: the next
+                    // `awaitDictationIdle()` blocks until it's done, then we
+                    // retry the same span (subStart unchanged).
+                    continue
+                }
+
                 subStart = subEnd
-                guard slice.count >= Self.perTurnMinSpanSamples else { continue }
-                let text = try await transcribeSpan(samples16k: slice, language: language)
                 guard !text.isEmpty else { continue }
                 words.append(WordTimestamp(
                     word: text,
@@ -1576,6 +1592,41 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             onProgress: nil
         )
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Run one diarization span so an arriving dictation can preempt it. The
+    /// span executes in a child task; the priority coordinator cancels that task
+    /// when dictation goes active, which frees the shared engine (the engine's
+    /// `defer` clears its busy flag on the thrown cancellation). A preemption is
+    /// surfaced as `DictationPreemptedError` so the caller retries the same span;
+    /// a real cancellation of *this* task (user aborting "Detect speakers") and
+    /// genuine transcription errors propagate unchanged.
+    private func transcribeSpanPreemptibly(samples16k: [Float], language: String?) async throws -> String {
+        guard let enginePriority else {
+            return try await transcribeSpan(samples16k: samples16k, language: language)
+        }
+        let preemption = PreemptionFlag()
+        let spanTask = Task { try await transcribeSpan(samples16k: samples16k, language: language) }
+        let token = enginePriority.registerPreemption {
+            preemption.mark()
+            spanTask.cancel()
+        }
+        defer { enginePriority.unregisterPreemption(token) }
+        do {
+            return try await withTaskCancellationHandler {
+                try await spanTask.value
+            } onCancel: {
+                spanTask.cancel()
+            }
+        } catch {
+            // A dictation preemption (we cancelled the span) is retryable, as
+            // long as the surrounding detect-speakers task wasn't itself
+            // cancelled by the user.
+            if preemption.isSet, !Task.isCancelled {
+                throw DictationPreemptedError()
+            }
+            throw error
+        }
     }
 
     private func diarizeMeetingSystemIfNeeded(
@@ -2214,5 +2265,24 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
 
     private static func isVideoFile(_ url: URL) -> Bool {
         videoExtensions.contains(url.pathExtension.lowercased())
+    }
+}
+
+/// Thrown internally when a diarization span is cancelled because dictation
+/// preempted the shared engine. Signals "retry this span", distinct from a real
+/// transcription failure or the user cancelling "Detect speakers".
+private struct DictationPreemptedError: Error {}
+
+/// Minimal thread-safe flag: the preemption handler (any thread) marks it; the
+/// span's error handler reads it to tell a preemption from a real failure.
+private final class PreemptionFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flagged = false
+    func mark() {
+        lock.lock(); flagged = true; lock.unlock()
+    }
+    var isSet: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return flagged
     }
 }

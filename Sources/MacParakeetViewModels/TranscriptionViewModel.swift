@@ -1325,6 +1325,8 @@ public final class TranscriptionViewModel {
 
     public var speakerDetectionState: SpeakerDetectionState = .idle
     public var speakerDetectionError: String?
+    /// The in-flight "Detect speakers" run, retained so it can be cancelled.
+    private var detectSpeakersTask: Task<Void, Never>?
 
     /// Whether "Detect speakers" applies: any meeting whose audio is still on
     /// disk. Available even when already diarized, so a poor result can be re-run
@@ -1374,7 +1376,13 @@ public final class TranscriptionViewModel {
         }
         speakerDetectionState = .running
         speakerDetectionError = nil
-        Task {
+        detectSpeakersTask?.cancel()
+        // `.utility` keeps the heavy diarization + per-turn Cohere work off the
+        // interactive QoS band so it doesn't make the rest of the machine
+        // sluggish while it runs.
+        detectSpeakersTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.detectSpeakersTask = nil }
             do {
                 let updated = try await service.detectSpeakers(
                     existing: original,
@@ -1383,18 +1391,33 @@ public final class TranscriptionViewModel {
                     presentProfileIDs: presentProfileIDs,
                     onProgress: nil
                 )
-                if currentTranscription?.id == updated.id {
-                    currentTranscription = updated
+                if Task.isCancelled { self.speakerDetectionState = .idle; return }
+                if self.currentTranscription?.id == updated.id {
+                    self.currentTranscription = updated
                 }
-                if let index = transcriptions.firstIndex(where: { $0.id == updated.id }) {
-                    transcriptions[index] = updated
+                if let index = self.transcriptions.firstIndex(where: { $0.id == updated.id }) {
+                    self.transcriptions[index] = updated
                 }
-                speakerDetectionState = .idle
+                self.speakerDetectionState = .idle
+            } catch is CancellationError {
+                self.speakerDetectionState = .idle
             } catch {
-                speakerDetectionError = error.localizedDescription
-                speakerDetectionState = .idle
+                if Task.isCancelled {
+                    self.speakerDetectionState = .idle
+                } else {
+                    self.speakerDetectionError = error.localizedDescription
+                    self.speakerDetectionState = .idle
+                }
             }
         }
+    }
+
+    /// Cancel an in-flight "Detect speakers" run (e.g. the user dismisses it or
+    /// wants the engine back). Safe to call when nothing is running.
+    public func cancelDetectSpeakers() {
+        detectSpeakersTask?.cancel()
+        detectSpeakersTask = nil
+        speakerDetectionState = .idle
     }
 
     public func renameCurrentTranscription(to newFileName: String) {
