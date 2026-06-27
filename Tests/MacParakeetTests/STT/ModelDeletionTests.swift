@@ -301,6 +301,17 @@ final class ModelDeletionTests: XCTestCase {
 
     // MARK: - Cohere cache file removal
 
+    func testCohereCacheDirectoryExistsForPartialDownloadDirectory() throws {
+        let tierDir = tempRoot
+            .appendingPathComponent("cohere-transcribe", isDirectory: true)
+            .appendingPathComponent("q8", isDirectory: true)
+        try FileManager.default.createDirectory(at: tierDir, withIntermediateDirectories: true)
+        try "partial".write(to: tierDir.appendingPathComponent("encoder.mlmodelc"), atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(CohereTranscribeEngine.hasModelCacheDirectory(cacheRoot: tierDir))
+        XCTAssertFalse(CohereTranscribeEngine.isModelCached(cacheRoot: tierDir))
+    }
+
     func testCohereDeleteModelPrunesParentWithOnlyFinderDotfiles() throws {
         let familyRoot = tempRoot.appendingPathComponent("cohere-transcribe", isDirectory: true)
         let tierDir = familyRoot.appendingPathComponent("q8", isDirectory: true)

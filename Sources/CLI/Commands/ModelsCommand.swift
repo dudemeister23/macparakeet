@@ -334,7 +334,7 @@ extension ModelsCommand {
                 let freed = whisperModelSizeLabel(for: variant).map { " · freed \($0)" } ?? ""
                 print("Deleted \(target.displayName)\(freed).")
             case .cohere:
-                guard CohereTranscribeEngine.isModelCached() else {
+                guard CohereTranscribeEngine.hasModelCacheDirectory() else {
                     print("Cohere Transcribe is not downloaded — nothing to delete.")
                     return
                 }

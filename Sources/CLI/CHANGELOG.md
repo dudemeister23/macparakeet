@@ -127,6 +127,9 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   the native 2080ms streaming path used by app live dictation preview.
   `transcribe --parakeet-model unified` is unchanged and still uses the offline
   build for best stop-time quality.
+- `models delete cohere-transcribe` now removes an incomplete Cohere cache
+  directory as well as a fully downloaded model, so cancelled or failed
+  downloads can be cleaned up from the CLI.
 - `history clear-meeting-audio` now refuses to run while **any** meeting
   recording lock file is present, including dead-owner sessions still
   `.awaitingTranscription` in the background queue or pending crash recovery.

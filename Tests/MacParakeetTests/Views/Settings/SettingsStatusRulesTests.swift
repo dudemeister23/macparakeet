@@ -124,6 +124,32 @@ final class SettingsStatusRulesTests: XCTestCase {
         XCTAssertEqual(status, SettingsCardStatus(.recommended, label: "Preparing"))
     }
 
+    func testLocalModelsIgnoresInactiveCohereFailureWhenCohereIsHidden() {
+        let status = SettingsStatusRules.localModelsCardStatus(
+            parakeet: .notLoaded,
+            nemotron: .notLoaded,
+            whisper: .notLoaded,
+            cohere: .failed,
+            cohereEnabled: false,
+            activeEngine: .parakeet
+        )
+
+        XCTAssertEqual(status, SettingsCardStatus(.ok, label: "Ready"))
+    }
+
+    func testLocalModelsStillRequiresActionForActiveCohereFailureWhenCohereIsHidden() {
+        let status = SettingsStatusRules.localModelsCardStatus(
+            parakeet: .notLoaded,
+            nemotron: .notLoaded,
+            whisper: .notLoaded,
+            cohere: .failed,
+            cohereEnabled: false,
+            activeEngine: .cohere
+        )
+
+        XCTAssertEqual(status, SettingsCardStatus(.required, label: "Action needed"))
+    }
+
     func testMeetingRecordingRequiresScreenRecordingPermissionForSystemAudioModes() {
         let status = SettingsStatusRules.meetingRecordingCardStatus(
             meetingRecordingEnabled: true,

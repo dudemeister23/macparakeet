@@ -544,6 +544,10 @@ public actor CohereTranscribeEngine: STTTranscribing {
         isModelCached(cacheRoot: defaultCacheRoot())
     }
 
+    public nonisolated static func hasModelCacheDirectory() -> Bool {
+        hasModelCacheDirectory(cacheRoot: defaultCacheRoot())
+    }
+
     /// Cached only when the encoder bundle, the v2 decoder bundle, and the vocab
     /// are all present — the exact inputs `CoherePipeline.loadModels` reads.
     nonisolated static func isModelCached(cacheRoot: URL) -> Bool {
@@ -554,6 +558,12 @@ public actor CohereTranscribeEngine: STTTranscribing {
         return fileManager.fileExists(atPath: encoder.path)
             && fileManager.fileExists(atPath: decoder.path)
             && fileManager.fileExists(atPath: vocab.path)
+    }
+
+    nonisolated static func hasModelCacheDirectory(cacheRoot: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: cacheRoot.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     /// Pre-fetches the model to its cache without loading it. A cached model is

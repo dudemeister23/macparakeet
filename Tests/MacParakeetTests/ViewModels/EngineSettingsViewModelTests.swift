@@ -24,6 +24,7 @@ final class EngineSettingsViewModelTests: XCTestCase {
         parakeetCached: @escaping @Sendable (ParakeetModelVariant) -> Bool = { _ in false },
         nemotronCached: @escaping @Sendable (NemotronModelVariant, String?) -> Bool = { _, _ in false },
         cohereCached: @escaping @Sendable () -> Bool = { false },
+        cohereCacheDirectoryExists: @escaping @Sendable () -> Bool = { false },
         deleteParakeet: @escaping @Sendable (ParakeetModelVariant) -> Bool = { _ in false },
         deleteNemotron: @escaping @Sendable (NemotronModelVariant, String?) -> Bool = { _, _ in false },
         deleteWhisper: @escaping @Sendable (String) -> Bool = { _ in false },
@@ -34,6 +35,7 @@ final class EngineSettingsViewModelTests: XCTestCase {
             parakeetModelVariantCached: parakeetCached,
             nemotronModelVariantCached: nemotronCached,
             cohereModelCached: cohereCached,
+            cohereModelCacheDirectoryExists: cohereCacheDirectoryExists,
             deleteParakeetModelOnDisk: deleteParakeet,
             deleteNemotronModelOnDisk: deleteNemotron,
             deleteWhisperModelOnDisk: deleteWhisper,
@@ -319,6 +321,21 @@ final class EngineSettingsViewModelTests: XCTestCase {
         )
     }
 
+    func testCoherePartialCacheRemainsNotDownloadedButCanBeDeleted() async throws {
+        let vm = makeViewModel(
+            cohereCached: { false },
+            cohereCacheDirectoryExists: { true }
+        )
+
+        vm.refreshModelStatus()
+
+        try await waitForModelStatusRefreshToFinish(vm)
+        XCTAssertFalse(vm.isCohereModelDownloaded)
+        XCTAssertEqual(vm.cohereModelStatus, .notDownloaded)
+        XCTAssertTrue(vm.cohereCacheDirectoryExists)
+        XCTAssertTrue(vm.canDeleteCohereModel)
+    }
+
     func testActiveReadyCohereReportsLoadedInMemory() async throws {
         SpeechEnginePreference.cohere.save(to: defaults)
         let vm = makeViewModel(cohereCached: { true })
@@ -347,6 +364,26 @@ final class EngineSettingsViewModelTests: XCTestCase {
 
         try await waitUntil { recorder.deleteCount == 1 && vm.cohereModelStatus == .notDownloaded }
         XCTAssertFalse(vm.isCohereModelDownloaded)
+        XCTAssertEqual(vm.cohereModelStatusDetail, "Cohere Transcribe · Needs download before use.")
+    }
+
+    func testDeleteCohereModelAllowsFailedPartialDownloadCleanup() async throws {
+        let recorder = CohereDeleteRecorder()
+        let vm = makeViewModel(
+            cohereCached: { false },
+            cohereCacheDirectoryExists: { recorder.isCached },
+            deleteCohere: {
+                recorder.delete()
+                return true
+            }
+        )
+        vm.cohereModelStatus = .failed
+        vm.cohereCacheDirectoryExists = true
+
+        vm.deleteCohereModel()
+
+        try await waitUntil { recorder.deleteCount == 1 && vm.cohereModelStatus == .notDownloaded }
+        XCTAssertFalse(vm.canDeleteCohereModel)
         XCTAssertEqual(vm.cohereModelStatusDetail, "Cohere Transcribe · Needs download before use.")
     }
 

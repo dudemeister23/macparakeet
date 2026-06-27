@@ -2596,7 +2596,7 @@ struct SettingsView: View {
                     overflowActions: displayedWhisperModelStatus == .preparing ? [] : whisperOverflowActions
                 )
 
-                if AppFeatures.cohereEngineEnabled {
+                if shouldShowCohereModelRow {
                     Divider()
 
                     modelStatusRow(
@@ -2661,8 +2661,13 @@ struct SettingsView: View {
             nemotron: displayedNemotronModelStatus,
             whisper: displayedWhisperModelStatus,
             cohere: displayedCohereModelStatus,
+            cohereEnabled: shouldShowCohereModelRow,
             activeEngine: viewModel.engine.speechEnginePreference
         )
+    }
+
+    private var shouldShowCohereModelRow: Bool {
+        AppFeatures.cohereEngineEnabled || viewModel.engine.speechEnginePreference == .cohere
     }
 
     private var currentSpeechEngineSwitchTarget: SpeechEnginePreference {
@@ -3082,29 +3087,33 @@ struct SettingsView: View {
     }
 
     private var cohereOverflowActions: [ModelRowAction] {
+        var actions: [ModelRowAction] = []
         switch viewModel.engine.cohereModelStatus {
         case .ready, .notLoaded:
-            var actions = [ModelRowAction(
+            actions.append(ModelRowAction(
                 label: "Repair…",
                 isProminent: false,
                 help: "Re-check Cohere Transcribe files and re-download any missing model assets."
             ) {
                 viewModel.engine.downloadCohereModel()
-            }]
-            if viewModel.engine.speechEnginePreference != .cohere {
-                actions.append(ModelRowAction(
-                    label: "Delete download…",
-                    isProminent: false,
-                    isDestructive: true,
-                    help: "Remove the Cohere Transcribe download from this Mac."
-                ) {
-                    pendingModelDeletion = .cohere
-                })
-            }
-            return actions
+            })
+        case .failed, .notDownloaded:
+            break
         default:
             return []
         }
+        if viewModel.engine.canDeleteCohereModel,
+           viewModel.engine.speechEnginePreference != .cohere {
+            actions.append(ModelRowAction(
+                label: "Delete download…",
+                isProminent: false,
+                isDestructive: true,
+                help: "Remove the Cohere Transcribe download from this Mac."
+            ) {
+                pendingModelDeletion = .cohere
+            })
+        }
+        return actions
     }
 
     fileprivate struct ModelRowAction: Identifiable {

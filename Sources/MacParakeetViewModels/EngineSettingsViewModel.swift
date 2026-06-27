@@ -75,6 +75,7 @@ public final class EngineSettingsViewModel {
     public var cohereModelStatus: LocalModelStatus = .unknown
     public var cohereModelStatusDetail: String = "Not checked yet."
     public var cohereDownloading = false
+    public var cohereCacheDirectoryExists = false
     public var isNemotronModelAvailable: Bool {
         nemotronModelStatus == .ready || nemotronModelStatus == .notLoaded
     }
@@ -83,6 +84,9 @@ public final class EngineSettingsViewModel {
     }
     public var isCohereModelDownloaded: Bool {
         cohereModelStatus == .ready || cohereModelStatus == .notLoaded
+    }
+    public var canDeleteCohereModel: Bool {
+        isCohereModelDownloaded || cohereModelStatus == .failed || cohereCacheDirectoryExists
     }
     /// True once the active Whisper variant has paid its one-time on-device
     /// optimize, so the next load is fast. Drives cold ("Setup needed",
@@ -114,6 +118,7 @@ public final class EngineSettingsViewModel {
     private let parakeetModelVariantCached: @Sendable (ParakeetModelVariant) -> Bool
     private let nemotronModelVariantCached: @Sendable (NemotronModelVariant, String?) -> Bool
     private let cohereModelCached: @Sendable () -> Bool
+    private let cohereModelCacheDirectoryExistsOnDisk: @Sendable () -> Bool
     private let deleteParakeetModelOnDisk: @Sendable (ParakeetModelVariant) -> Bool
     private let deleteNemotronModelOnDisk: @Sendable (NemotronModelVariant, String?) -> Bool
     private let deleteWhisperModelOnDisk: @Sendable (String) -> Bool
@@ -136,6 +141,9 @@ public final class EngineSettingsViewModel {
         cohereModelCached: @escaping @Sendable () -> Bool = {
             CohereTranscribeEngine.isModelCached()
         },
+        cohereModelCacheDirectoryExists: @escaping @Sendable () -> Bool = {
+            CohereTranscribeEngine.hasModelCacheDirectory()
+        },
         deleteParakeetModelOnDisk: @escaping @Sendable (ParakeetModelVariant) -> Bool = {
             if $0.usesUnifiedEngine { return ParakeetUnifiedEngine.deleteModel() }
             guard let version = $0.asrModelVersion else { return false }
@@ -155,6 +163,7 @@ public final class EngineSettingsViewModel {
         self.parakeetModelVariantCached = parakeetModelVariantCached
         self.nemotronModelVariantCached = nemotronModelVariantCached
         self.cohereModelCached = cohereModelCached
+        self.cohereModelCacheDirectoryExistsOnDisk = cohereModelCacheDirectoryExists
         self.deleteParakeetModelOnDisk = deleteParakeetModelOnDisk
         self.deleteNemotronModelOnDisk = deleteNemotronModelOnDisk
         self.deleteWhisperModelOnDisk = deleteWhisperModelOnDisk
@@ -250,6 +259,7 @@ public final class EngineSettingsViewModel {
         let parakeetModelVariantCached = self.parakeetModelVariantCached
         let nemotronModelVariantCached = self.nemotronModelVariantCached
         let cohereModelCached = self.cohereModelCached
+        let cohereModelCacheDirectoryExistsOnDisk = self.cohereModelCacheDirectoryExistsOnDisk
 
         guard let sttClient else {
             parakeetStatus = .unknown
@@ -268,7 +278,8 @@ public final class EngineSettingsViewModel {
                             nemotronModelVariantCached($0, nemotronLanguage)
                         }),
                         whisperDownloaded: WhisperEngine.isModelDownloaded(model: whisperModelVariant),
-                        cohereDownloaded: cohereModelCached()
+                        cohereDownloaded: cohereModelCached(),
+                        cohereCacheDirectoryExists: cohereModelCacheDirectoryExistsOnDisk()
                     )
                 }.value
                 guard let self,
@@ -280,6 +291,7 @@ public final class EngineSettingsViewModel {
                 }
                 self.downloadedParakeetVariants = disk.parakeetDownloaded
                 self.downloadedNemotronVariants = disk.nemotronDownloaded
+                self.cohereCacheDirectoryExists = disk.cohereCacheDirectoryExists
                 self.applyNemotronDownloadedStatus(disk.nemotronDownloaded.contains(activeNemotronVariant))
                 self.applyWhisperDownloadedStatus(disk.whisperDownloaded)
                 self.applyCohereDownloadedStatus(disk.cohereDownloaded)
@@ -315,7 +327,8 @@ public final class EngineSettingsViewModel {
                         nemotronModelVariantCached($0, nemotronLanguage)
                     }),
                     whisperDownloaded: WhisperEngine.isModelDownloaded(model: whisperModelVariant),
-                    cohereDownloaded: cohereModelCached()
+                    cohereDownloaded: cohereModelCached(),
+                    cohereCacheDirectoryExists: cohereModelCacheDirectoryExistsOnDisk()
                 )
             }.value
 
@@ -329,6 +342,7 @@ public final class EngineSettingsViewModel {
 
             self.downloadedParakeetVariants = modelDiskState.parakeetDownloaded
             self.downloadedNemotronVariants = modelDiskState.nemotronDownloaded
+            self.cohereCacheDirectoryExists = modelDiskState.cohereCacheDirectoryExists
             let parakeetName = activeVariant.modelName
             if activeEngine == .parakeet, activeEngineIsLoaded {
                 self.parakeetStatus = .ready
@@ -1163,9 +1177,10 @@ public final class EngineSettingsViewModel {
         // Protect the in-use engine's model; deleting it would force a silent
         // re-download the next time the active runtime prepares.
         guard speechEnginePreference != .cohere else { return }
-        guard isCohereModelDownloaded else { return }
+        guard canDeleteCohereModel else { return }
 
         modelStatusRefreshGeneration += 1
+        cohereCacheDirectoryExists = false
         applyCohereDownloadedStatus(false)
         let deleter = deleteCohereModelOnDisk
         Task { @MainActor [weak self] in
