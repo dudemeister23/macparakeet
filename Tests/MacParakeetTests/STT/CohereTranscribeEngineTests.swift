@@ -24,12 +24,28 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertEqual(merged, "the quick brown fox jumps over the lazy dog")
     }
 
+    func testMergeCompletesPartialTrailingWordWithCaseAndPunctuationDrift() {
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            "the quick brown fo,",
+            "quick brown Fox jumps over the lazy dog"
+        )
+        XCTAssertEqual(merged, "the quick brown Fox jumps over the lazy dog")
+    }
+
     func testMergeDropsPartialLeadingWordWhenOverlapIsStrong() {
         let merged = CohereTranscribeEngine.mergeOnOverlap(
             "the quick brown fox",
             "own fox jumps over the lazy dog"
         )
         XCTAssertEqual(merged, "the quick brown fox jumps over the lazy dog")
+    }
+
+    func testMergeDropsPartialLeadingWordWithCaseAndPunctuationDrift() {
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            "the quick Brown fox",
+            "own, Fox jumps over the lazy dog"
+        )
+        XCTAssertEqual(merged, "the quick Brown fox jumps over the lazy dog")
     }
 
     func testMergeDoesNotUsePartialBoundaryWithoutStrongOverlap() {

@@ -377,6 +377,8 @@ public actor CohereTranscribeEngine: STTTranscribing {
 
     private static func isLeadingPartial(unit: String, completedBy fullUnit: String) -> Bool {
         let minimumPartialLength = 2
+        let unit = normalizedOverlapUnit(unit)
+        let fullUnit = normalizedOverlapUnit(fullUnit)
         return unit.count >= minimumPartialLength
             && fullUnit.count > unit.count
             && fullUnit.hasSuffix(unit)
@@ -384,6 +386,8 @@ public actor CohereTranscribeEngine: STTTranscribing {
 
     private static func isTrailingPartial(unit: String, completedBy fullUnit: String) -> Bool {
         let minimumPartialLength = 2
+        let unit = normalizedOverlapUnit(unit)
+        let fullUnit = normalizedOverlapUnit(fullUnit)
         return unit.count >= minimumPartialLength
             && fullUnit.count > unit.count
             && fullUnit.hasPrefix(unit)
