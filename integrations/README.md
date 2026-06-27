@@ -16,7 +16,7 @@ testing.
 
 - **Local transcription** -- audio/video files, folders, public media URLs,
   Apple Podcasts links/searches, and YouTube to text, with engine selection
-  (Parakeet / Nemotron / Whisper) and per-invocation language hints.
+  (Parakeet / Nemotron / Cohere / Whisper) and per-invocation language hints.
 - **Scriptable shared defaults** -- `config get|set|list` over the same
   preference suite the GUI reads (`com.macparakeet.MacParakeet`). CLI-only
   installs work; a later GUI install picks up the same values.
@@ -24,8 +24,8 @@ testing.
   schemas pinned to the major CLI version. Failure envelopes carry a stable
   `errorType` so agents can branch deterministically.
 - **Model and binary health** -- `health --json` probes Parakeet / Nemotron /
-  Whisper model readiness, database accessibility, FFmpeg, and yt-dlp without
-  mutating state. Repair flags explicitly warm/download local caches.
+  Cohere / Whisper model readiness, database accessibility, FFmpeg, and yt-dlp
+  without mutating state. Repair flags explicitly warm/download local caches.
 - **Persisted history** -- list, search, and inspect prior dictations and
   transcriptions via the shared SQLite database.
 - **Prompt and meeting inspection** -- list and run prompt library entries
@@ -92,8 +92,9 @@ macparakeet-cli health --json
 
 This installs the standalone CLI plus its Homebrew-managed `ffmpeg` and
 `yt-dlp` runtime dependencies. It does not require `MacParakeet.app`.
-Parakeet's CoreML cache is managed by FluidAudio. WhisperKit model downloads
-live under `~/Library/Application Support/MacParakeet/models/stt/whisper/`.
+Parakeet, Nemotron, and Cohere CoreML caches are managed by FluidAudio.
+WhisperKit model downloads live under
+`~/Library/Application Support/MacParakeet/models/stt/whisper/`.
 
 **Bundled app alternative:** after installing
 [MacParakeet](https://macparakeet.com), the same CLI surface is available at:
@@ -182,8 +183,8 @@ temporary when `--no-history` is set.
 
 Parakeet is the default engine for compatibility with existing scripts. Use
 `--parakeet-model v2` or `config set parakeet-model v2` for the English-only
-Parakeet build. Use Nemotron Beta or Whisper per invocation for multilingual
-coverage outside the default Parakeet lane:
+Parakeet build. Use Nemotron Beta, Cohere, or Whisper per invocation for
+multilingual or accuracy-focused coverage outside the default Parakeet lane:
 
 Nemotron, Cohere, and Whisper require local model downloads before first use:
 
@@ -206,6 +207,7 @@ macparakeet-cli models select whisper-large-v3-v20240930-turbo-632MB --json
 
 ```bash
 macparakeet-cli transcribe /path/to/spanish.mp3 --engine nemotron --language auto --format json
+macparakeet-cli transcribe /path/to/japanese.m4a --engine cohere --language ja --format json
 macparakeet-cli transcribe /path/to/korean.mp3 --engine whisper --language ko --format json
 ```
 

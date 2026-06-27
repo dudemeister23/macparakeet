@@ -340,7 +340,7 @@ Backpressure and queueing rules:
 - Progress reporting must be fanned out per job, not broadcast globally from the raw runtime stream
 - Cancellation is checked before scheduler admission so fast user cancels do not race into successful transcriptions
 - Speaker diarization remains a separate service and is not part of the two-slot speech scheduler
-- Switching Parakeet/Nemotron/Whisper is rejected while jobs are queued/running or a meeting speech-engine lease is active
+- Switching Parakeet/Nemotron/Cohere/Whisper is rejected while jobs are queued/running or a meeting speech-engine lease is active
 
 ### Data Flow
 

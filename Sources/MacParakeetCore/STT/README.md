@@ -7,8 +7,8 @@
 > as opt-in Parakeet variants; Nemotron is an opt-in Beta
 > engine with two builds — multilingual (Nemotron 3.5, default) and an
 > English-only streaming build (Nemotron Speech Streaming EN 0.6B);
-> WhisperKit is optional for languages outside Parakeet/Nemotron
-> coverage; Cohere Transcribe is an opt-in batch-only accuracy engine.
+> WhisperKit is optional for broad language coverage; Cohere Transcribe is an
+> opt-in batch-only accuracy engine.
 
 ## Entry point
 
@@ -167,10 +167,11 @@ unhealthy-runtime watchdog before unloading or clearing model state.
 build is `v3` unless the user opts into `v2` through Settings or the CLI
 (`config set parakeet-model`, `models select parakeet-v2`, or
 `transcribe --parakeet-model v2`). A subscriber can request Nemotron or
-WhisperKit globally (Settings / `models select`) or per call (CLI
-`--engine nemotron --language ko`, `--engine whisper --language ko`). When set
-globally, dictation also routes there; when set per-job, only that job uses the
-requested engine.
+WhisperKit or Cohere globally (Settings / `models select`) or per call (CLI
+`--engine nemotron --language ko`, `--engine cohere --language ja`,
+`--engine whisper --language ko`). When set globally, dictation also routes
+there; when set per-job, only that job uses the requested engine. Cohere
+dictation remains record-then-transcribe and does not enter live-preview paths.
 
 **Active meetings hold an engine lease.** Once a meeting recording
 starts, its engine selection is captured for the session's duration.

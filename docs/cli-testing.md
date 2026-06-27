@@ -194,7 +194,7 @@ English-only TDT opt-in, and Unified is the English-only punctuation/capitalizat
 opt-in. Use `--parakeet-model app-default|v3|v2|unified` for a single run, or
 `config set parakeet-model unified` / `models select parakeet-unified` to persist it.
 Use `--engine app-default` when you want the CLI to follow the GUI's saved
-speech engine, Parakeet model, and Nemotron/Whisper language defaults.
+speech engine, Parakeet model, and Nemotron/Cohere/Whisper language defaults.
 Nemotron is an opt-in Beta engine with two builds: the multilingual default
 and an English-only streaming build. Use `--nemotron-model
 app-default|multilingual-1120ms|english-1120ms` for a single run, or
@@ -220,6 +220,18 @@ swift run macparakeet-cli models download whisper-large-v3-v20240930-turbo-632MB
 swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" \
   --engine whisper \
   --language ko
+```
+
+Use Cohere explicitly for batch-only accuracy-focused runs after downloading
+the local Cohere model. Cohere requires a language hint or saved
+`cohere-language` default and does not support live preview:
+
+```bash
+swift run macparakeet-cli models download cohere-transcribe
+
+swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" \
+  --engine cohere \
+  --language ja
 ```
 
 `--language auto` or omitting `--language` lets Nemotron or Whisper detect the
@@ -490,8 +502,8 @@ swift run macparakeet-cli models clear
 ```
 
 `models warm-up` and `models repair` prepare the selected speech engine plus
-the diarization speech stack. Nemotron and Whisper are downloaded explicitly
-with `models download`. `models delete <id>` removes a single model - one
+the diarization speech stack. Nemotron, Cohere, and Whisper are downloaded
+explicitly with `models download`. `models delete <id>` removes a single model - one
 Parakeet build, the Nemotron Beta model, Cohere Transcribe, or the Whisper
 variant - and protects the active model plus Parakeet's configured build unless `--force` is passed;
 `models clear` still wipes everything.
