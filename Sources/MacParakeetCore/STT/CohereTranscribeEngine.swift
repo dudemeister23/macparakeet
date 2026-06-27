@@ -450,16 +450,18 @@ public actor CohereTranscribeEngine: STTTranscribing {
         }
 
         // `loadModels` clears `initializationTask` itself (via defer) when it
-        // finishes. If we cleared it here in a cancelled `catch`, a caller whose
-        // await was cancelled mid-warm-up (e.g. dictation Escape during the
-        // launch optimize) would null the handle while the unstructured task
-        // keeps running — letting the next prepare() spawn a duplicate ~115 s
-        // download/warm-up.
+        // finishes. Cancellation should stop the heavy load/warm-up task, but the
+        // handle is still owned by that task so concurrent prepare() calls either
+        // coalesce onto the same work or observe a clean retry after cancellation.
         let task = Task { try await loadModels(onProgress: onProgress) }
         initializationTask = task
 
         do {
-            try await task.value
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
         } catch {
             throw try Self.mapWarmUpError(error)
         }
@@ -500,9 +502,11 @@ public actor CohereTranscribeEngine: STTTranscribing {
         // now (at load / launch warm-up) instead of on the user's first
         // dictation. On the GPU path this is the heavy ~115s specialization; on
         // ANE it's ~2s. Runs on 1s of silence; the transcript is discarded.
-        // After this returns, every real utterance is warm (~0.4s short / ~1.3s
-        // long on GPU). `models` is published only once fully warm, so
-        // `isReady()` reflecting true readiness gates the live engine swap UI.
+        // After this returns successfully, every real utterance is warm (~0.4s
+        // short / ~1.3s long on GPU). Non-cancellation warm-up failures are
+        // logged and treated as non-fatal because the loaded models can still run
+        // the first real transcription; cancellation still prevents readiness
+        // from being published.
         onProgress?("Optimizing Cohere for this Mac...")
         try Task.checkCancellation()
         let warmUpSamples = [Float](repeating: 0, count: CohereAsrConfig.sampleRate)

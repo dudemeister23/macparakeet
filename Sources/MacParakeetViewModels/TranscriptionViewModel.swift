@@ -184,12 +184,14 @@ public final class TranscriptionViewModel {
     private let defaults: UserDefaults
     private let isWhisperModelDownloaded: () -> Bool
     private let isNemotronModelDownloaded: () -> Bool
+    private let isCohereModelDownloaded: () -> Bool
     public var promptResultsViewModel: PromptResultsViewModel?
 
     public init(
         defaults: UserDefaults = .standard,
         isWhisperModelDownloaded: (() -> Bool)? = nil,
-        isNemotronModelDownloaded: (() -> Bool)? = nil
+        isNemotronModelDownloaded: (() -> Bool)? = nil,
+        isCohereModelDownloaded: (() -> Bool)? = nil
     ) {
         self.defaults = defaults
         self.isWhisperModelDownloaded = isWhisperModelDownloaded ?? {
@@ -202,6 +204,9 @@ public final class TranscriptionViewModel {
                 modelVariant: SpeechEnginePreference.nemotronModelVariant(defaults: defaults),
                 language: SpeechEnginePreference.nemotronDefaultLanguage(defaults: defaults)
             )
+        }
+        self.isCohereModelDownloaded = isCohereModelDownloaded ?? {
+            CohereTranscribeEngine.isModelCached()
         }
     }
 
@@ -483,7 +488,7 @@ public final class TranscriptionViewModel {
                 ? nil
                 : "Download the Whisper model in Settings before trying Whisper."
         case .cohere:
-            return CohereTranscribeEngine.isModelCached()
+            return isCohereModelDownloaded()
                 ? nil
                 : "Download the Cohere model in Settings before trying Cohere."
         }

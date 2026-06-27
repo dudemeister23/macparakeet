@@ -1761,7 +1761,8 @@ final class TranscriptionViewModelTests: XCTestCase {
         viewModel = TranscriptionViewModel(
             defaults: defaults,
             isWhisperModelDownloaded: { true },
-            isNemotronModelDownloaded: { true }
+            isNemotronModelDownloaded: { true },
+            isCohereModelDownloaded: { true }
         )
 
         let archivedMeeting = try makeArchivedMeetingRecording(speechEngine: nil)
@@ -2035,6 +2036,42 @@ final class TranscriptionViewModelTests: XCTestCase {
         XCTAssertEqual(
             try retranscriptionChoice(.cohere, in: option).selection,
             SpeechEngineSelection(engine: .cohere, language: "fr")
+        )
+    }
+
+    func testRetranscriptionEngineOptionDisablesMissingCohereModel() throws {
+        let suiteName = "TranscriptionViewModelTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        SpeechEnginePreference.parakeet.save(to: defaults)
+        viewModel = TranscriptionViewModel(
+            defaults: defaults,
+            isWhisperModelDownloaded: { true },
+            isNemotronModelDownloaded: { true },
+            isCohereModelDownloaded: { false }
+        )
+
+        let tmpFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retranscribe-engine-cohere-missing-\(UUID().uuidString).mp3")
+        FileManager.default.createFile(atPath: tmpFile.path, contents: Data([0]))
+        defer { try? FileManager.default.removeItem(at: tmpFile) }
+
+        let original = Transcription(
+            id: UUID(),
+            fileName: "Audio File",
+            filePath: tmpFile.path,
+            durationMs: 2_000,
+            rawTranscript: "Old transcript",
+            status: .completed,
+            sourceType: .file
+        )
+
+        let option = try XCTUnwrap(viewModel.retranscriptionEngineOption(for: original))
+        let cohere = try retranscriptionChoice(.cohere, in: option)
+        XCTAssertFalse(cohere.isAvailable)
+        XCTAssertEqual(
+            cohere.unavailableReason,
+            "Download the Cohere model in Settings before trying Cohere."
         )
     }
 
