@@ -58,10 +58,10 @@ private final class CancellationResponsiveTaskAwaiter: @unchecked Sendable {
 ///   graph on the **first transcribe of every launch (~115 s, not cached)**, so
 ///   we pay it in the background via a launch warm-up; for a resident app that
 ///   is once per session, then every dictation is fast.
-    /// - **`.ane`** (`cpuAndNeuralEngine`, default): warm ~1.3–1.6 s after Core
-    ///   ML preparation. Fresh app processes can still pay a cold preparation
-    ///   cost, but this avoids the GPU path's uncached per-launch specialization
-    ///   and leaves the GPU free for the LLM formatter.
+/// - **`.ane`** (`cpuAndNeuralEngine`, default): warm ~1.3–1.6 s after Core
+///   ML preparation. Fresh app processes can still pay a cold preparation
+///   cost, but this avoids the GPU path's uncached per-launch specialization
+///   and leaves the GPU free for the LLM formatter.
 /// NOTE: most apparent slowness in development is the unoptimized **Debug**
 /// build — the per-step decoder + mel hot path runs ~9× slower than release.
 /// Always judge latency from a release build.
