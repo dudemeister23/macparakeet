@@ -292,15 +292,54 @@ public actor CohereTranscribeEngine: STTTranscribing {
         var bestK = 0
         var k = limit
         while k >= 1 {
-            if zip(a.suffix(k), b.prefix(k)).allSatisfy({
-                normalizedOverlapUnit($0) == normalizedOverlapUnit($1)
-            }) {
+            if overlapMatches(a: Array(a.suffix(k)), b: Array(b.prefix(k))) {
                 bestK = k
                 break
             }
             k -= 1
         }
-        return (a + b.dropFirst(bestK)).joined(separator: separator)
+
+        var mergedA = a
+        if bestK > 0,
+           let lastA = mergedA.last,
+           isTrailingPartial(unit: lastA, completedBy: b[bestK - 1]) {
+            mergedA[mergedA.count - 1] = b[bestK - 1]
+        }
+        return (mergedA + b.dropFirst(bestK)).joined(separator: separator)
+    }
+
+    private static func overlapMatches(a: [String], b: [String]) -> Bool {
+        guard a.count == b.count else { return false }
+        let strongOverlap = a.count >= 2
+
+        for index in a.indices {
+            let aUnit = normalizedOverlapUnit(a[index])
+            let bUnit = normalizedOverlapUnit(b[index])
+            if aUnit == bUnit { continue }
+
+            if strongOverlap, index == a.startIndex, isLeadingPartial(unit: bUnit, completedBy: aUnit) {
+                continue
+            }
+            if strongOverlap, index == a.index(before: a.endIndex), isTrailingPartial(unit: aUnit, completedBy: bUnit) {
+                continue
+            }
+            return false
+        }
+        return true
+    }
+
+    private static func isLeadingPartial(unit: String, completedBy fullUnit: String) -> Bool {
+        let minimumPartialLength = 2
+        return unit.count >= minimumPartialLength
+            && fullUnit.count > unit.count
+            && fullUnit.hasSuffix(unit)
+    }
+
+    private static func isTrailingPartial(unit: String, completedBy fullUnit: String) -> Bool {
+        let minimumPartialLength = 2
+        return unit.count >= minimumPartialLength
+            && fullUnit.count > unit.count
+            && fullUnit.hasPrefix(unit)
     }
 
     private static func normalizedOverlapUnit(_ unit: String) -> String {

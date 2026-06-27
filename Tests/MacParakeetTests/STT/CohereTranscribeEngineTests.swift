@@ -16,6 +16,30 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertEqual(merged, "the quick brown fox jumps over the lazy dog")
     }
 
+    func testMergeCompletesPartialTrailingWordWhenOverlapIsStrong() {
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            "the quick brown fo",
+            "quick brown fox jumps over the lazy dog"
+        )
+        XCTAssertEqual(merged, "the quick brown fox jumps over the lazy dog")
+    }
+
+    func testMergeDropsPartialLeadingWordWhenOverlapIsStrong() {
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            "the quick brown fox",
+            "own fox jumps over the lazy dog"
+        )
+        XCTAssertEqual(merged, "the quick brown fox jumps over the lazy dog")
+    }
+
+    func testMergeDoesNotUsePartialBoundaryWithoutStrongOverlap() {
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            "alpha fo",
+            "fox beta"
+        )
+        XCTAssertEqual(merged, "alpha fo fox beta")
+    }
+
     func testMergeIsCaseAndPunctuationInsensitiveAtTheSeam() {
         let merged = CohereTranscribeEngine.mergeOnOverlap(
             "send me your feedback before the end of the day.",
