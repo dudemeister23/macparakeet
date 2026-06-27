@@ -416,7 +416,8 @@ public actor CohereTranscribeEngine: STTTranscribing {
                  0x30A0...0x30FF, // Katakana
                  0x3400...0x4DBF, // CJK Unified Ideographs Extension A
                  0x4E00...0x9FFF, // CJK Unified Ideographs
-                 0xF900...0xFAFF: // CJK Compatibility Ideographs
+                 0xF900...0xFAFF, // CJK Compatibility Ideographs
+                 0x20000...0x323AF: // CJK Unified Ideographs Extensions B-H and supplement
                 return true
             default:
                 return false

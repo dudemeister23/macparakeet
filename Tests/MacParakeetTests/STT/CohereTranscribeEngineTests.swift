@@ -131,6 +131,19 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertFalse(merged.contains(" "))
     }
 
+    func testMergeDropsSupplementaryCJKOverlapWithoutInsertingSpace() throws {
+        let first = try XCTUnwrap(UnicodeScalar(0x20000).map(String.init))
+        let second = try XCTUnwrap(UnicodeScalar(0x20001).map(String.init))
+
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            first + first + first + second,
+            first + second + second
+        )
+
+        XCTAssertEqual(merged, first + first + first + second + second)
+        XCTAssertFalse(merged.contains(" "))
+    }
+
     func testMergeDoesNotTreatDifferentPunctuationAsOverlap() {
         let merged = CohereTranscribeEngine.mergeOnOverlap(
             "hello 。",
