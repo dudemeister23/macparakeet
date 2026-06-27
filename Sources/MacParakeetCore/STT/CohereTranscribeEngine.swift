@@ -213,14 +213,37 @@ public actor CohereTranscribeEngine: STTTranscribing {
         models: CoherePipeline.LoadedModels,
         language: CohereAsrConfig.Language
     ) async throws -> String {
+        let outputCap = CohereAsrConfig.maxSeqLen - language.promptSequence.count
         let sr = CohereAsrConfig.sampleRate
         let overlap = 4 * sr
         let maxWindow = 20 * sr
+        let minWindow = 4 * sr
         // Audio that fit the encoder window but truncated is dense — shrink the
         // window so it still produces at least two chunks.
         let window = samples.count <= CohereAsrConfig.maxSamples
             ? min(maxWindow, max(8 * sr, samples.count * 3 / 5))
             : maxWindow
+        return try await chunkAndStitch(
+            samples: samples,
+            models: models,
+            language: language,
+            outputCap: outputCap,
+            window: window,
+            overlap: overlap,
+            minWindow: minWindow
+        )
+    }
+
+    private func chunkAndStitch(
+        samples: [Float],
+        models: CoherePipeline.LoadedModels,
+        language: CohereAsrConfig.Language,
+        outputCap: Int,
+        window: Int,
+        overlap: Int,
+        minWindow: Int
+    ) async throws -> String {
+        let sr = CohereAsrConfig.sampleRate
         let hop = max(sr, window - overlap)
 
         var merged = ""
@@ -235,7 +258,31 @@ public actor CohereTranscribeEngine: STTTranscribing {
             let chunk = Array(samples[start..<end])
             let result = try await pipeline.transcribe(
                 audio: chunk, models: models, language: language)
-            merged = merged.isEmpty ? result.text : Self.mergeOnOverlap(merged, result.text)
+            let text: String
+            if result.tokenIds.count < outputCap - 1 {
+                text = result.text
+            } else if window > minWindow {
+                let nextWindow = max(minWindow, window * 3 / 5)
+                let nextOverlap = min(overlap, max(sr, nextWindow / 5))
+                logger.notice(
+                    "cohere_chunk_truncation_guard tokens=\(result.tokenIds.count, privacy: .public) cap=\(outputCap, privacy: .public) window=\(window, privacy: .public) action=rechunk next_window=\(nextWindow, privacy: .public)"
+                )
+                text = try await chunkAndStitch(
+                    samples: chunk,
+                    models: models,
+                    language: language,
+                    outputCap: outputCap,
+                    window: nextWindow,
+                    overlap: nextOverlap,
+                    minWindow: minWindow
+                )
+            } else {
+                logger.warning(
+                    "cohere_chunk_truncation_guard tokens=\(result.tokenIds.count, privacy: .public) cap=\(outputCap, privacy: .public) window=\(window, privacy: .public) action=return_capped"
+                )
+                text = result.text
+            }
+            merged = merged.isEmpty ? text : Self.mergeOnOverlap(merged, text)
             if end >= samples.count { break }
             start += hop
         }
@@ -389,7 +436,11 @@ public actor CohereTranscribeEngine: STTTranscribing {
         if models != nil { return }
 
         if let initializationTask {
-            try await initializationTask.value
+            do {
+                try await initializationTask.value
+            } catch {
+                throw try Self.mapWarmUpError(error)
+            }
             return
         }
 

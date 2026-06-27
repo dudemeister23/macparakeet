@@ -26,7 +26,8 @@ final class EngineSettingsViewModelTests: XCTestCase {
         cohereCached: @escaping @Sendable () -> Bool = { false },
         deleteParakeet: @escaping @Sendable (ParakeetModelVariant) -> Bool = { _ in false },
         deleteNemotron: @escaping @Sendable (NemotronModelVariant, String?) -> Bool = { _, _ in false },
-        deleteWhisper: @escaping @Sendable (String) -> Bool = { _ in false }
+        deleteWhisper: @escaping @Sendable (String) -> Bool = { _ in false },
+        deleteCohere: @escaping @Sendable () -> Bool = { false }
     ) -> EngineSettingsViewModel {
         EngineSettingsViewModel(
             defaults: defaults,
@@ -35,7 +36,8 @@ final class EngineSettingsViewModelTests: XCTestCase {
             cohereModelCached: cohereCached,
             deleteParakeetModelOnDisk: deleteParakeet,
             deleteNemotronModelOnDisk: deleteNemotron,
-            deleteWhisperModelOnDisk: deleteWhisper
+            deleteWhisperModelOnDisk: deleteWhisper,
+            deleteCohereModelOnDisk: deleteCohere
         )
     }
 
@@ -330,6 +332,24 @@ final class EngineSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.cohereModelStatusDetail, "Cohere Transcribe · Loaded in memory.")
     }
 
+    func testDeleteCohereModelUsesInjectedDeleterAndRefreshesStatus() async throws {
+        let recorder = CohereDeleteRecorder()
+        let vm = makeViewModel(
+            cohereCached: { recorder.isCached },
+            deleteCohere: {
+                recorder.delete()
+                return true
+            }
+        )
+        vm.cohereModelStatus = .notLoaded
+
+        vm.deleteCohereModel()
+
+        try await waitUntil { recorder.deleteCount == 1 && vm.cohereModelStatus == .notDownloaded }
+        XCTAssertFalse(vm.isCohereModelDownloaded)
+        XCTAssertEqual(vm.cohereModelStatusDetail, "Cohere Transcribe · Needs download before use.")
+    }
+
     func testRefreshModelStatusPassesStoredNemotronLanguageToCachedStub() async throws {
         SpeechEnginePreference.saveNemotronDefaultLanguage("en_US", defaults: defaults)
         let recorder = NemotronCacheCheckRecorder()
@@ -387,5 +407,30 @@ private final class NemotronCacheCheckRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedCalls
+    }
+}
+
+private final class CohereDeleteRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cached = true
+    private var deletes = 0
+
+    var isCached: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cached
+    }
+
+    var deleteCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return deletes
+    }
+
+    func delete() {
+        lock.lock()
+        deletes += 1
+        cached = false
+        lock.unlock()
     }
 }

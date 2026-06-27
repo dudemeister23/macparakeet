@@ -117,6 +117,7 @@ public final class EngineSettingsViewModel {
     private let deleteParakeetModelOnDisk: @Sendable (ParakeetModelVariant) -> Bool
     private let deleteNemotronModelOnDisk: @Sendable (NemotronModelVariant, String?) -> Bool
     private let deleteWhisperModelOnDisk: @Sendable (String) -> Bool
+    private let deleteCohereModelOnDisk: @Sendable () -> Bool
     private var isApplyingSpeechEngineState = false
     private var isApplyingParakeetVariantState = false
     private var isApplyingNemotronVariantState = false
@@ -145,6 +146,9 @@ public final class EngineSettingsViewModel {
         },
         deleteWhisperModelOnDisk: @escaping @Sendable (String) -> Bool = {
             STTRuntime.deleteWhisperModel(variant: $0)
+        },
+        deleteCohereModelOnDisk: @escaping @Sendable () -> Bool = {
+            CohereTranscribeEngine.deleteModel()
         }
     ) {
         self.defaults = defaults
@@ -154,6 +158,7 @@ public final class EngineSettingsViewModel {
         self.deleteParakeetModelOnDisk = deleteParakeetModelOnDisk
         self.deleteNemotronModelOnDisk = deleteNemotronModelOnDisk
         self.deleteWhisperModelOnDisk = deleteWhisperModelOnDisk
+        self.deleteCohereModelOnDisk = deleteCohereModelOnDisk
         speechEnginePreference = SpeechEnginePreference.current(defaults: defaults)
         parakeetModelVariant = SpeechEnginePreference.parakeetModelVariant(defaults: defaults)
         nemotronModelVariant = SpeechEnginePreference.nemotronModelVariant(defaults: defaults)
@@ -1162,9 +1167,10 @@ public final class EngineSettingsViewModel {
 
         modelStatusRefreshGeneration += 1
         applyCohereDownloadedStatus(false)
+        let deleter = deleteCohereModelOnDisk
         Task { @MainActor [weak self] in
             await Task.detached(priority: .userInitiated) {
-                _ = CohereTranscribeEngine.deleteModel()
+                _ = deleter()
             }.value
             guard let self else { return }
             self.refreshModelStatus()
