@@ -31,6 +31,8 @@ final class ModelLifecycleCommandTests: XCTestCase {
 
         XCTAssertThrowsError(try resolveWhisperDownloadModel("parakeet-v3")) { error in
             XCTAssertTrue(error is ValidationError)
+            XCTAssertTrue(String(describing: error).contains("parakeet-unified"))
+            XCTAssertTrue(String(describing: error).contains("cohere-transcribe"))
         }
     }
 

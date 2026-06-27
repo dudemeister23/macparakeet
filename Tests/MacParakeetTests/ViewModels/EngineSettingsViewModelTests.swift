@@ -177,6 +177,35 @@ final class EngineSettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.speechEngineSwitchTarget)
     }
 
+    func testConfirmPendingSwitchClearsPendingAndPersistsWhenCohereIsMarkedDownloaded() {
+        let vm = makeViewModel()
+        vm.cohereModelStatus = .notLoaded
+        vm.requestSpeechEngineSwitchConfirmation(to: .cohere)
+
+        vm.confirmPendingSpeechEngineSwitch()
+
+        XCTAssertNil(vm.pendingSpeechEngineSwitchConfirmation)
+        XCTAssertEqual(vm.speechEnginePreference, .cohere)
+        XCTAssertEqual(SpeechEnginePreference.current(defaults: defaults), .cohere)
+        XCTAssertNil(vm.speechEngineError)
+        XCTAssertFalse(vm.speechEngineSwitching)
+        XCTAssertNil(vm.speechEngineSwitchTarget)
+    }
+
+    func testConfirmPendingSwitchClearsPendingAndRestoresCurrentEngineWhenCohereModelIsMissing() {
+        let vm = makeViewModel()
+        vm.requestSpeechEngineSwitchConfirmation(to: .cohere)
+
+        vm.confirmPendingSpeechEngineSwitch()
+
+        XCTAssertNil(vm.pendingSpeechEngineSwitchConfirmation)
+        XCTAssertEqual(vm.speechEnginePreference, .parakeet)
+        XCTAssertEqual(SpeechEnginePreference.current(defaults: defaults), .parakeet)
+        XCTAssertEqual(vm.speechEngineError, "Download Cohere Transcribe before switching engines.")
+        XCTAssertFalse(vm.speechEngineSwitching)
+        XCTAssertNil(vm.speechEngineSwitchTarget)
+    }
+
     func testSwitchUnavailableMessageReturnsNilWhenAvailable() {
         XCTAssertNil(EngineSettingsViewModel.speechEngineSwitchUnavailableMessage(for: .available))
     }
@@ -328,6 +357,19 @@ final class EngineSettingsViewModelTests: XCTestCase {
 
         vm.whisperModelStatus = .ready
         XCTAssertTrue(vm.isWhisperModelDownloaded)
+    }
+
+    func testIsCohereModelDownloadedReflectsPublicStatus() {
+        let vm = makeViewModel()
+
+        vm.cohereModelStatus = .notDownloaded
+        XCTAssertFalse(vm.isCohereModelDownloaded)
+
+        vm.cohereModelStatus = .notLoaded
+        XCTAssertTrue(vm.isCohereModelDownloaded)
+
+        vm.cohereModelStatus = .ready
+        XCTAssertTrue(vm.isCohereModelDownloaded)
     }
 }
 

@@ -437,7 +437,7 @@ func resolveWhisperDownloadModel(_ variant: String) throws -> String {
         throw ValidationError("Model variant cannot be empty.")
     }
     guard normalizedInput.hasPrefix("whisper-") else {
-        throw ValidationError("Unsupported model identifier '\(variant)'. Use a parakeet-v2, parakeet-v3, nemotron-multilingual-1120ms, nemotron-english-1120ms, cohere-transcribe, or whisper-* id from `models list`.")
+        throw ValidationError("Unsupported model identifier '\(variant)'. Use a parakeet-v2, parakeet-v3, parakeet-unified, nemotron-multilingual-1120ms, nemotron-english-1120ms, cohere-transcribe, or whisper-* id from `models list`.")
     }
     return WhisperEngine.normalizeModelVariant(normalizedInput)
 }

@@ -502,12 +502,14 @@ struct SettingsView: View {
         case parakeet(ParakeetModelVariant)
         case nemotron(NemotronModelVariant)
         case whisper
+        case cohere
 
         var id: String {
             switch self {
             case .parakeet(let variant): "parakeet-\(variant.rawValue)"
             case .nemotron(let variant): "nemotron-\(variant.rawValue)"
             case .whisper: "whisper"
+            case .cohere: "cohere"
             }
         }
     }
@@ -525,6 +527,7 @@ struct SettingsView: View {
         case .parakeet(let variant): "Delete \(variant.modelName)?"
         case .nemotron(let variant): "Delete \(variant.modelName)?"
         case .whisper: "Delete the Whisper model?"
+        case .cohere: "Delete Cohere Transcribe?"
         case nil: "Delete this model?"
         }
     }
@@ -537,6 +540,8 @@ struct SettingsView: View {
             return "This frees \(variant.approximateDownloadSize). You can download \(variant.modelName) again at any time."
         case .whisper:
             return "This removes the configured Whisper model download from this Mac. You can download it again at any time."
+        case .cohere:
+            return "This frees about 2.1 GB. You can download Cohere Transcribe again at any time."
         }
     }
 
@@ -548,6 +553,8 @@ struct SettingsView: View {
             viewModel.engine.deleteNemotronVariant(variant)
         case .whisper:
             viewModel.engine.deleteWhisperModel()
+        case .cohere:
+            viewModel.engine.deleteCohereModel()
         }
         pendingModelDeletion = nil
     }
@@ -2253,7 +2260,7 @@ struct SettingsView: View {
                             isSelected: viewModel.engine.speechEnginePreference == .cohere,
                             isBusy: viewModel.engine.speechEngineSwitching,
                             unavailableReason: engineSwitchUnavailableReason(for: .cohere),
-                            onSelect: { selectEngine(.cohere) }
+                            onSelect: { handleCohereTileTap() }
                         )
                     }
                 }
@@ -2275,6 +2282,15 @@ struct SettingsView: View {
                         subtitle: banner.subtitle,
                         mode: banner.mode,
                         action: { viewModel.engine.downloadWhisperModel() }
+                    )
+                }
+
+                if let banner = cohereDownloadBannerState {
+                    EngineDownloadBanner(
+                        title: "Cohere Transcribe",
+                        subtitle: banner.subtitle,
+                        mode: banner.mode,
+                        action: { viewModel.engine.downloadCohereModel() }
                     )
                 }
 
@@ -2534,7 +2550,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Status chip rolls up the worst severity across both engines via
+    /// Status chip rolls up the worst severity across engines via
     /// `SettingsStatusRules.localModelsCardStatus`. Inline action button
     /// only renders for actionable states; Repair / Re-download for healthy
     /// models tucks into a `…` menu so calm rows stay calm.
@@ -2579,6 +2595,20 @@ struct SettingsView: View {
                     primaryAction: displayedWhisperModelStatus == .preparing ? nil : whisperPrimaryAction,
                     overflowActions: displayedWhisperModelStatus == .preparing ? [] : whisperOverflowActions
                 )
+
+                if AppFeatures.cohereEngineEnabled {
+                    Divider()
+
+                    modelStatusRow(
+                        title: "Cohere",
+                        detail: displayedCohereModelStatusDetail,
+                        status: displayedCohereModelStatus,
+                        isWorking: viewModel.engine.cohereDownloading,
+                        actionsDisabled: viewModel.engine.speechEngineSwitching,
+                        primaryAction: displayedCohereModelStatus == .preparing ? nil : coherePrimaryAction,
+                        overflowActions: displayedCohereModelStatus == .preparing ? [] : cohereOverflowActions
+                    )
+                }
             }
         }
     }
@@ -2692,6 +2722,14 @@ struct SettingsView: View {
         return .preparing
     }
 
+    private var displayedCohereModelStatusDetail: String {
+        guard viewModel.engine.speechEngineSwitching,
+              currentSpeechEngineSwitchTarget == .cohere else {
+            return viewModel.engine.cohereModelStatusDetail
+        }
+        return viewModel.engine.speechEngineSwitchDetail ?? "Loading Cohere with Core ML..."
+    }
+
     private var displayedNemotronModelStatusDetail: String {
         guard viewModel.engine.speechEngineSwitching,
               currentSpeechEngineSwitchTarget == .nemotron else {
@@ -2795,6 +2833,26 @@ struct SettingsView: View {
         }
     }
 
+    private var cohereDownloadBannerState: (mode: EngineDownloadBanner.Mode, subtitle: String)? {
+        guard AppFeatures.cohereEngineEnabled,
+              viewModel.engine.speechEnginePreference == .cohere else {
+            return nil
+        }
+        if viewModel.engine.cohereDownloading {
+            return (.downloading, viewModel.engine.cohereModelStatusDetail)
+        }
+        switch viewModel.engine.cohereModelStatus {
+        case .notDownloaded:
+            return (.download, "About 2.1 GB · downloads once, runs locally afterwards")
+        case .repairing:
+            return (.downloading, viewModel.engine.cohereModelStatusDetail)
+        case .failed:
+            return (.retry, viewModel.engine.cohereModelStatusDetail)
+        case .ready, .notLoaded, .preparing, .checking, .unknown:
+            return nil
+        }
+    }
+
     /// Pre-empts every "Whisper isn't ready" state so the user never sees
     /// a briefly-selected-then-reverted tile. Mirrors the VM's
     /// `isWhisperModelAvailable` (`ready` or `notLoaded`); for everything
@@ -2833,6 +2891,23 @@ struct SettingsView: View {
             viewModel.engine.speechEngineError = "Nemotron model failed to load — retry below."
         case .checking, .unknown:
             selectEngine(.nemotron)
+        }
+    }
+
+    private func handleCohereTileTap() {
+        switch viewModel.engine.cohereModelStatus {
+        case .ready, .notLoaded:
+            selectEngine(.cohere)
+        case .notDownloaded:
+            viewModel.engine.speechEngineError = "Download Cohere Transcribe from Local Models below before switching engines."
+        case .repairing:
+            viewModel.engine.speechEngineError = "Cohere Transcribe is downloading — switch engines once it finishes."
+        case .preparing:
+            viewModel.engine.speechEngineError = "Cohere is preparing for this Mac — switch engines once it finishes."
+        case .failed:
+            viewModel.engine.speechEngineError = "Cohere Transcribe failed to load — retry below."
+        case .checking, .unknown:
+            selectEngine(.cohere)
         }
     }
 
@@ -2924,6 +2999,29 @@ struct SettingsView: View {
         }
     }
 
+    private var coherePrimaryAction: ModelRowAction? {
+        switch viewModel.engine.cohereModelStatus {
+        case .notDownloaded:
+            return ModelRowAction(
+                label: "Download",
+                isProminent: true,
+                help: "Download Cohere Transcribe for local speech recognition."
+            ) {
+                viewModel.engine.downloadCohereModel()
+            }
+        case .failed:
+            return ModelRowAction(
+                label: "Retry",
+                isProminent: true,
+                help: "Try downloading Cohere Transcribe again."
+            ) {
+                viewModel.engine.downloadCohereModel()
+            }
+        default:
+            return nil
+        }
+    }
+
     private var nemotronOverflowActions: [ModelRowAction] {
         switch viewModel.engine.nemotronModelStatus {
         case .ready, .notLoaded:
@@ -2975,6 +3073,32 @@ struct SettingsView: View {
                     help: "Remove the configured Whisper model download from this Mac."
                 ) {
                     pendingModelDeletion = .whisper
+                })
+            }
+            return actions
+        default:
+            return []
+        }
+    }
+
+    private var cohereOverflowActions: [ModelRowAction] {
+        switch viewModel.engine.cohereModelStatus {
+        case .ready, .notLoaded:
+            var actions = [ModelRowAction(
+                label: "Repair…",
+                isProminent: false,
+                help: "Re-check Cohere Transcribe files and re-download any missing model assets."
+            ) {
+                viewModel.engine.downloadCohereModel()
+            }]
+            if viewModel.engine.speechEnginePreference != .cohere {
+                actions.append(ModelRowAction(
+                    label: "Delete download…",
+                    isProminent: false,
+                    isDestructive: true,
+                    help: "Remove the Cohere Transcribe download from this Mac."
+                ) {
+                    pendingModelDeletion = .cohere
                 })
             }
             return actions

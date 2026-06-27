@@ -74,6 +74,7 @@ public final class EngineSettingsViewModel {
     public var nemotronDownloading = false
     public var cohereModelStatus: LocalModelStatus = .unknown
     public var cohereModelStatusDetail: String = "Not checked yet."
+    public var cohereDownloading = false
     public var isNemotronModelAvailable: Bool {
         nemotronModelStatus == .ready || nemotronModelStatus == .notLoaded
     }
@@ -610,6 +611,94 @@ public final class EngineSettingsViewModel {
         }
     }
 
+    public func downloadCohereModel() {
+        guard !speechEngineSwitching else { return }
+        guard !cohereDownloading else { return }
+        speechEngineError = nil
+        cohereDownloading = true
+        cohereModelStatus = .repairing
+        cohereModelStatusDetail = "Downloading Cohere Transcribe..."
+        let operationContext = Observability.childOperationContext()
+        let engineVariant = CohereTranscribeEngine.ComputePolicy.current(defaults: defaults).rawValue
+        Telemetry.send(.modelDownloadStarted(
+            modelKind: .cohereSTT,
+            speechEngine: .cohere,
+            engineVariant: engineVariant
+        ))
+
+        Task {
+            do {
+                _ = try await CohereTranscribeEngine.downloadModel { message in
+                    Task { @MainActor [weak self] in
+                        self?.cohereModelStatusDetail = message
+                    }
+                }
+                let durationSeconds = Observability.durationSeconds(since: operationContext.startedAt)
+                Telemetry.send(.modelDownloadCompleted(
+                    durationSeconds: durationSeconds,
+                    modelKind: .cohereSTT,
+                    speechEngine: .cohere,
+                    engineVariant: engineVariant
+                ))
+                Telemetry.send(.modelOperation(
+                    operationID: operationContext.operationID,
+                    operationContext: operationContext,
+                    action: .download,
+                    outcome: .success,
+                    stage: .download,
+                    modelKind: .cohereSTT,
+                    speechEngine: .cohere,
+                    engineVariant: engineVariant,
+                    durationSeconds: durationSeconds,
+                    errorType: nil
+                ))
+                self.cohereDownloading = false
+                self.refreshModelStatus()
+            } catch is CancellationError {
+                let durationSeconds = Observability.durationSeconds(since: operationContext.startedAt)
+                Telemetry.send(.modelOperation(
+                    operationID: operationContext.operationID,
+                    operationContext: operationContext,
+                    action: .download,
+                    outcome: .cancelled,
+                    stage: .download,
+                    modelKind: .cohereSTT,
+                    speechEngine: .cohere,
+                    engineVariant: engineVariant,
+                    durationSeconds: durationSeconds,
+                    errorType: "CancellationError"
+                ))
+                self.cohereDownloading = false
+                self.refreshModelStatus()
+            } catch {
+                let durationSeconds = Observability.durationSeconds(since: operationContext.startedAt)
+                let errorType = TelemetryErrorClassifier.classify(error)
+                Telemetry.send(.modelDownloadFailed(
+                    errorType: errorType,
+                    errorDetail: TelemetryErrorClassifier.errorDetail(error),
+                    modelKind: .cohereSTT,
+                    speechEngine: .cohere,
+                    engineVariant: engineVariant
+                ))
+                Telemetry.send(.modelOperation(
+                    operationID: operationContext.operationID,
+                    operationContext: operationContext,
+                    action: .download,
+                    outcome: .failure,
+                    stage: .download,
+                    modelKind: .cohereSTT,
+                    speechEngine: .cohere,
+                    engineVariant: engineVariant,
+                    durationSeconds: durationSeconds,
+                    errorType: errorType
+                ))
+                self.cohereDownloading = false
+                self.cohereModelStatus = .failed
+                self.cohereModelStatusDetail = error.localizedDescription
+            }
+        }
+    }
+
     private func applySpeechEngineChange(_ preference: SpeechEnginePreference) {
         speechEngineError = nil
         let previousPreference = SpeechEnginePreference.current(defaults: defaults)
@@ -637,6 +726,25 @@ public final class EngineSettingsViewModel {
 
         if preference == .whisper && !isWhisperModelDownloaded {
             speechEngineError = "Download the Whisper model before switching engines."
+            Telemetry.send(.speechEngineSwitchOperation(
+                operationID: operationContext.operationID,
+                operationContext: operationContext,
+                fromEngine: previousPreference,
+                toEngine: preference,
+                outcome: .unavailable,
+                durationSeconds: Observability.durationSeconds(since: operationContext.startedAt),
+                blockedReason: .modelNotDownloaded,
+                errorType: "model_not_downloaded",
+                wasCold: switchWasCold
+            ))
+            isApplyingSpeechEngineState = true
+            speechEnginePreference = previousPreference
+            isApplyingSpeechEngineState = false
+            return
+        }
+
+        if preference == .cohere && !isCohereModelDownloaded {
+            speechEngineError = "Download Cohere Transcribe before switching engines."
             Telemetry.send(.speechEngineSwitchOperation(
                 operationID: operationContext.operationID,
                 operationContext: operationContext,
@@ -1039,6 +1147,24 @@ public final class EngineSettingsViewModel {
         Task { @MainActor [weak self] in
             await Task.detached(priority: .userInitiated) {
                 _ = deleter(variant)
+            }.value
+            guard let self else { return }
+            self.refreshModelStatus()
+        }
+    }
+
+    public func deleteCohereModel() {
+        guard !speechEngineSwitching, !cohereDownloading else { return }
+        // Protect the in-use engine's model; deleting it would force a silent
+        // re-download the next time the active runtime prepares.
+        guard speechEnginePreference != .cohere else { return }
+        guard isCohereModelDownloaded else { return }
+
+        modelStatusRefreshGeneration += 1
+        applyCohereDownloadedStatus(false)
+        Task { @MainActor [weak self] in
+            await Task.detached(priority: .userInitiated) {
+                _ = CohereTranscribeEngine.deleteModel()
             }.value
             guard let self else { return }
             self.refreshModelStatus()
