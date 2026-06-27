@@ -113,6 +113,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
     private let transcriptionPermit = AsyncPermit()
     private var models: CoherePipeline.LoadedModels?
     private var initializationTask: Task<Void, Error>?
+    private var activeLoadID: UUID?
 
     public init(
         computePolicy: ComputePolicy = .ane,
@@ -506,7 +507,9 @@ public actor CohereTranscribeEngine: STTTranscribing {
         // finishes. This task is shared by concurrent prepare() callers, so an
         // individual awaiter cancellation must not cancel shared work for other
         // waiters. Explicit lifecycle paths such as unload() still cancel it.
-        let task = Task { try await loadModels(onProgress: onProgress) }
+        let loadID = UUID()
+        activeLoadID = loadID
+        let task = Task { [loadID] in try await loadModels(loadID: loadID, onProgress: onProgress) }
         initializationTask = task
 
         do {
@@ -531,22 +534,29 @@ public actor CohereTranscribeEngine: STTTranscribing {
     }
 
     public func unload() async {
-        initializationTask?.cancel()
-        _ = try? await initializationTask?.value
+        let task = initializationTask
         initializationTask = nil
+        activeLoadID = nil
         // Dropping `LoadedModels` releases the encoder/decoder `MLModel`s.
         models = nil
+        task?.cancel()
+        _ = try? await task?.value
     }
 
     public func isReady() -> Bool {
         models != nil
     }
 
-    private func loadModels(onProgress: (@Sendable (String) -> Void)?) async throws {
+    private func loadModels(loadID: UUID, onProgress: (@Sendable (String) -> Void)?) async throws {
         // Clear the shared handle when this work finishes (success or failure),
         // from inside the task — not from a possibly-cancelled awaiting caller —
         // so concurrent prepare() calls coalesce onto this one task.
-        defer { initializationTask = nil }
+        defer {
+            if activeLoadID == loadID {
+                initializationTask = nil
+                activeLoadID = nil
+            }
+        }
         try Task.checkCancellation()
         let dir = Self.defaultCacheRoot()
         try Self.requireModelCached(cacheRoot: dir)
@@ -581,6 +591,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
             logger.error("cohere_warmup_failed error=\(error.localizedDescription, privacy: .public)")
         }
         try Task.checkCancellation()
+        guard activeLoadID == loadID else { throw CancellationError() }
         self.models = loaded
         logger.notice("cohere_model_prepare_complete compute=\(self.computePolicy.rawValue, privacy: .public)")
         AudioCaptureDiagnostics.append("cohere_model_prepare_complete compute=\(self.computePolicy.rawValue)")

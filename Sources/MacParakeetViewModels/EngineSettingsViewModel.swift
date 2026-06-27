@@ -279,8 +279,10 @@ public final class EngineSettingsViewModel {
             nemotronModelStatusDetail = "Checking model state..."
             whisperModelStatus = .checking
             whisperModelStatusDetail = "Checking model state..."
-            cohereModelStatus = .checking
-            cohereModelStatusDetail = "Checking model state..."
+            if !cohereDownloading, !cohereDeleting {
+                cohereModelStatus = .checking
+                cohereModelStatusDetail = "Checking model state..."
+            }
             Task { @MainActor [weak self] in
                 let disk = await Task.detached(priority: .userInitiated) {
                     (
@@ -302,10 +304,14 @@ public final class EngineSettingsViewModel {
                 }
                 self.downloadedParakeetVariants = disk.parakeetDownloaded
                 self.downloadedNemotronVariants = disk.nemotronDownloaded
-                self.cohereCacheDirectoryExists = disk.cohereCacheDirectoryExists
+                if !self.cohereDownloading, !self.cohereDeleting {
+                    self.cohereCacheDirectoryExists = disk.cohereCacheDirectoryExists
+                }
                 self.applyNemotronDownloadedStatus(disk.nemotronDownloaded.contains(activeNemotronVariant))
                 self.applyWhisperDownloadedStatus(disk.whisperDownloaded)
-                self.applyCohereDownloadedStatus(disk.cohereDownloaded)
+                if !self.cohereDownloading, !self.cohereDeleting {
+                    self.applyCohereDownloadedStatus(disk.cohereDownloaded)
+                }
             }
             return
         }
@@ -316,8 +322,10 @@ public final class EngineSettingsViewModel {
         nemotronModelStatusDetail = "Checking model state..."
         whisperModelStatus = .checking
         whisperModelStatusDetail = "Checking model state..."
-        cohereModelStatus = .checking
-        cohereModelStatusDetail = "Checking model state..."
+        if !cohereDownloading, !cohereDeleting {
+            cohereModelStatus = .checking
+            cohereModelStatusDetail = "Checking model state..."
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -353,7 +361,9 @@ public final class EngineSettingsViewModel {
 
             self.downloadedParakeetVariants = modelDiskState.parakeetDownloaded
             self.downloadedNemotronVariants = modelDiskState.nemotronDownloaded
-            self.cohereCacheDirectoryExists = modelDiskState.cohereCacheDirectoryExists
+            if !self.cohereDownloading, !self.cohereDeleting {
+                self.cohereCacheDirectoryExists = modelDiskState.cohereCacheDirectoryExists
+            }
             let parakeetName = activeVariant.modelName
             if activeEngine == .parakeet, activeEngineIsLoaded {
                 self.parakeetStatus = .ready
@@ -383,7 +393,7 @@ public final class EngineSettingsViewModel {
             if activeEngine == .cohere, activeEngineIsLoaded {
                 self.cohereModelStatus = .ready
                 self.cohereModelStatusDetail = "Cohere Transcribe · Loaded in memory."
-            } else {
+            } else if !self.cohereDownloading, !self.cohereDeleting {
                 self.applyCohereDownloadedStatus(modelDiskState.cohereDownloaded)
             }
         }

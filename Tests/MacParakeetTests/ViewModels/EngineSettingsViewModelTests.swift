@@ -363,6 +363,48 @@ final class EngineSettingsViewModelTests: XCTestCase {
         XCTAssertTrue(vm.canDeleteCohereModel)
     }
 
+    func testRefreshModelStatusPreservesCohereDownloadState() async throws {
+        let recorder = CohereDiskStateRecorder(cached: false, cacheDirectoryExists: true)
+        let vm = makeViewModel(
+            cohereCached: { recorder.isCached() },
+            cohereCacheDirectoryExists: { recorder.cacheDirectoryExists() }
+        )
+        vm.configure(sttClient: MockSTTClient())
+        vm.cohereDownloading = true
+        vm.cohereModelStatus = .repairing
+        vm.cohereModelStatusDetail = "Downloading Cohere Transcribe..."
+        vm.cohereCacheDirectoryExists = false
+
+        vm.refreshModelStatus()
+
+        try await waitForModelStatusRefreshToFinish(vm)
+        XCTAssertTrue(recorder.didCheckCohere)
+        XCTAssertEqual(vm.cohereModelStatus, .repairing)
+        XCTAssertEqual(vm.cohereModelStatusDetail, "Downloading Cohere Transcribe...")
+        XCTAssertFalse(vm.cohereCacheDirectoryExists)
+    }
+
+    func testRefreshModelStatusPreservesCohereDeleteState() async throws {
+        let recorder = CohereDiskStateRecorder(cached: true, cacheDirectoryExists: true)
+        let vm = makeViewModel(
+            cohereCached: { recorder.isCached() },
+            cohereCacheDirectoryExists: { recorder.cacheDirectoryExists() }
+        )
+        vm.configure(sttClient: MockSTTClient())
+        vm.cohereDeleting = true
+        vm.cohereModelStatus = .notDownloaded
+        vm.cohereModelStatusDetail = "Deleting Cohere Transcribe..."
+        vm.cohereCacheDirectoryExists = false
+
+        vm.refreshModelStatus()
+
+        try await waitForModelStatusRefreshToFinish(vm)
+        XCTAssertTrue(recorder.didCheckCohere)
+        XCTAssertEqual(vm.cohereModelStatus, .notDownloaded)
+        XCTAssertEqual(vm.cohereModelStatusDetail, "Deleting Cohere Transcribe...")
+        XCTAssertFalse(vm.cohereCacheDirectoryExists)
+    }
+
     func testActiveReadyCohereReportsLoadedInMemory() async throws {
         SpeechEnginePreference.cohere.save(to: defaults)
         let vm = makeViewModel(cohereCached: { true })
@@ -523,6 +565,41 @@ private final class CohereDeleteRecorder: @unchecked Sendable {
         deletes += 1
         cached = false
         lock.unlock()
+    }
+}
+
+private final class CohereDiskStateRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let cached: Bool
+    private let directoryExists: Bool
+    private var cacheCheckCount = 0
+    private var directoryCheckCount = 0
+
+    init(cached: Bool, cacheDirectoryExists: Bool) {
+        self.cached = cached
+        self.directoryExists = cacheDirectoryExists
+    }
+
+    var didCheckCohere: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cacheCheckCount > 0 && directoryCheckCount > 0
+    }
+
+    func isCached() -> Bool {
+        lock.lock()
+        cacheCheckCount += 1
+        let value = cached
+        lock.unlock()
+        return value
+    }
+
+    func cacheDirectoryExists() -> Bool {
+        lock.lock()
+        directoryCheckCount += 1
+        let value = directoryExists
+        lock.unlock()
+        return value
     }
 }
 
