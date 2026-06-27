@@ -119,6 +119,22 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertEqual(merged, prefix + " alpha beta gamma")
     }
 
+    func testMergeTailBoundKeepsLongWordOverlapIntact() {
+        let prefix = (0..<200).map { "word\($0)" }.joined(separator: " ")
+        let overlap = (0..<30)
+            .map { "overlapsegment\($0)abc" }
+            .joined(separator: " ")
+        XCTAssertGreaterThan(overlap.count, 450)
+        XCTAssertLessThan(overlap.count, 1000)
+
+        let merged = CohereTranscribeEngine.mergeOnOverlap(
+            prefix + " " + overlap,
+            overlap + " tail"
+        )
+
+        XCTAssertEqual(merged, prefix + " " + overlap + " tail")
+    }
+
     func testMergeHandlesEmptyFragments() {
         XCTAssertEqual(CohereTranscribeEngine.mergeOnOverlap("", "only b"), "only b")
         XCTAssertEqual(CohereTranscribeEngine.mergeOnOverlap("only a", ""), "only a")

@@ -252,7 +252,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
         // Only the tail of the accumulated transcript can overlap the next
         // chunk. Keep long-file stitching bounded instead of re-tokenizing the
         // whole transcript on every merge.
-        let safeSuffixLength = max(maxOverlap * 15, maxOverlap + 1)
+        let safeSuffixLength = max(maxOverlap * 40, 1000)
         if let splitIndex = a.index(a.endIndex, offsetBy: -safeSuffixLength, limitedBy: a.startIndex),
            splitIndex > a.startIndex {
             return String(a[..<splitIndex]) + mergeOnOverlap(
@@ -535,12 +535,13 @@ public actor CohereTranscribeEngine: STTTranscribing {
     }
 
     private nonisolated static func removeIfEmpty(_ directory: URL, fileManager: FileManager) {
-        guard let children = try? fileManager.contentsOfDirectory(atPath: directory.path),
-            children.isEmpty
-        else {
-            return
-        }
+        guard let children = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return }
+        guard children.allSatisfy(isFinderMetadataFile) else { return }
         try? fileManager.removeItem(at: directory)
+    }
+
+    private nonisolated static func isFinderMetadataFile(_ name: String) -> Bool {
+        name == ".DS_Store" || name == ".localized" || name == "Icon\r"
     }
 
     // MARK: - Helpers
