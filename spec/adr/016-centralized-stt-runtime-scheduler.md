@@ -7,7 +7,7 @@
 > Amendment 2026-06-08: Nemotron 3.5 joins the same routed scheduler/runtime as an opt-in Beta engine. The one-control-plane rule still holds; Nemotron does not create feature-owned STT runtimes.
 > Amendment 2026-06-11: The Nemotron engine routes between two builds (multilingual `NemotronEngine` / English-only `NemotronEnglishEngine`) on the persisted Nemotron model preference. Nemotron build swaps follow the same scheduler rules as Parakeet v2/v3 swaps — rejected while jobs run or a meeting lease is active.
 > Amendment 2026-06-18: Parakeet Unified routes inside the same control plane through a dedicated `ParakeetUnifiedEngine` selected by the persisted Parakeet model preference. Unified does not create a feature-owned STT runtime; live dictation preview uses its native streaming manager while final paste/file/meeting work stays on the offline path.
-> Amendment 2026-06-27: Cohere Transcribe routes through the same runtime owner as an opt-in, downloaded, batch-only FluidAudio CoreML engine. It is allowed for recorded dictation finalization, file transcription, and meeting finalization/retranscribe, but it must not enter live dictation preview or meeting live-chunk paths because it emits no live partials, word timestamps, or speaker labels.
+> Amendment 2026-06-27: Cohere Transcribe routes through the same runtime owner as an opt-in, explicitly downloaded, batch-only FluidAudio CoreML engine. It is allowed for recorded dictation finalization, file transcription, and meeting finalization/retranscribe, but it must not enter live dictation preview or meeting live-chunk paths because it emits no live partials, word timestamps, or speaker labels. Because the Cohere runtime is a single large batch pipeline rather than separate interactive/background managers, the scheduler treats Cohere as a global single-flight resource instead of hiding cross-slot waits inside the engine.
 
 ## Context
 
@@ -200,6 +200,7 @@ The control plane supports both unrouted and routed transcription calls:
 
 - Unrouted jobs use the runtime's current `SpeechEnginePreference`.
 - Routed jobs pass a `SpeechEngineSelection` (`parakeet`, `nemotron`, `cohere`, or `whisper`, with optional language where the selected engine/build supports it).
+- Cohere jobs are admitted as a scheduler-level single-flight resource across the interactive and background slots. Parakeet/Nemotron/Whisper keep the normal slot split; Cohere trades that low-latency isolation for its larger batch accuracy path.
 - `setSpeechEngine(_:)` is rejected while jobs are queued/running.
 - `beginSpeechEngineSession()` returns a lease containing the current selection; `endSpeechEngineSession(_:)` releases it.
 - Engine switching is rejected while any lease is active.

@@ -82,10 +82,10 @@ Cohere Transcribe (`cohere-transcribe-03-2026`, 2B, Apache-2.0) was evaluated by
 | Accuracy | Most accurate on-device: English macro WER 2.07% (full LibriSpeech); best Japanese (FLEURS CER 5.56). Significant lead only on noisy English + Japanese; clean EN/KO/ZH are statistical ties (paired-bootstrap CIs) |
 | Output | Plain transcript text; no word timestamps, no speaker labels, no live partials |
 | Selection | Explicit in Settings or CLI (`--engine cohere --language <code>`); `models select cohere-transcribe`; no automatic fallback |
-| Download | ~2.1 GB, explicit Settings/CLI download (`models download cohere-transcribe`) before selecting as the shared default |
+| Download | ~2.1 GB, explicit Settings/CLI download (`models download cohere-transcribe`) before selection or transcription; normal transcription paths fail fast if the model is missing |
 | Compute | Defaults to Core ML CPU+Neural Engine (`ane`) to avoid the recurring per-launch GPU specialization cost; GPU remains an internal policy override |
 
-Cohere is batch-only. Dictation records first and transcribes after the user stops; it does not show live dictation preview. File transcription and meeting finalization can use Cohere, but meeting live preview chunks are disabled and meeting transcripts degrade to plain text because Cohere does not emit word timestamps. Parakeet v3 stays the default and WhisperKit remains the lighter broad-coverage option; Cohere is for users who explicitly accept the larger model and memory footprint for accuracy. Full benchmark methodology, CIs, and speed/memory tables: `benchmarks/asr/README.md`.
+Cohere is batch-only and single-flight inside the shared runtime. Dictation records first and transcribes after the user stops; it does not show live dictation preview. File transcription and meeting finalization can use Cohere, but meeting live preview chunks are disabled and meeting transcripts degrade to plain text because Cohere does not emit word timestamps. `STTScheduler` treats Cohere as a global serialized resource so an interactive Cohere dictation finalization is not hidden behind an engine-internal wait while another Cohere batch job is running; Parakeet and Nemotron keep the normal interactive/background split for low-latency dictation. Parakeet v3 stays the default and WhisperKit remains the lighter broad-coverage option; Cohere is for users who explicitly accept the larger model and memory footprint for accuracy. Full benchmark methodology, CIs, and speed/memory tables: `benchmarks/asr/README.md`.
 
 ### Three-Chip Architecture
 
@@ -97,7 +97,7 @@ ANE/CoreML: Parakeet STT, Nemotron Beta, and Cohere Transcribe (via FluidAudio/C
 CPU/GPU/CoreML as selected by WhisperKit: optional multilingual STT
 ```
 
-The default Parakeet path runs on dedicated silicon, leaving CPU and GPU free for the app and macOS. Nemotron uses FluidAudio's CoreML path with separate interactive/background managers backed by shared model weights. Cohere uses FluidAudio's CoreML batch path and serializes transcriptions through its loaded pipeline. WhisperKit uses the compute path selected by WhisperKit/CoreML for the downloaded model variant.
+The default Parakeet path runs on dedicated silicon, leaving CPU and GPU free for the app and macOS. Nemotron uses FluidAudio's CoreML path with separate interactive/background managers backed by shared model weights. Cohere uses FluidAudio's CoreML batch path and is admitted as a scheduler-level single-flight resource around its loaded pipeline. WhisperKit uses the compute path selected by WhisperKit/CoreML for the downloaded model variant.
 
 ---
 

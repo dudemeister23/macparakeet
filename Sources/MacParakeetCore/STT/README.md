@@ -22,7 +22,8 @@ to one `STTRuntime`; callers do not own model lifecycles directly.
 
 **Speech control plane**
 - `STTScheduler.swift` — public broker. Job admission, slot scheduling,
-  engine routing, session leases for active meetings.
+  engine routing, session leases for active meetings, and Cohere's
+  scheduler-level single-flight admission.
 - `STTRuntime.swift` — sole owner of the Parakeet TDT `AsrManager`s, the
   optional `ParakeetUnifiedEngine` (routed when the persisted
   `ParakeetModelVariant` is `.unified`), the optional Beta
@@ -64,7 +65,8 @@ to one `STTRuntime`; callers do not own model lifecycles directly.
   Batch-only: dictation records first and transcribes after stop, file and
   meeting-finalize jobs run offline, live dictation preview stays off, and
   meeting live preview chunks are not routed to Cohere. No word timings;
-  meetings degrade to plain text.
+  meetings degrade to plain text. Loads only an explicitly downloaded model
+  cache; it does not download from normal transcription/warm-up paths.
 - `NativeLiveDictating.swift` — internal protocol the native streaming engines
   conform to so `STTRuntime` can route a live dictation session to the active
   Nemotron or Parakeet Unified build without knowing the concrete engine type.

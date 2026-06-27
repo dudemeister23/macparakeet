@@ -151,7 +151,7 @@ The diagram below shows the ADR-015/ADR-016 architecture. Dictation and meeting 
 - **Centralized STT ownership** — one runtime owner manages lifecycle, warm-up, shutdown, and speech-engine dispatch.
 - **Explicit scheduling** — the STT stack uses a reserved dictation slot plus a shared background slot; within the background slot, finalize beats live preview, and file transcription waits.
 - **Meeting engine lease** — a recording pins the active speech engine/language at start and blocks engine switching until stop/cancel.
-- **Cohere is batch-only** — Cohere dictation records first and transcribes on stop; meetings use Cohere only for final transcription, not live preview chunks.
+- **Cohere is batch-only** — Cohere dictation records first and transcribes on stop; meetings use Cohere only for final transcription, not live preview chunks. The scheduler admits Cohere as one global single-flight resource because the engine owns one large batch pipeline rather than separate interactive/background managers.
 - **Menu bar icon priority** — meeting > dictation > file-transcription > idle.
 
 ---
@@ -548,7 +548,7 @@ STTRuntime
     ├── Parakeet v2/v3 slot managers
     ├── Parakeet Unified engine
     ├── Nemotron multilingual / English engines
-    ├── optional CohereTranscribeEngine selected by routed jobs/preferences
+    ├── optional single-flight CohereTranscribeEngine selected by routed jobs/preferences
     └── optional WhisperEngine selected by routed jobs/preferences
 ```
 

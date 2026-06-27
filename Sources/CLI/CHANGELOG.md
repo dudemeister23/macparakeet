@@ -99,6 +99,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   `--language` is omitted.
 - `models list`/`select`/`download`/`delete`/`status` include Cohere Transcribe
   model availability alongside Parakeet, Nemotron, and Whisper.
+- Cohere transcription now fails fast when the local Cohere model is missing;
+  use `models download cohere-transcribe` for the explicit ~2.1 GB download.
 - `transcribe --format` now accepts `srt` and `vtt` in addition to `text`,
   `transcript`, and `json`. Both emit timed subtitles through the same renderer
   as `export --format srt|vtt`, so output is byte-identical between the two

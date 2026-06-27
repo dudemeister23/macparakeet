@@ -169,8 +169,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
 
         do {
             // Lazy path (CLI, or first dictation before background warm-up
-            // finished): a first-time ~2.1 GB model download would otherwise be
-            // silent and read as a hang, so log prepare progress to the console.
+            // finished): log model-load progress to the console.
             try await prepare(onProgress: { [logger] message in
                 logger.notice("cohere_prepare \(message, privacy: .public)")
             })
@@ -262,7 +261,8 @@ public actor CohereTranscribeEngine: STTTranscribing {
         let minWindow = 4 * sr
         // Audio that fit the encoder window but truncated is dense — shrink the
         // window so it still produces at least two chunks.
-        let window = samples.count <= CohereAsrConfig.maxSamples
+        let window =
+            samples.count <= CohereAsrConfig.maxSamples
             ? min(maxWindow, max(8 * sr, samples.count * 3 / 5))
             : maxWindow
         return try await chunkAndStitch(
@@ -343,12 +343,14 @@ public actor CohereTranscribeEngine: STTTranscribing {
         // whole transcript on every merge.
         let safeSuffixLength = max(maxOverlap * 40, 1000)
         if let splitIndex = a.index(a.endIndex, offsetBy: -safeSuffixLength, limitedBy: a.startIndex),
-           splitIndex > a.startIndex {
-            return String(a[..<splitIndex]) + mergeOnOverlap(
-                String(a[splitIndex...]),
-                b,
-                maxOverlap: maxOverlap
-            )
+            splitIndex > a.startIndex
+        {
+            return String(a[..<splitIndex])
+                + mergeOnOverlap(
+                    String(a[splitIndex...]),
+                    b,
+                    maxOverlap: maxOverlap
+                )
         }
 
         if shouldUseCharacterOverlap(a, b) {
@@ -390,8 +392,9 @@ public actor CohereTranscribeEngine: STTTranscribing {
 
         var mergedA = a
         if bestK > 0,
-           let lastA = mergedA.last,
-           isTrailingPartial(unit: lastA, completedBy: b[bestK - 1]) {
+            let lastA = mergedA.last,
+            isTrailingPartial(unit: lastA, completedBy: b[bestK - 1])
+        {
             mergedA[mergedA.count - 1] = b[bestK - 1]
         }
         return (mergedA + b.dropFirst(bestK)).joined(separator: separator)
@@ -426,7 +429,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
     private static func isLeadingPartial(unit: String, completedBy fullUnit: String) -> Bool {
         let minimumPartialLength = 2
         guard let unit = normalizedOverlapUnit(unit),
-              let fullUnit = normalizedOverlapUnit(fullUnit)
+            let fullUnit = normalizedOverlapUnit(fullUnit)
         else { return false }
         return unit.count >= minimumPartialLength
             && fullUnit.count > unit.count
@@ -436,7 +439,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
     private static func isTrailingPartial(unit: String, completedBy fullUnit: String) -> Bool {
         let minimumPartialLength = 2
         guard let unit = normalizedOverlapUnit(unit),
-              let fullUnit = normalizedOverlapUnit(fullUnit)
+            let fullUnit = normalizedOverlapUnit(fullUnit)
         else { return false }
         return unit.count >= minimumPartialLength
             && fullUnit.count > unit.count
@@ -462,12 +465,12 @@ public actor CohereTranscribeEngine: STTTranscribing {
     private static func containsCJK(_ string: String) -> Bool {
         string.unicodeScalars.contains { scalar in
             switch scalar.value {
-            case 0x3040...0x309F, // Hiragana
-                 0x30A0...0x30FF, // Katakana
-                 0x3400...0x4DBF, // CJK Unified Ideographs Extension A
-                 0x4E00...0x9FFF, // CJK Unified Ideographs
-                 0xF900...0xFAFF, // CJK Compatibility Ideographs
-                 0x20000...0x323AF: // CJK Unified Ideographs Extensions B-H and supplement
+            case 0x3040...0x309F,  // Hiragana
+                0x30A0...0x30FF,  // Katakana
+                0x3400...0x4DBF,  // CJK Unified Ideographs Extension A
+                0x4E00...0x9FFF,  // CJK Unified Ideographs
+                0xF900...0xFAFF,  // CJK Compatibility Ideographs
+                0x20000...0x323AF:  // CJK Unified Ideographs Extensions B-H and supplement
                 return true
             default:
                 return false
@@ -478,7 +481,7 @@ public actor CohereTranscribeEngine: STTTranscribing {
     private static func containsHangul(_ string: String) -> Bool {
         string.unicodeScalars.contains { scalar in
             switch scalar.value {
-            case 0xAC00...0xD7AF: // Hangul syllables
+            case 0xAC00...0xD7AF:  // Hangul syllables
                 return true
             default:
                 return false
@@ -546,10 +549,10 @@ public actor CohereTranscribeEngine: STTTranscribing {
         // so concurrent prepare() calls coalesce onto this one task.
         defer { initializationTask = nil }
         try Task.checkCancellation()
-        try await Self.downloadModel(onProgress: onProgress)
+        let dir = Self.defaultCacheRoot()
+        try Self.requireModelCached(cacheRoot: dir)
         try Task.checkCancellation()
         onProgress?("Loading Cohere model with Core ML...")
-        let dir = Self.defaultCacheRoot()
         try Task.checkCancellation()
         let loaded = try await CoherePipeline.loadModels(
             encoderDir: dir,
@@ -637,6 +640,18 @@ public actor CohereTranscribeEngine: STTTranscribing {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: cacheRoot.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
+    }
+
+    nonisolated static func requireModelCached(cacheRoot: URL = defaultCacheRoot()) throws {
+        guard isModelCached(cacheRoot: cacheRoot) else {
+            throw missingModelError()
+        }
+    }
+
+    private nonisolated static func missingModelError() -> STTError {
+        .engineStartFailed(
+            "Cohere Transcribe is not downloaded. Run `macparakeet-cli models download cohere-transcribe` first."
+        )
     }
 
     /// Pre-fetches the model to its cache without loading it. A cached model is

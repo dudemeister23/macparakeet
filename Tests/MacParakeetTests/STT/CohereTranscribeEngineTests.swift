@@ -210,6 +210,41 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertEqual(CohereTranscribeEngine.ComputePolicy.current(defaults: defaults), .gpu)
     }
 
+    func testRequireModelCachedFailsFastWhenCohereCacheIsMissing() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cohere-cache-\(UUID().uuidString)", isDirectory: true)
+
+        XCTAssertThrowsError(try CohereTranscribeEngine.requireModelCached(cacheRoot: cacheRoot)) { error in
+            guard case STTError.engineStartFailed(let reason) = error else {
+                return XCTFail("Expected engineStartFailed, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("Cohere Transcribe is not downloaded"))
+            XCTAssertTrue(reason.contains("models download cohere-transcribe"))
+        }
+    }
+
+    func testRequireModelCachedAcceptsCompleteCohereCache() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cohere-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cacheRoot) }
+
+        try FileManager.default.createDirectory(
+            at: cacheRoot.appendingPathComponent("cohere_encoder.mlmodelc", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: cacheRoot.appendingPathComponent("cohere_decoder_cache_external_v2.mlmodelc", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(
+            to: cacheRoot.appendingPathComponent("vocab.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertNoThrow(try CohereTranscribeEngine.requireModelCached(cacheRoot: cacheRoot))
+    }
+
     func testSharedInitializationAwaiterCancellationDoesNotCancelSharedTask() async throws {
         let shared = Task<Void, Error> {
             try await Task.sleep(for: .milliseconds(500))
