@@ -58,10 +58,10 @@ private final class CancellationResponsiveTaskAwaiter: @unchecked Sendable {
 ///   graph on the **first transcribe of every launch (~115 s, not cached)**, so
 ///   we pay it in the background via a launch warm-up; for a resident app that
 ///   is once per session, then every dictation is fast.
-/// - **`.ane`** (`cpuAndNeuralEngine`, default): warm ~1.3–1.6 s, but its
-///   one-time specialization is **cached across launches**
-///   (`com.apple.e5rt.e5bundlecache`) so there is no per-launch stall, and it
-///   leaves the GPU free for the LLM formatter.
+    /// - **`.ane`** (`cpuAndNeuralEngine`, default): warm ~1.3–1.6 s after Core
+    ///   ML preparation. Fresh app processes can still pay a cold preparation
+    ///   cost, but this avoids the GPU path's uncached per-launch specialization
+    ///   and leaves the GPU free for the LLM formatter.
 /// NOTE: most apparent slowness in development is the unoptimized **Debug**
 /// build — the per-step decoder + mel hot path runs ~9× slower than release.
 /// Always judge latency from a release build.
@@ -70,9 +70,8 @@ public actor CohereTranscribeEngine: STTTranscribing {
     /// Core ML compute-unit policy for the Cohere models. See the type doc for
     /// the latency/cold-start tradeoff measured in the Phase-0 spike.
     public enum ComputePolicy: String, CaseIterable, Sendable {
-        /// `cpuAndNeuralEngine` — default. Warm ~1.3–1.6 s, one-time
-        /// specialization cached across launches (e5bundlecache); no
-        /// per-launch stall.
+        /// `cpuAndNeuralEngine` — default. Warm ~1.3–1.6 s after Core ML
+        /// preparation; avoids the GPU path's recurring per-launch specialization.
         case ane
         /// `.all` — warm ~0.4–0.6 s; ~115 s graph specialization on the
         /// first transcribe of every launch (not cached), hidden by launch warm-up.
