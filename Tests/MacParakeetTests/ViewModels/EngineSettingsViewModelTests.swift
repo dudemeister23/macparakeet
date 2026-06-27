@@ -197,7 +197,7 @@ final class EngineSettingsViewModelTests: XCTestCase {
     }
 
     func testConfirmPendingSwitchAllowsCohereWhileModelStatusCheckIsInFlight() {
-        let vm = makeViewModel()
+        let vm = makeViewModel(cohereCached: { true })
         vm.cohereModelStatus = .checking
         vm.requestSpeechEngineSwitchConfirmation(to: .cohere)
 
@@ -207,6 +207,19 @@ final class EngineSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.speechEnginePreference, .cohere)
         XCTAssertEqual(SpeechEnginePreference.current(defaults: defaults), .cohere)
         XCTAssertNil(vm.speechEngineError)
+    }
+
+    func testConfirmPendingSwitchBlocksCohereWhileModelStatusCheckIsInFlightAndCacheMissing() {
+        let vm = makeViewModel(cohereCached: { false })
+        vm.cohereModelStatus = .checking
+        vm.requestSpeechEngineSwitchConfirmation(to: .cohere)
+
+        vm.confirmPendingSpeechEngineSwitch()
+
+        XCTAssertNil(vm.pendingSpeechEngineSwitchConfirmation)
+        XCTAssertEqual(vm.speechEnginePreference, .parakeet)
+        XCTAssertEqual(SpeechEnginePreference.current(defaults: defaults), .parakeet)
+        XCTAssertEqual(vm.speechEngineError, "Download Cohere Transcribe before switching engines.")
     }
 
     func testConfirmPendingSwitchClearsPendingAndRestoresCurrentEngineWhenCohereModelIsMissing() {

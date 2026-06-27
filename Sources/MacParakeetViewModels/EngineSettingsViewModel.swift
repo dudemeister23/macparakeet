@@ -87,8 +87,10 @@ public final class EngineSettingsViewModel {
     }
     private var shouldBlockCohereSwitchForModelStatus: Bool {
         switch cohereModelStatus {
-        case .ready, .notLoaded, .checking:
+        case .ready, .notLoaded:
             return false
+        case .checking:
+            return !cohereModelCached()
         case .unknown, .notDownloaded, .preparing, .repairing, .failed:
             return true
         }
