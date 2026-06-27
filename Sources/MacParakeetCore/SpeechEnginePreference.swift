@@ -99,16 +99,20 @@ public enum SpeechEnginePreference: String, CaseIterable, Codable, Sendable {
         defaults.set(normalized, forKey: cohereDefaultLanguageKey)
     }
 
-    /// Cohere language codes are simple primary subtags ("en", "zh"). Fold any
-    /// BCP-47-ish input down to its lowercased primary subtag; the engine maps
-    /// unknown codes to English.
+    /// Cohere language codes are simple supported primary subtags ("en", "zh").
+    /// Fold any BCP-47-ish input down to its lowercased primary subtag and drop
+    /// unsupported values so manual defaults edits cannot leak stale picker
+    /// state into the runtime.
     public static func normalizeCohereLanguage(_ language: String?) -> String? {
         guard let language else { return nil }
         let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty, trimmed != "auto" else { return nil }
         let primary = trimmed.replacingOccurrences(of: "_", with: "-")
             .split(separator: "-").first.map(String.init) ?? trimmed
-        guard (2...3).contains(primary.count), primary.allSatisfy(\.isLetter) else { return nil }
+        guard primary.count == 2, primary.allSatisfy(\.isLetter) else { return nil }
+        guard CohereTranscribeEngine.supportedLanguages.contains(where: { $0.code == primary }) else {
+            return nil
+        }
         return primary
     }
 

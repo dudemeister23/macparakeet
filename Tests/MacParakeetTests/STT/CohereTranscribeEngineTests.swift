@@ -274,6 +274,8 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertNil(SpeechEnginePreference.normalizeCohereLanguage(""))
         XCTAssertNil(SpeechEnginePreference.normalizeCohereLanguage(nil))
         XCTAssertNil(SpeechEnginePreference.normalizeCohereLanguage("12"))
+        XCTAssertNil(SpeechEnginePreference.normalizeCohereLanguage("eng"))
+        XCTAssertNil(SpeechEnginePreference.normalizeCohereLanguage("xx"))
     }
 
     func testCohereDefaultLanguageRoundTrips() throws {
@@ -281,6 +283,8 @@ final class CohereTranscribeEngineTests: XCTestCase {
         XCTAssertNil(SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults))
         SpeechEnginePreference.saveCohereDefaultLanguage("ja", defaults: defaults)
         XCTAssertEqual(SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults), "ja")
+        defaults.set("eng", forKey: SpeechEnginePreference.cohereDefaultLanguageKey)
+        XCTAssertNil(SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults))
         SpeechEnginePreference.saveCohereDefaultLanguage(nil, defaults: defaults)
         XCTAssertNil(SpeechEnginePreference.cohereDefaultLanguage(defaults: defaults))
     }
