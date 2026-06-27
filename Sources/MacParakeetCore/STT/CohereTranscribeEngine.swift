@@ -451,18 +451,14 @@ public actor CohereTranscribeEngine: STTTranscribing {
         }
 
         // `loadModels` clears `initializationTask` itself (via defer) when it
-        // finishes. Cancellation should stop the heavy load/warm-up task, but the
-        // handle is still owned by that task so concurrent prepare() calls either
-        // coalesce onto the same work or observe a clean retry after cancellation.
+        // finishes. This task is shared by concurrent prepare() callers, so an
+        // individual awaiter cancellation must not cancel shared work for other
+        // waiters. Explicit lifecycle paths such as unload() still cancel it.
         let task = Task { try await loadModels(onProgress: onProgress) }
         initializationTask = task
 
         do {
-            try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                task.cancel()
-            }
+            try await task.value
         } catch {
             throw try Self.mapWarmUpError(error)
         }
