@@ -404,15 +404,13 @@ public actor STTRuntime: STTRuntimeProtocol {
         return engine
     }
 
-    /// Mirrors `ensureNemotronEnglishEngine` for the Cohere engine. The compute
-    /// policy is read once at construction; language is supplied per-call, so an
-    /// existing engine is always reusable.
+    /// Owns the single Cohere engine instance. The compute policy is read once
+    /// at construction; language is supplied per-call, so an existing engine is
+    /// always reusable. Cohere job serialization lives in `STTScheduler`, so
+    /// construction only needs this actor's normal single-threaded mutation.
     private func ensureCohereEngine() throws -> CohereTranscribeEngine {
         if let cohereEngine {
             return cohereEngine
-        }
-        guard activeTranscriptionCount <= 1 else {
-            throw STTError.engineBusy
         }
         let engine = CohereTranscribeEngine(
             computePolicy: CohereTranscribeEngine.ComputePolicy.current(defaults: defaults)

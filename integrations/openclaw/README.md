@@ -35,9 +35,8 @@ macparakeet-cli health --json
 ```
 
 Requires macOS 14.2+ on Apple Silicon. The Homebrew formula installs FFmpeg
-and yt-dlp as runtime dependencies. Parakeet's CoreML cache is managed by
-FluidAudio, Nemotron and Cohere use FluidAudio's CoreML cache, and WhisperKit model
-downloads live under
+and yt-dlp as runtime dependencies. Parakeet, Nemotron, and Cohere CoreML
+model caches are managed by FluidAudio; WhisperKit model downloads live under
 `~/Library/Application Support/MacParakeet/models/stt/whisper/`.
 
 If MacParakeet.app is already installed, the bundled CLI is also available at
