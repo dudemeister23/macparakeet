@@ -2606,6 +2606,11 @@ struct SettingsView: View {
     /// cannot interrupt a recording — mirroring the `SparkleUpdateGuard` rule.
     private func relaunchToApplyComputePolicy() {
         guard !viewModel.isMeetingRecordingActive else { return }
+        // Force the persisted policy to flush before the replacement instance
+        // boots and reads `ComputePolicy.current()`. cfprefsd normally
+        // coordinates this across processes, but flushing here removes any
+        // ordering doubt so the fresh instance can't load a stale value.
+        UserDefaults.standard.synchronize()
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(
