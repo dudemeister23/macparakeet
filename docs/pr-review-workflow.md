@@ -53,16 +53,27 @@ trust.
    review on push. They re-review on new commits; if one goes quiet, re-trigger
    it (`/gemini review`, or re-request the reviewer) — and watch for it landing
    rather than assuming silence means approval.
-4. **Run fresh-eye agent review in parallel** on the exact diff — independent
+4. **Run local Greptile CLI review** from the PR worktree after the relevant
+   changes are committed:
+
+   ```bash
+   scripts/dev/greptile_review.sh origin/main
+   ```
+
+   This wraps `greptile review -b <base> --agent --no-color` so the output
+   is easy for agents to read. Install/login once with `npm i -g greptile`,
+   `greptile login`, and confirm with `greptile whoami`. Greptile CLI reviews
+   committed branch changes only; uncommitted changes are ignored.
+5. **Run fresh-eye agent review in parallel** on the exact diff — independent
    of the bots. Pick lenses by what the diff touches (see "Agent review").
-5. **Drive to LGTM** — address every *valid* finding (with judgment, next
+6. **Drive to LGTM** — address every *valid* finding (with judgment, next
    section), re-push, let reviewers re-review. Greptile's confidence score is
    the headline bar (target **5/5**); treat all the bots' inline comments —
    Greptile, Gemini, Copilot — as input, not orders.
-6. **Converge.** Loop until findings are trivial/duplicative (the readiness
+7. **Converge.** Loop until findings are trivial/duplicative (the readiness
    signal). Reviewers contradicting each other or themselves = you're done
    deciding, not them.
-7. **Merge** into `main` with a clean message. Delete the branch.
+8. **Merge** into `main` with a clean message. Delete the branch.
 
 ## Addressing review comments: judgment, not obedience
 
@@ -120,6 +131,7 @@ Write it for a smart reader who wasn't in the room.
 - [ ] Branch off `origin/main`; real PR open
 - [ ] `swift test` green; build clean (Swift 6 language mode)
 - [ ] Tests cover the new behavior *and* its failure modes
+- [ ] Local Greptile CLI review run from the PR worktree on committed changes
 - [ ] Automated review at LGTM (Greptile target 5/5); every inline comment
       resolved or explicitly declined with reasoning
 - [ ] Fresh-eye agent pass(es) done; findings converged to trivial

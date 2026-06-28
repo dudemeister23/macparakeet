@@ -34,6 +34,7 @@ swift test --filter TextProcessingPipelineTests
 scripts/dev/check.sh [TestFilter]
 scripts/dev/format.sh
 scripts/dev/ci_local.sh
+scripts/dev/greptile_review.sh [BaseBranch]
 scripts/dev/run_app.sh
 swift run macparakeet-cli --help
 swift run macparakeet-cli health
@@ -108,7 +109,9 @@ for old references only; do not add new REQ IDs as part of normal work.
 Use [`docs/pr-review-workflow.md`](./docs/pr-review-workflow.md) for substantial
 changes. Scale review to risk: trivial edits can go straight in; small contained
 fixes need focused verification; substantial changes benefit from branch-first
-PRs, CI, and independent review until findings converge.
+PRs, CI, local Greptile CLI review, and independent review until findings
+converge. Greptile CLI reviews committed branch changes only; uncommitted
+changes are ignored, so run it from the clean worktree/branch that owns the PR.
 
 Commit messages should help a future reader understand the change. The rich
 format in [`docs/commit-guidelines.md`](./docs/commit-guidelines.md) is a tool

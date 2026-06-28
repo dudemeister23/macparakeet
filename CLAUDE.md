@@ -83,7 +83,10 @@ to risk:
 - Trivial: direct commit is fine.
 - Small: focused tests and one fresh-eye pass are usually enough.
 - Substantial: branch from `origin/main`, open a PR, run CI, use independent
-  review, and converge on findings rather than obeying every model suggestion.
+  review, run local Greptile CLI review with
+  `scripts/dev/greptile_review.sh origin/main`, and converge on findings rather
+  than obeying every model suggestion. Greptile CLI ignores uncommitted changes,
+  so use a clean PR worktree with committed changes before treating it as signal.
 
 ### Commit Messages
 
